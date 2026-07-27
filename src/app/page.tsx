@@ -1,8 +1,20 @@
+'use client';
+
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Church } from 'lucide-react';
+import { Church, AlertTriangle } from 'lucide-react';
+import { useDevMode } from '@/contexts/dev-mode-context';
 
 export default function Home() {
+  const router = useRouter();
+  const { devMode, toggleDevMode } = useDevMode();
+
+  const handleDevMode = () => {
+    if (!devMode) toggleDevMode();
+    router.push('/schedule');
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <nav className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
@@ -54,6 +66,17 @@ export default function Home() {
                   Sign In to Continue
                 </Link>
               </Button>
+              {process.env.NODE_ENV === 'development' && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="px-6 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+                  onClick={handleDevMode}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Dev Mode
+                </Button>
+              )}
             </div>
           </div>
         </div>
