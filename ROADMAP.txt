@@ -1,0 +1,520 @@
+
+Worship Team Scheduler SaaS
+Overview
+The Worship Team Scheduler is a web-based SaaS platform that automatically creates, validates, and manages church ministry schedules while respecting ministry rules, member availability, fairness, and role assignments.
+Instead of manually checking spreadsheets, ministry leaders simply enter member availability, scheduling rules, and service dates. The system automatically detects conflicts, suggests replacements, balances workloads, and generates printable schedules.
+
+Core Objective
+Generate valid worship schedules while ensuring:
+No unavailable member is scheduled.
+Workloads are fairly distributed.
+Ministry rules are enforced automatically.
+Leaders spend seconds instead of hours creating schedules.
+
+Ministry Structure
+Team
+Worship Leaders
+Responsible for leading worship.
+Example:
+Heidi
+Marlyn
+Shael
+Feng (Tapeng)
+Princess
+Dhon
+Sam (Only to be on special occasions usually backup)
+
+Back-up Singers
+Supports the worship leader.
+Examples
+Beng
+Chelzy
+Maricar
+Sam
+Heidi
+Princess
+Shael
+Feng
+A person may belong to multiple roles.
+
+Devotion
+Linear assignment.
+ Beng - Kai - Dhon - Sam - Heidi - Maricar- Princess - Shael - Mat - Lom - Ivan - Zedrick - Sam - Melanie - Kass - Caleb M. Pia - Maryln - Simone - Caleb O. 
+You may choose 4 or 5 names it doesnt have to be random names depends on their set schedule. After choosing 4-5 names. Set it that aligns to their week set schedules Ex.
+Ex.
+Simone(Plays on Week 1) - Kass(Plays on week 2) - Caleb M.(Any Sched) - Marlyn(Sings on week 4) etc.
+
+
+
+Instrumentalist
+Plays the Instruments.
+Piano - Kass and Chelzy (If both unavailable, Put Zedrick)
+Guitar 1  - Zedrick, Ivan, Pia
+Guitar 2 - Kai, Pia
+Drums - Simone
+Bass - Matt, Caleb O., Dhon 
+It is encouraged to have atleast 2 guitars every week but if not guitar 1 only. Each person has to be playing 1 instrument per week
+
+Member Profile
+Every member stores:
+ID
+Name
+Nickname
+Gender
+
+Roles
+    Worship Leader
+    Singer
+    Instrumentalist
+    Devotion
+    Tech
+
+Status
+    Active
+    Inactive
+
+Maximum Assignments Per Month
+
+Preferred Roles
+
+Unavailable Weeks
+
+Unavailable Dates
+
+Notes
+
+Priority Score
+
+Last Scheduled Date
+
+Total Assignments
+
+Church
+
+Department
+
+Example
+Name:
+Shael
+
+Roles:
+Leader
+Singer
+
+Unavailable:
+Week 1
+Week 2
+Week 4
+
+Maximum Monthly Assignments:
+3
+
+Status:
+Active
+
+
+Schedule Structure
+Each service contains
+Date
+
+Week Number
+
+Service Name
+
+Leader
+
+Backup Singers
+
+Instrumentalist
+
+Devotion
+
+Remarks
+
+Status
+
+Example
+May 24
+
+Week 4
+
+Leader
+Feng
+
+Backups
+
+Heidi
+
+Beng
+
+Chelzy
+
+Devotion
+
+Zedrick
+
+
+Availability System
+Members specify unavailable weeks.
+Example
+Shael
+
+Unavailable
+
+Week 1
+
+Week 2
+
+Week 4
+
+or
+Unavailable Dates
+May 17
+
+June 7
+
+July 19
+
+The scheduler converts dates into week numbers automatically.
+
+Scheduling Rules
+Rule 1
+Never assign unavailable members.
+Violation
+Shael unavailable Week 1
+
+Scheduled Week 1
+
+❌ Conflict
+
+
+Rule 2
+Maximum Monthly Assignments
+Every member has a monthly limit.
+Default
+Maximum
+
+3
+
+Example
+Sam
+
+Leader
+Week 1
+
+Backup
+Week 2
+
+Backup
+Week 4
+
+Leader
+Week 5
+
+❌ Exceeded
+
+
+Rule 3
+No duplicate role in same service
+Example
+Leader
+
+Sam
+
+Backup
+
+Sam
+
+❌ Invalid
+
+
+Rule 4
+Required backup count
+Every service requires
+Minimum
+3
+
+Maximum
+3
+
+Can be configurable.
+
+Rule 5
+Exactly one Worship Leader
+Every service
+Leader
+
+1
+
+
+Rule 6
+Active members only
+Inactive members cannot be assigned.
+
+Rule 7
+Role validation
+Only members with Leader role
+may become Worship Leader.
+
+Rule 8
+Optional Fairness
+Try to distribute assignments evenly.
+Instead of
+Sam
+3
+
+Marlyn
+0
+
+Prefer
+Sam
+2
+
+Marlyn
+1
+
+
+Rule 9
+Cooldown Rule (Optional)
+Avoid scheduling the same person every consecutive week.
+Example
+Week 1
+
+Sam
+
+Week 2
+
+Sam
+
+Week 3
+
+Sam
+
+⚠ Warning
+
+
+Rule 10
+Leader Rotation
+Prefer rotating leaders.
+
+Validation Engine
+Every schedule receives validation.
+Example
+May 24
+
+Leader
+Feng
+
+Backup
+
+Maricar
+
+Beng
+
+Heidi
+
+Validation
+Maricar
+
+Unavailable Week 4
+
+❌ Conflict
+
+
+Conflict Types
+Availability Conflict
+Member unavailable.
+
+
+Assignment Limit
+Exceeded monthly maximum.
+
+
+Duplicate Assignment
+Leader and Backup simultaneously.
+
+
+Missing Leader
+No worship leader assigned.
+
+
+Too Few Backups
+Needs 3 singers.
+
+
+Invalid Role
+Singer assigned as Leader.
+
+
+Smart Replacement Engine
+When conflict occurs
+System suggests replacements.
+Criteria
+Available
+Correct Role
+Below assignment limit
+Not already scheduled that day
+Lowest assignment count first
+Example
+Maricar unavailable
+
+Suggestions
+
+Chelzy
+
+Heidi
+
+Princess
+
+Ranked by fairness.
+
+Monthly Analytics
+Automatically generated.
+Example
+Assignments
+
+Heidi
+2
+
+Sam
+3
+
+Princess
+2
+
+Beng
+3
+
+Chelzy
+1
+
+Maricar
+2
+
+
+Availability Heatmap
+Week
+
+1
+
+2
+
+3
+
+4
+
+5
+
+Unavailable Members
+
+
+Workload Distribution
+Visual chart showing
+Most assigned
+Least assigned
+Balanced score
+
+Dashboard
+Displays
+Upcoming Services
+Today's Team
+Pending Conflicts
+Members on Leave
+Assignment Statistics
+Monthly Calendar (Google)
+Recent Changes
+
+User Roles
+Administrator
+Manage churches
+Manage departments
+Manage users
+Configure rules
+Generate schedules
+Export schedules
+
+
+Member
+View schedule
+Submit availability
+Accept assignments
+Receive notifications
+
+Notifications
+Automatic reminders
+You are scheduled this Sunday.
+
+Role
+
+Backup Singer
+
+Date
+
+May 24
+
+Conflict alerts
+You marked yourself unavailable
+
+but were assigned.
+
+Review required.
+
+
+
+
+
+
+
+Export
+PDF
+Image (Strongly)
+Printable A4
+Church announcement format
+
+Audit Trail
+Every modification records
+Who edited
+
+What changed
+
+Old value
+
+New value
+
+Date
+
+Time
+
+
+AI Features Not Right Now
+AI Schedule Validator
+Detects every conflict.
+
+AI Auto Scheduler
+Generates a complete schedule from scratch while satisfying all constraints.
+
+AI Replacement Suggestions
+Suggests the best replacement based on:
+Availability
+Role eligibility
+Monthly assignment count
+Fair workload distribution
+Optional preferences (e.g., avoid consecutive weeks)
+
+AI Fairness Analyzer
+Reports:
+Members who are overused
+Members who are underutilized
+Overall balance score for the month's schedule
+
+Future Expansion
+The architecture should be generic enough to support additional ministries beyond singers, such as:
+Instrumentalists (Keyboard, Guitar, Bass, Drums)
+Multimedia / Projection
+Livestream
+Sound System
+Ushers
+Prayer Team
+Bible Readers
+Each ministry can define its own roles, assignment limits, and validation rules while using the same scheduling engine. This makes the SaaS applicable to churches of different sizes without redesigning the core system.
+
