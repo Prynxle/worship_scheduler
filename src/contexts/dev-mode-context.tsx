@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useSyncExternalStore, ReactNode } from 'react';
 
 interface DevModeContextType {
   devMode: boolean;
@@ -16,17 +16,19 @@ export function useDevMode() {
   return useContext(DevModeContext);
 }
 
-export function DevModeProvider({ children }: { children: ReactNode }) {
-  const [devMode, setDevMode] = useState(false);
-  const [mounted, setMounted] = useState(false);
+const emptySubscribe = () => () => {};
 
-  useEffect(() => {
-    setMounted(true);
-    const stored = localStorage.getItem('devMode');
-    if (stored === 'true') {
-      setDevMode(true);
-    }
-  }, []);
+export function DevModeProvider({ children }: { children: ReactNode }) {
+  const [devMode, setDevMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('devMode') === 'true';
+  });
+
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
 
   const toggleDevMode = () => {
     const next = !devMode;

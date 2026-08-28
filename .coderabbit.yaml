@@ -1,0 +1,20 @@
+language: en-US
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "src/lib/scheduling/**"
+      instructions: |
+        Adhere strictly to the scheduling rules in AGENTS.md: never assign
+        unavailable or inactive members; respect monthly assignment limits (default 3);
+        no duplicate roles per service; enforce backup minimum/maximum (default exactly 3);
+        exactly one Worship Leader per service; only Leader-role members may lead.
+        Classify findings as blocking conflict, warning, or suggestion.
+chat:
+  auto_reply: true
