@@ -1,0 +1,25 @@
+
+> worship-scheduler@0.1.0 dev
+> next dev -p 3100
+
+▲ Next.js 16.2.12 (Turbopack)
+- Local:         http://localhost:3100
+- Network:       http://192.168.1.6:3100
+- Environments: .env.local
+✓ Ready in 719ms
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\zedri\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\zedri\OneDrive\Documents\JOHIA APP\worship-scheduler\package-lock.json
+
+⨯ Another next dev server is already running.
+
+- Local:        http://localhost:3000
+- PID:          3040
+- Dir:          C:\Users\zedri\OneDrive\Documents\JOHIA APP\worship-scheduler
+- Log:          .next\dev\logs\next-development.log
+
+Run taskkill /PID 3040 /F to stop it.
+[?25h

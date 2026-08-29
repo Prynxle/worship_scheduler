@@ -1,0 +1,74 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "orchestrator",
+  "subagent_depth": 1,
+  "agent": {
+    "orchestrator": {
+      "description": "Coordinates Planner, Decision, Builder, and QA agents for Johia Scheduler work.",
+      "mode": "primary",
+      "prompt": "{file:./zed/agents/orchestrator.md}",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "planner": "allow",
+          "decision": "allow",
+          "builder": "allow",
+          "qa": "allow"
+        },
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "planner": {
+      "description": "Analyzes Johia Scheduler requests and produces implementation plans.",
+      "mode": "subagent",
+      "hidden": true,
+      "prompt": "{file:./zed/agents/planner.md}",
+      "permission": {
+        "edit": "deny",
+        "task": "deny",
+        "bash": "allow"
+      }
+    },
+    "decision": {
+      "description": "Evaluates Johia Scheduler architecture, security, data integrity, and technical decisions.",
+      "mode": "subagent",
+      "hidden": true,
+      "prompt": "{file:./zed/agents/decision.md}",
+      "permission": {
+        "edit": "deny",
+        "task": "deny",
+        "bash": "allow"
+      }
+    },
+    "builder": {
+      "description": "Implements an approved Johia Scheduler Planner handoff.",
+      "mode": "subagent",
+      "hidden": true,
+      "prompt": "{file:./zed/agents/builder.md}",
+      "permission": {
+        "edit": "allow",
+        "task": "deny",
+        "bash": "allow"
+      }
+    },
+    "qa": {
+      "description": "Independently reviews Johia Scheduler changes and verification evidence.",
+      "mode": "subagent",
+      "hidden": true,
+      "prompt": "{file:./zed/agents/QA.md}",
+      "permission": {
+        "edit": "deny",
+        "task": "deny",
+        "bash": "allow"
+      }
+    }
+  },
+  "mcp": {
+    "Supabase": {
+      "type": "remote",
+      "url": "https://mcp.supabase.com/mcp?project_ref=ntwhucspiqvuzazzsgax",
+      "enabled": true
+    }
+  }
+}

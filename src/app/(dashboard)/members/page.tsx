@@ -166,10 +166,11 @@ export default function MembersPage() {
 
         <TabsContent value={activeTab} className="mt-6">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredMembers.map((member) => (
+            {filteredMembers.map((member, i) => (
               <MemberCard
                 key={member.id}
                 member={member}
+                index={i}
                 onEdit={() => console.log('Edit', member.id)}
                 onView={() => console.log('View', member.id)}
               />
