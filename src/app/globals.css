@@ -10,6 +10,7 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  --font-display: var(--font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -146,5 +147,177 @@
   }
   .hover-surface:hover {
     background-color: oklch(1 0 0 / 0.04);
+  }
+
+  /* Glass sheen: subtle top-left highlight for glass-morphism feel */
+  .glass-sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      135deg,
+      oklch(1 0 0 / 0.04) 0%,
+      oklch(1 0 0 / 0) 60%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Icon chip: pill container for stat/detail icons (bg set by Tailwind bg-* utility) */
+  .icon-chip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  /* Layered shadow: stacked depth for cards and surfaces */
+  .shadow-layered {
+    box-shadow:
+      0 1px 2px oklch(0 0 0 / 0.06),
+      0 4px 8px oklch(0 0 0 / 0.08),
+      0 12px 24px oklch(0 0 0 / 0.12);
+  }
+
+  /* Glow halo: radial glow behind elements */
+  .glow-halo {
+    position: relative;
+  }
+  .glow-halo::after {
+    content: "";
+    position: absolute;
+    inset: -1rem;
+    background: radial-gradient(
+      circle at center,
+      oklch(0.72 0.030 65 / 0.08) 0%,
+      transparent 70%
+    );
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Sidebar nav stagger entrance animation */
+  @keyframes slide-in-left {
+    from {
+      opacity: 0;
+      transform: translateX(-0.75rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  .animate-slide-in-left {
+    animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Card entrance fade-up */
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-fade-up {
+    animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+}
+
+/* ────────────────────────────────────────────────
+   Landing page: "Light of the Cross"
+   Tokens, keyframes, and reduced-motion guards.
+   Append-only block; preserves prior dirty edits.
+   ──────────────────────────────────────────────── */
+@theme {
+  --color-landing-bg: oklch(0.10 0.006 80);
+  --color-landing-gold: oklch(0.70 0.14 65);
+  --color-landing-gold-soft: oklch(0.78 0.10 70);
+  --color-landing-ivory: oklch(0.92 0.02 90);
+  --color-landing-wood: oklch(0.33 0.05 55);
+  --color-landing-wood-deep: oklch(0.23 0.04 50);
+  --color-landing-wood-light: oklch(0.43 0.06 58);
+}
+
+/* Decorative landing animations: only run when motion is allowed */
+@media (prefers-reduced-motion: no-preference) {
+  /* Divine glow core: slow breathing halo behind the cross */
+  @keyframes landing-glow-pulse {
+    0%,
+    100% {
+      opacity: 0.75;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .animate-landing-glow-pulse {
+    animation: landing-glow-pulse var(--dur, 9s) ease-in-out infinite;
+  }
+
+  /* Divine light rays: irregular flicker, per-ray duration/delay via --dur/--delay */
+  @keyframes landing-ray-flicker {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    18% {
+      opacity: 0.16;
+    }
+    42% {
+      opacity: 0.55;
+    }
+    60% {
+      opacity: 0.24;
+    }
+    78% {
+      opacity: 0.42;
+    }
+  }
+  .animate-landing-ray-flicker {
+    animation: landing-ray-flicker var(--dur, 7s) var(--delay, 0s) ease-in-out infinite;
+  }
+
+  /* Rising embers/particles: --drift-x horizontal drift, --dur/--delay per particle */
+  @keyframes landing-particle-rise {
+    0% {
+      transform: translate3d(0, 0, 0);
+      opacity: 0;
+    }
+    10% {
+      opacity: var(--particle-opacity, 0.6);
+    }
+    85% {
+      opacity: var(--particle-opacity, 0.6);
+    }
+    100% {
+      transform: translate3d(var(--drift-x, 0px), -150px, 0);
+      opacity: 0;
+    }
+  }
+  .animate-landing-particle-rise {
+    animation: landing-particle-rise var(--dur, 10s) var(--delay, 0s) linear infinite;
+  }
+}
+
+/* Reduced motion: zero decorative durations, disable entrance animations */
+@media (prefers-reduced-motion: reduce) {
+  .animate-landing-glow-pulse,
+  .animate-landing-ray-flicker,
+  .animate-landing-particle-rise {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+  .animate-fade-up,
+  .animate-slide-in-left {
+    animation: none;
   }
 }

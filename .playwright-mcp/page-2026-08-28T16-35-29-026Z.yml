@@ -1,0 +1,36 @@
+- generic [active] [ref=f31e1]:
+  - button "Open Next.js Dev Tools" [ref=f31e74] [cursor=pointer]
+  - alert [ref=f31e78]
+  - generic [ref=f31e79]:
+    - banner [ref=f31e80]:
+      - generic [ref=f31e81]:
+        - link "JOHIA Bankers Ministry Scheduling" [ref=f31e82] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f31e88]:
+            - generic [ref=f31e89]: JOHIA Bankers
+            - paragraph [ref=f31e90]: Ministry Scheduling
+        - navigation [ref=f31e91]:
+          - link "Home" [ref=f31e92] [cursor=pointer]:
+            - /url: /
+          - link "Sign In" [ref=f31e93] [cursor=pointer]:
+            - /url: /login
+          - link "Register" [ref=f31e94] [cursor=pointer]:
+            - /url: /register
+    - main [ref=f31e95]:
+      - generic [ref=f31e97]:
+        - generic [ref=f31e98]: The Cross of Christ
+        - heading "The Cross of Christ" [level=1] [ref=f31e104]: The Crossof Christ
+        - paragraph [ref=f31e105]: Where grace meets us.
+        - paragraph [ref=f31e106]: A community gathered in faith, worship, and the hope of Christ.
+        - link "Watch Service" [ref=f31e108] [cursor=pointer]:
+          - /url: /login
+          - text: Watch Service
+          - generic [ref=f31e109]: →
+    - contentinfo [ref=f31e132]:
+      - generic [ref=f31e133]:
+        - generic [ref=f31e134]: JOHIA Bankers
+        - generic [ref=f31e141]:
+          - generic [ref=f31e142]: Our Mission
+          - generic [ref=f31e143]: Worship
+          - generic [ref=f31e144]: Faith
+        - paragraph [ref=f31e145]: © 2026 JOHIA Bankers. All rights reserved.

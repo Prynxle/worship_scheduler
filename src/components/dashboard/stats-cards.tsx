@@ -1,6 +1,7 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TiltCard } from '@/components/ui/tilt-card';
 import { Users, Calendar, AlertTriangle, CheckCircle } from 'lucide-react';
 
 interface StatsCardsProps {
@@ -53,21 +54,28 @@ export function StatsCards({
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => (
-        <Card key={stat.title} className="card-glow cursor-default">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {stat.title}
-            </CardTitle>
-            <div className={`rounded-lg p-2 ${stat.bgColor}`}>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-            <p className="text-xs text-muted-foreground mt-0.5">{stat.description}</p>
-          </CardContent>
-        </Card>
+      {stats.map((stat, index) => (
+        <TiltCard
+          key={stat.title}
+          tilt={5}
+          glare={true}
+          delay={index * 0.08}
+        >
+          <Card className="card-glow cursor-default w-full">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {stat.title}
+              </CardTitle>
+              <div className={`icon-chip ${stat.bgColor}`}>
+                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+              <p className="text-xs text-muted-foreground mt-0.5">{stat.description}</p>
+            </CardContent>
+          </Card>
+        </TiltCard>
       ))}
     </div>
   );
