@@ -75,7 +75,7 @@
       "url": "https://21st.dev/api/mcp",
       "enabled": true,
       "headers": {
-        "x-api-key": "***REMOVED***"
+        "x-api-key": "${TWENTY_FIRST_API_KEY}"
       }
     },
     "Context7": {
