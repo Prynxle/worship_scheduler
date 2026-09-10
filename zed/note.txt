@@ -1,0 +1,27 @@
+21st Dev 
+
+LANDING PAGE
+
+https://21st.dev/@lovesickfromthe6ix/components/horizon-hero-section
+ - MAIN PAGE
+
+https://21st.dev/@shivendra9795kumar/components/halide-topo-hero
+
+HOME PAGE
+
+https://21st.dev/@arunjdass/components/dashboard-sidebar 
+ - DASHBOARD
+
+npx @21st-dev/cli@latest template add shadcn-dashboard-landing
+- FULL DASHBOARD
+
+
+MAINTENANCE DIALOGUE/Page
+https://21st.dev/@cnippet-dev/components/incident-status-timeline
+
+
+
+
+COLOR THEME
+
+https://21st.dev/@serafimcloud/themes/zen-linen
