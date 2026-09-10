@@ -69,6 +69,19 @@
       "type": "remote",
       "url": "https://mcp.supabase.com/mcp?project_ref=ntwhucspiqvuzazzsgax",
       "enabled": true
+    },
+    "21st": {
+      "type": "remote",
+      "url": "https://21st.dev/api/mcp",
+      "enabled": true,
+      "headers": {
+        "x-api-key": "${TWENTY_FIRST_API_KEY}"
+      }
+    },
+    "Context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
     }
   }
 }
