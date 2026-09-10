@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SchedulingEngine } from '@/lib/scheduling/engine';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
-import { ReplacementEngine } from '@/lib/scheduling/replacement';
-import { FairnessCalculator } from '@/lib/scheduling/fairness';
-import { ScheduleContext, ValidationResult, ReplacementSuggestion, FairnessReport } from '@/lib/types/scheduling';
-import { Member, Role, Service, ScheduleAssignment } from '@/lib/types/database';
+import { ScheduleContext } from '@/lib/types/scheduling';
+import { Member } from '@/lib/types/database';
 
 const mockMembers: Member[] = [
   {
@@ -73,7 +71,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { month, year, ministry_id, week_numbers } = body;
+  const { month, year, week_numbers } = body;
 
   const context: ScheduleContext = {
     service: {
