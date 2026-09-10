@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { full_name, nickname, gender, phone, email, roles, skills } = body;
+  const { full_name, nickname, gender, phone, roles, skills } = body;
 
   const newMember: Member = {
     id: String(mockMembers.length + 1),

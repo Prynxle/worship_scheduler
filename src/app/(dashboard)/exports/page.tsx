@@ -4,7 +4,7 @@ import { ExportOptions } from '@/components/exports/export-options';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Calendar, FileText, Image } from 'lucide-react';
+import { Download, Calendar, FileText, Image as ImageIcon } from 'lucide-react';
 
 export default function ExportsPage() {
   return (
@@ -104,7 +104,7 @@ export default function ExportsPage() {
                     {exportItem.type === 'PDF' ? (
                       <FileText className="h-5 w-5 text-destructive" />
                     ) : (
-                      <Image className="h-5 w-5 text-accent" />
+                      <ImageIcon className="h-5 w-5 text-accent" />
                     )}
                   </div>
                   <div>
