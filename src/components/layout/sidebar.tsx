@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { motion, MotionConfig } from 'motion/react';
 import {
   BarChart3,
@@ -10,12 +11,15 @@ import {
   Clock3,
   Download,
   LayoutDashboard,
+  LogOut,
   Music2,
   Settings2,
   UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DevModeToggle } from '@/components/dev/dev-mode-toggle';
+import { Button } from '@/components/ui/button';
+import { getSupabaseClient } from '@/lib/supabase/client';
 
 const navigationGroups = [
   {
@@ -39,6 +43,27 @@ const navigationGroups = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await getSupabaseClient().auth.signOut({ scope: 'local' });
+    } catch {
+      // Local-only sign out: ignore network errors and clear the session anyway.
+    } finally {
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('sb-')) {
+          localStorage.removeItem(key);
+        }
+      }
+      router.push('/login');
+      router.refresh();
+      setSigningOut(false);
+    }
+  }
 
   return (
     <MotionConfig reducedMotion="user">
@@ -101,6 +126,16 @@ export function Sidebar() {
               <p className="text-xs text-muted-foreground">Administrator</p>
             </div>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={handleSignOut}
+            disabled={signingOut}
+          >
+            <LogOut className="size-[18px]" />
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </Button>
         </div>
       </aside>
     </MotionConfig>
