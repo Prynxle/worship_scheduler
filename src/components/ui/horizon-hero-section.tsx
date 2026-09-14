@@ -577,7 +577,7 @@ export const Component = () => {
     <div ref={containerRef} className="hero-container cosmos-style">
       <canvas ref={canvasRef} className="hero-canvas" />
       
-      <Link className="sign-in-link" href="/dashboard">Sign In</Link>
+      <Link className="sign-in-link" href="/login">Sign In</Link>
 
       {/* Main content */}
       <div className="scroll-sections">
