@@ -1,0 +1,207 @@
+- generic [active] [ref=f8e1]:
+  - button "Open Next.js Dev Tools" [ref=f8e7] [cursor=pointer]
+  - alert [ref=f8e11]
+  - generic [ref=f8e12]:
+    - complementary [ref=f8e14]:
+      - link "JOHIA Bankers Ministry operations" [ref=f8e15] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f8e23]:
+          - generic [ref=f8e24]: JOHIA Bankers
+          - generic [ref=f8e25]: Ministry operations
+      - navigation "Main navigation" [ref=f8e26]:
+        - generic [ref=f8e27]:
+          - paragraph [ref=f8e28]: Workspace
+          - link "Overview" [ref=f8e30] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Schedule" [ref=f8e38] [cursor=pointer]:
+            - /url: /schedule
+          - link "Members" [ref=f8e44] [cursor=pointer]:
+            - /url: /members
+          - link "Availability" [ref=f8e51] [cursor=pointer]:
+            - /url: /availability
+          - link "Ministries" [ref=f8e57] [cursor=pointer]:
+            - /url: /ministries
+        - generic [ref=f8e62]:
+          - paragraph [ref=f8e63]: Insights
+          - link "Analytics" [ref=f8e65] [cursor=pointer]:
+            - /url: /analytics
+          - link "Exports" [ref=f8e70] [cursor=pointer]:
+            - /url: /exports
+      - generic [ref=f8e75]:
+        - link "Settings" [ref=f8e76] [cursor=pointer]:
+          - /url: /settings
+        - button "Dev Mode" [ref=f8e80]
+        - generic [ref=f8e82]:
+          - generic [ref=f8e83]: JS
+          - generic [ref=f8e84]:
+            - paragraph [ref=f8e85]: John Smith
+            - paragraph [ref=f8e86]: Administrator
+        - button "Sign out" [ref=f8e87]
+    - generic [ref=f8e88]:
+      - banner [ref=f8e89]:
+        - generic [ref=f8e91]:
+          - generic [ref=f8e92]:
+            - generic [ref=f8e93]: Workspace
+            - generic [ref=f8e96]: schedule
+          - heading "Worship Scheduler" [level=1] [ref=f8e97]
+          - paragraph [ref=f8e98]: Manage your ministry schedules
+        - generic [ref=f8e99]:
+          - generic [ref=f8e100]:
+            - textbox "Search workspace" [ref=f8e101]
+            - generic: ⌘ K
+          - button "Notifications" [ref=f8e102]
+          - generic [ref=f8e105]:
+            - paragraph [ref=f8e106]: Sunday, August 2
+            - paragraph [ref=f8e107]: Planning season
+      - main [ref=f8e108]:
+        - generic [ref=f8e110]:
+          - generic [ref=f8e111]:
+            - generic [ref=f8e112]:
+              - heading "Schedule" [level=2] [ref=f8e113]
+              - paragraph [ref=f8e114]: Manage worship service schedules
+            - button "Generate Schedule" [ref=f8e115]
+          - generic [ref=f8e116]:
+            - textbox "Search schedules..." [ref=f8e121]
+            - button "Filter" [ref=f8e122]
+            - button "August 2026" [ref=f8e123]
+          - generic [ref=f8e124]:
+            - tablist [ref=f8e125]:
+              - tab "All" [selected] [ref=f8e126]
+              - tab "Draft" [ref=f8e127]
+              - tab "Validated" [ref=f8e128]
+              - tab "Published" [ref=f8e129]
+            - tabpanel "All" [ref=f8e130]:
+              - generic [ref=f8e131]:
+                - generic [ref=f8e135]:
+                  - generic [ref=f8e137]:
+                    - generic [ref=f8e138]:
+                      - generic [ref=f8e139]: "1"
+                      - generic [ref=f8e141]:
+                        - generic [ref=f8e142]: Week 1
+                        - paragraph [ref=f8e143]: Monday, August 3
+                    - generic [ref=f8e144]:
+                      - generic [ref=f8e145]: published
+                      - button [ref=f8e146]
+                  - generic [ref=f8e148]:
+                    - generic [ref=f8e149]:
+                      - generic [ref=f8e150]: H
+                      - generic [ref=f8e154]:
+                        - generic [ref=f8e155]: Worship Leader
+                        - generic [ref=f8e156]: Heidi
+                    - generic [ref=f8e157]:
+                      - generic [ref=f8e158]: Backup Singers
+                      - generic [ref=f8e159]:
+                        - generic [ref=f8e160]: Beng
+                        - generic [ref=f8e161]: Chelzy
+                        - generic [ref=f8e162]: Maricar
+                    - generic [ref=f8e163]:
+                      - generic [ref=f8e164]: Instrumentalists
+                      - generic [ref=f8e165]:
+                        - generic [ref=f8e166]: "Piano: Kass"
+                        - generic [ref=f8e167]: "Guitar 1: Zedrick"
+                        - generic [ref=f8e168]: "Drums: Simone"
+                        - generic [ref=f8e169]: "Bass: Matt"
+                    - generic [ref=f8e170]:
+                      - generic [ref=f8e171]: Devotion
+                      - generic [ref=f8e172]: Simone
+                - generic [ref=f8e176]:
+                  - generic [ref=f8e178]:
+                    - generic [ref=f8e179]:
+                      - generic [ref=f8e180]: "2"
+                      - generic [ref=f8e182]:
+                        - generic [ref=f8e183]: Week 2
+                        - paragraph [ref=f8e184]: Monday, August 10
+                    - generic [ref=f8e185]:
+                      - generic [ref=f8e186]: validated
+                      - button [ref=f8e187]
+                  - generic [ref=f8e189]:
+                    - generic [ref=f8e190]:
+                      - generic [ref=f8e191]: F
+                      - generic [ref=f8e195]:
+                        - generic [ref=f8e196]: Worship Leader
+                        - generic [ref=f8e197]: Feng
+                    - generic [ref=f8e198]:
+                      - generic [ref=f8e199]: Backup Singers
+                      - generic [ref=f8e200]:
+                        - generic [ref=f8e201]: Heidi
+                        - generic [ref=f8e202]: Beng
+                        - generic [ref=f8e203]: Shael
+                    - generic [ref=f8e204]:
+                      - generic [ref=f8e205]: Instrumentalists
+                      - generic [ref=f8e206]:
+                        - generic [ref=f8e207]: "Piano: Chelzy"
+                        - generic [ref=f8e208]: "Guitar 1: Ivan"
+                        - generic [ref=f8e209]: "Guitar 2: Kai"
+                        - generic [ref=f8e210]: "Drums: Simone"
+                        - generic [ref=f8e211]: "Bass: Caleb O."
+                    - generic [ref=f8e212]:
+                      - generic [ref=f8e213]: Devotion
+                      - generic [ref=f8e214]: Kass
+                    - generic [ref=f8e215]: 1 conflict(s) found
+                - generic [ref=f8e222]:
+                  - generic [ref=f8e224]:
+                    - generic [ref=f8e225]:
+                      - generic [ref=f8e226]: "3"
+                      - generic [ref=f8e228]:
+                        - generic [ref=f8e229]: Week 3
+                        - paragraph [ref=f8e230]: Monday, August 17
+                    - generic [ref=f8e231]:
+                      - generic [ref=f8e232]: draft
+                      - button [ref=f8e233]
+                  - generic [ref=f8e235]:
+                    - generic [ref=f8e236]:
+                      - generic [ref=f8e237]: S
+                      - generic [ref=f8e241]:
+                        - generic [ref=f8e242]: Worship Leader
+                        - generic [ref=f8e243]: Shael
+                    - generic [ref=f8e244]:
+                      - generic [ref=f8e245]: Backup Singers
+                      - generic [ref=f8e246]:
+                        - generic [ref=f8e247]: Princess
+                        - generic [ref=f8e248]: Maricar
+                        - generic [ref=f8e249]: Feng
+                    - generic [ref=f8e250]:
+                      - generic [ref=f8e251]: Instrumentalists
+                      - generic [ref=f8e252]:
+                        - generic [ref=f8e253]: "Piano: Kass"
+                        - generic [ref=f8e254]: "Guitar 1: Pia"
+                        - generic [ref=f8e255]: "Guitar 2: Kai"
+                        - generic [ref=f8e256]: "Drums: Simone"
+                        - generic [ref=f8e257]: "Bass: Dhon"
+                    - generic [ref=f8e258]:
+                      - generic [ref=f8e259]: Devotion
+                      - generic [ref=f8e260]: Caleb M.
+                - generic [ref=f8e264]:
+                  - generic [ref=f8e266]:
+                    - generic [ref=f8e267]:
+                      - generic [ref=f8e268]: "4"
+                      - generic [ref=f8e270]:
+                        - generic [ref=f8e271]: Week 4
+                        - paragraph [ref=f8e272]: Monday, August 24
+                    - generic [ref=f8e273]:
+                      - generic [ref=f8e274]: draft
+                      - button [ref=f8e275]
+                  - generic [ref=f8e277]:
+                    - generic [ref=f8e278]:
+                      - generic [ref=f8e279]: M
+                      - generic [ref=f8e283]:
+                        - generic [ref=f8e284]: Worship Leader
+                        - generic [ref=f8e285]: Marlyn
+                    - generic [ref=f8e286]:
+                      - generic [ref=f8e287]: Backup Singers
+                      - generic [ref=f8e288]:
+                        - generic [ref=f8e289]: Heidi
+                        - generic [ref=f8e290]: Beng
+                        - generic [ref=f8e291]: Chelzy
+                    - generic [ref=f8e292]:
+                      - generic [ref=f8e293]: Instrumentalists
+                      - generic [ref=f8e294]:
+                        - generic [ref=f8e295]: "Piano: Kass"
+                        - generic [ref=f8e296]: "Guitar 1: Zedrick"
+                        - generic [ref=f8e297]: "Guitar 2: Pia"
+                        - generic [ref=f8e298]: "Drums: Simone"
+                        - generic [ref=f8e299]: "Bass: Matt"
+                    - generic [ref=f8e300]:
+                      - generic [ref=f8e301]: Devotion
+                      - generic [ref=f8e302]: Marlyn
+                    - generic [ref=f8e303]: 2 conflict(s) found
