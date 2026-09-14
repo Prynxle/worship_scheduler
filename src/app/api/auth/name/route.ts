@@ -56,6 +56,7 @@ export async function POST(request: Request) {
     const syntheticEmail = `${member.login_name}.${member.church_id}@name-login.invalid`;
     let signInEmail = syntheticEmail;
     let authId: string | null = null;
+    let createdAuthUser = false;
 
     if (member.user_id) {
       const { data: user } = await admin
@@ -68,19 +69,50 @@ export async function POST(request: Request) {
     }
 
     if (!authId) {
-      const { data: authUser, error: createError } = await admin.auth.admin.createUser({
+      const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
         email: syntheticEmail,
         password,
         email_confirm: true,
         user_metadata: { member_id: member.id, login_name: member.login_name },
       });
-      if (createError || !authUser.user) {
+
+      let authUser = createdUser?.user ?? null;
+      if (createError && !authUser) {
+        // A previous interrupted attempt may have created the Auth user but
+        // failed before linking it to public.users/members.
+        const { data: listedUsers, error: listError } = await admin.auth.admin.listUsers({
+          page: 1,
+          perPage: 1000,
+        });
+        authUser = listedUsers.users.find((user) => user.email === syntheticEmail) ?? null;
+        if (listError || !authUser) {
+          console.error('Name login auth user recovery failed:', createError, listError);
+          return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
+        }
+      }
+
+      if (!authUser) {
         console.error('Name login auth user creation failed:', createError);
         return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
       }
 
-      authId = authUser.user.id;
+      authId = authUser.id;
+      createdAuthUser = !createError;
+      const { error: passwordError } = await admin.auth.admin.updateUserById(authId, { password });
+      if (passwordError) {
+        console.error('Name login auth user password update failed:', passwordError);
+        return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
+      }
       let appUserId = member.user_id;
+      if (!appUserId) {
+        const { data: existingAppUser } = await admin
+          .from('users')
+          .select('id, email')
+          .eq('auth_id', authId)
+          .maybeSingle<{ id: string; email: string }>();
+        appUserId = existingAppUser?.id ?? null;
+        signInEmail = existingAppUser?.email || syntheticEmail;
+      }
       const appUserError = appUserId
         ? (await admin.from('users').update({ auth_id: authId, email: syntheticEmail }).eq('id', appUserId)).error
         : null;
@@ -104,10 +136,17 @@ export async function POST(request: Request) {
 
       if (appUserError || !appUserId) {
         console.error('Name login app user creation failed:', appUserError);
-        await admin.auth.admin.deleteUser(authId);
+        if (createdAuthUser) await admin.auth.admin.deleteUser(authId);
         return NextResponse.json({ error: 'We could not finish your account setup.' }, { status: 500 });
       }
-      await admin.from('members').update({ user_id: appUserId }).eq('id', member.id);
+      const { error: memberLinkError } = await admin
+        .from('members')
+        .update({ user_id: appUserId })
+        .eq('id', member.id);
+      if (memberLinkError) {
+        console.error('Name login member link failed:', memberLinkError);
+        return NextResponse.json({ error: 'We could not finish your account setup.' }, { status: 500 });
+      }
     } else {
       const { error: updateError } = await admin.auth.admin.updateUserById(authId, { password });
       if (updateError) {
