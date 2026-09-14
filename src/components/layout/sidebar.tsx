@@ -3,29 +3,38 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, MotionConfig } from 'motion/react';
-import { 
-  Calendar, 
-  Users, 
-  Music, 
-  BarChart3, 
-  Settings, 
+import {
+  BarChart3,
+  CalendarDays,
+  Church,
+  Clock3,
   Download,
   LayoutDashboard,
-  Clock,
-  Church
+  Music2,
+  Settings2,
+  UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DevModeToggle } from '@/components/dev/dev-mode-toggle';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Schedule', href: '/schedule', icon: Calendar },
-  { name: 'Members', href: '/members', icon: Users },
-  { name: 'Availability', href: '/availability', icon: Clock },
-  { name: 'Ministries', href: '/ministries', icon: Music },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Exports', href: '/exports', icon: Download },
-  { name: 'Settings', href: '/settings', icon: Settings },
+const navigationGroups = [
+  {
+    label: 'Workspace',
+    items: [
+      { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Schedule', href: '/schedule', icon: CalendarDays },
+      { name: 'Members', href: '/members', icon: UsersRound },
+      { name: 'Availability', href: '/availability', icon: Clock3 },
+      { name: 'Ministries', href: '/ministries', icon: Music2 },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Exports', href: '/exports', icon: Download },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -33,83 +42,67 @@ export function Sidebar() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="flex h-full w-64 flex-col bg-sidebar border-r border-sidebar-border">
-      {/* Logo: rotateY flip-on-mount */}
-      <div className="flex h-16 items-center gap-2.5 px-6 border-b border-sidebar-border">
-        <motion.div
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15"
-          initial={{ rotateY: 90, opacity: 0 }}
-          animate={{ rotateY: 0, opacity: 1 }}
-          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          style={{ transformPerspective: 400 }}
-        >
-          <Church className="h-5 w-5 text-primary" />
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, x: -6 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4, delay: 0.15 }}
-        >
-          <span className="text-base font-bold tracking-tight text-sidebar-foreground">JOHIA Bankers</span>
-          <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Ministry Scheduling</p>
-        </motion.div>
-      </div>
+      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5">
+        <Link href="/dashboard" className="mb-8 flex items-center gap-3 px-2">
+          <motion.span
+            className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_8px_24px_-10px_var(--primary)]"
+            initial={{ rotate: -8, scale: 0.9, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <Church className="size-5" />
+          </motion.span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold tracking-tight text-sidebar-foreground">JOHIA Bankers</span>
+            <span className="block text-xs text-muted-foreground">Ministry operations</span>
+          </span>
+        </Link>
 
-      <nav className="flex-1 space-y-0.5 px-3 py-4">
-        {navigation.map((item, index) => {
-          const isActive = pathname === item.href || 
-            pathname.startsWith(item.href + '/');
-          return (
-            <motion.div
-              key={item.name}
-              className="relative"
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.35, delay: 0.08 * index, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <Link
-                href={item.href}
-                className={cn(
-                  'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
-                  isActive
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover-surface hover:text-foreground hover:-translate-y-px'
-                )}
-              >
-                {isActive && (
-                  <motion.span
-                    layoutId="sidebar-active-pill"
-                    className="absolute inset-0 rounded-lg bg-primary/10 shadow-[inset_3px_0_0_oklch(0.72_0.030_65)]"
-                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                  />
-                )}
-                <item.icon className={cn('h-[18px] w-[18px] shrink-0 relative', isActive ? 'text-primary' : 'text-muted-foreground')} />
-                <span className="relative">{item.name}</span>
-              </Link>
-            </motion.div>
-          );
-        })}
-      </nav>
-
-      <div className="border-t border-sidebar-border p-4 space-y-2">
-        <DevModeToggle />
-        <motion.div
-          whileHover={{ scale: 1.02 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-          className="origin-left"
-        >
-          <div className="flex items-center gap-3 rounded-lg p-2 hover-surface cursor-default">
-            <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center">
-              <span className="text-xs font-semibold text-primary">JS</span>
+        <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
+          {navigationGroups.map((group) => (
+            <div key={group.label} className="flex flex-col gap-1">
+              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/65">{group.label}</p>
+              {group.items.map((item, index) => {
+                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const Icon = item.icon;
+                return (
+                  <motion.div key={item.name} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.04, duration: 0.3 }}>
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                        isActive ? 'bg-primary/[0.11] font-medium text-primary' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                      )}
+                    >
+                      {isActive && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
+                      <Icon className={cn('size-[18px]', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
+                      <span>{item.name}</span>
+                    </Link>
+                  </motion.div>
+                );
+              })}
             </div>
-            <div>
-              <p className="text-sm font-medium text-sidebar-foreground">John Smith</p>
-              <p className="text-xs text-muted-foreground">Admin</p>
+          ))}
+        </nav>
+
+        <div className="flex flex-col gap-3 border-t border-sidebar-border pt-4">
+          <Link
+            href="/settings"
+            className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground', pathname.startsWith('/settings') && 'bg-primary/[0.11] text-primary')}
+          >
+            <Settings2 className="size-[18px]" />
+            Settings
+          </Link>
+          <DevModeToggle />
+          <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/60 p-3">
+            <div className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">JS</div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-sidebar-foreground">John Smith</p>
+              <p className="text-xs text-muted-foreground">Administrator</p>
             </div>
           </div>
-        </motion.div>
-      </div>
-    </div>
+        </div>
+      </aside>
     </MotionConfig>
   );
 }
