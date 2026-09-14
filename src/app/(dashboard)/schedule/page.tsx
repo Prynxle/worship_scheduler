@@ -151,10 +151,11 @@ export default function SchedulePage() {
 
         <TabsContent value={activeTab} className="mt-6">
           <div className="grid gap-6 md:grid-cols-2">
-            {filteredSchedules.map((schedule) => (
+            {filteredSchedules.map((schedule, i) => (
               <ScheduleCard
                 key={schedule.id}
                 {...schedule}
+                index={i}
                 onEdit={() => console.log('Edit', schedule.id)}
                 onView={() => console.log('View', schedule.id)}
                 onValidate={() => console.log('Validate', schedule.id)}
