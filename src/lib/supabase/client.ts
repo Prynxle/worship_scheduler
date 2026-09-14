@@ -13,6 +13,11 @@ export function getSupabaseClient(): SupabaseClient {
   }
 
   // Browser-side: ALWAYS use anonymous key for security (never service role key)
+  if (supabaseAnonKey && supabaseAnonKey.split('.').length !== 3) {
+    console.error(
+      '[supabase] NEXT_PUBLIC_SUPABASE_ANON_KEY is malformed (expected 3 JWT segments); browser auth will fail.'
+    );
+  }
   if (!browserClient || currentKey !== supabaseAnonKey) {
     browserClient = createClient(supabaseUrl, supabaseAnonKey);
     currentKey = supabaseAnonKey;
