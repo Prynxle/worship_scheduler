@@ -1,0 +1,17 @@
+- generic [ref=f2e1]:
+  - main [ref=f2e2]:
+    - generic [ref=f2e4]:
+      - generic [ref=f2e5]:
+        - generic [ref=f2e6]: JOHIA
+        - paragraph [ref=f2e13]: Welcome in
+        - generic [ref=f2e14]: What should we call you?
+        - generic [ref=f2e15]: Use the name on the worship roster.
+      - generic [ref=f2e16]:
+        - generic [ref=f2e17]:
+          - generic [ref=f2e18]:
+            - generic [ref=f2e19]: Your name
+            - textbox "Your name" [active] [ref=f2e20]:
+              - /placeholder: e.g. Zedrick
+          - button "Enter workspace" [disabled]
+        - paragraph [ref=f2e21]: Names are matched without regard to capitalization.
+  - button "Open Next.js Dev Tools" [ref=f2e27] [cursor=pointer]

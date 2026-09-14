@@ -1,0 +1,23 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: JOHIA
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: Worship team workspace
+        - heading "Make room for the song." [level=1] [ref=e12]
+        - paragraph [ref=e13]: Your roster, availability, and Sunday assignments in one quiet place.
+      - generic [ref=e14]: A shared space for the whole team
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - paragraph [ref=e22]: Welcome in
+        - generic [ref=e23]: What should we call you?
+        - generic [ref=e24]: Use the name on the worship roster.
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: Your name
+            - textbox "Your name" [active] [ref=e29]:
+              - /placeholder: e.g. Zedrick
+          - button "Enter workspace" [disabled]
+        - paragraph [ref=e30]: Names are matched without regard to capitalization.
+  - button "Open Next.js Dev Tools" [ref=e36] [cursor=pointer]

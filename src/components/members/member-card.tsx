@@ -78,10 +78,8 @@ export function MemberCard({ member, onEdit, onView, index = 0 }: MemberCardProp
               </div>
             </div>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="ghost" size="icon">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                <MoreVertical className="h-4 w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={onView}>
