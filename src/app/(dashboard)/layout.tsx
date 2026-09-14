@@ -1,4 +1,5 @@
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
+import { SessionGuard } from '@/components/auth/session-guard';
 
 export default function DashboardLayoutWrapper({
   children,
@@ -6,8 +7,10 @@ export default function DashboardLayoutWrapper({
   children: React.ReactNode;
 }) {
   return (
-    <DashboardLayout title="Worship Scheduler" subtitle="Manage your ministry schedules">
-      {children}
-    </DashboardLayout>
+    <SessionGuard>
+      <DashboardLayout title="Worship Scheduler" subtitle="Manage your ministry schedules">
+        {children}
+      </DashboardLayout>
+    </SessionGuard>
   );
 }
