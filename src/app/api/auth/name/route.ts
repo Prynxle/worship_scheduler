@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from '@/lib/api/rate-limit';
 
 type MemberRecord = {
   id: string;
@@ -26,6 +27,22 @@ function getAdminClient() {
 }
 
 export async function POST(request: Request) {
+  // Rate limit BEFORE reading the body and BEFORE the try/catch below: the
+  // catch-all converts thrown errors to 500, and 429 must never become 500.
+  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? request.headers.get('x-real-ip')
+    ?? 'unknown';
+  const rateCheck = checkRateLimit(`name-login:${clientIp}`);
+  if (!rateCheck.ok) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please wait a moment.' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) },
+      },
+    );
+  }
+
   try {
     const body = (await request.json()) as { name?: unknown };
     const loginName = typeof body.name === 'string'
