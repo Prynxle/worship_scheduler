@@ -321,3 +321,251 @@
     animation: none;
   }
 }
+
+/* ────────────────────────────────────────────────
+   Horizon hero section (21st.dev) — base styles.
+   Replaces the previous "Light of the Cross" hero scene.
+   ──────────────────────────────────────────────── */
+.hero-container {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  height: 300vh;
+  overflow: clip;
+  background: #000000;
+  padding-top: calc( env(safe-area-top, 0) );
+}
+
+.hero-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: clamp(3.5rem, 16vw, 6rem);
+  }
+  .hero-subtitle {
+    font-size: clamp(0.875rem, 2vw, 1.25rem);
+  }
+}
+
+.side-menu {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.menu-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.menu-icon span {
+  width: 24px;
+  height: 2px;
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+}
+
+.hero-content {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  padding: 2rem 1rem;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.sign-in-link {
+  position: fixed;
+  top: 2rem;
+  right: 2rem;
+  z-index: 20;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.25s ease, text-shadow 0.25s ease;
+}
+
+.sign-in-link:hover,
+.sign-in-link:focus-visible {
+  color: #ff4444;
+  text-shadow: 0 0 18px rgba(255, 68, 68, 0.8);
+}
+
+.hero-copy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 120ms linear, transform 120ms linear;
+  will-change: opacity, transform;
+}
+
+.hero-title {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.05em;
+  color: #ff4444;
+  text-shadow: 0 0 50px rgba(255, 68, 68, 0.5);
+  margin: 0 0 2rem;
+  font-size: clamp(6rem, 13vw, 11rem);
+  font-weight: 900;
+  line-height: 0.9;
+  transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s ease;
+  max-width: 90vw;
+}
+
+.hero-title:hover {
+  color: #ff4444;
+  text-shadow: 0 0 24px rgba(255, 68, 68, 0.8), 0 0 70px rgba(255, 68, 68, 0.45);
+  transform: scale(1.02);
+}
+
+.hero-subtitle {
+  font-size: clamp(0.875rem, 1.8vw, 1.25rem);
+  font-weight: 300;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.6;
+}
+
+.subtitle-line {
+  margin: 0.25rem 0;
+}
+
+.scripture-link {
+  margin-top: 1.5rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  transition: color 0.25s ease, text-shadow 0.25s ease;
+}
+
+.scripture-link:hover,
+.scripture-link:focus-visible {
+  color: #ff4444;
+  text-shadow: 0 0 18px rgba(255, 68, 68, 0.8);
+}
+
+.scroll-progress {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.scroll-text {
+  font-size: 0.65rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.progress-track {
+  width: 60px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(to bottom, #ffffff, rgba(255, 255, 255, 0.3));
+  border-radius: 2px;
+  transition: height 0.1s linear;
+}
+
+.section-counter {
+  font-size: 0.875rem;
+  font-family: monospace;
+  letter-spacing: 0.1em;
+}
+
+.scroll-sections {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 300vh;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.content-section {
+  position: relative;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  background: transparent;
+}
+
+.cosmos-style .hero-content {
+  position: fixed;
+}
+
+.cosmos-style .hero-copy {
+  position: relative;
+  inset: auto;
+}
+
+.cosmos-style .side-menu,
+.cosmos-style .scroll-progress {
+  position: fixed;
+}
+
+.title-char {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-container,
+  .hero-canvas,
+  .side-menu,
+  .hero-content,
+  .scroll-progress {
+    animation: none;
+    transition: none;
+  }
+}
