@@ -1,61 +1,70 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AvailabilityCalendar } from '@/components/members/availability-calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, Filter } from 'lucide-react';
+import { Filter } from 'lucide-react';
 import { Availability } from '@/lib/types/database';
+import { getSupabaseClient } from '@/lib/supabase/client';
 
-const mockAvailabilities: Availability[] = [
-  {
-    id: '1',
-    member_id: '1',
-    church_id: 'church-1',
-    type: 'weekly',
-    week_number: 1,
-    status: 'approved',
-    created_at: '2026-08-01',
-  },
-  {
-    id: '2',
-    member_id: '1',
-    church_id: 'church-1',
-    type: 'weekly',
-    week_number: 2,
-    status: 'approved',
-    created_at: '2026-08-01',
-  },
-  {
-    id: '3',
-    member_id: '1',
-    church_id: 'church-1',
-    type: 'weekly',
-    week_number: 4,
-    status: 'pending',
-    created_at: '2026-08-01',
-  },
-];
+type StaffMember = { id: string; full_name: string };
 
-const mockMembers = [
-  { id: '1', name: 'Heidi' },
-  { id: '2', name: 'Feng' },
-  { id: '3', name: 'Zedrick' },
-  { id: '4', name: 'Kass' },
-  { id: '5', name: 'Simone' },
-];
+async function getAuthHeaders() {
+  const session = (await getSupabaseClient().auth.getSession()).data.session;
+  return session ? { Authorization: `Bearer ${session.access_token}` } : null;
+}
 
 export default function AvailabilityPage() {
-  const [selectedMember, setSelectedMember] = useState('1');
+  const [members, setMembers] = useState<StaffMember[]>([]);
+  const [selectedMember, setSelectedMember] = useState('');
+  const [availabilities, setAvailabilities] = useState<Availability[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [error, setError] = useState('');
 
-  const memberAvailabilities = mockAvailabilities.filter(
-    (a) => a.member_id === selectedMember
-  );
+  useEffect(() => {
+    async function loadMembers() {
+      const headers = await getAuthHeaders();
+      if (!headers) {
+        setError('Your session has expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/members?status=active', { headers });
+      if (!response.ok) {
+        setError('Could not load members for this church.');
+        return;
+      }
+      const result = await response.json() as { members: StaffMember[] };
+      setMembers(result.members);
+      setSelectedMember((current) => current || result.members[0]?.id || '');
+    }
+    void loadMembers();
+  }, []);
 
-  const selectedMemberName = mockMembers.find((m) => m.id === selectedMember)?.name || '';
+  useEffect(() => {
+    if (!selectedMember) {
+      return;
+    }
+    async function loadAvailability() {
+      const headers = await getAuthHeaders();
+      if (!headers) {
+        setError('Your session has expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch(`/api/availability?member_id=${encodeURIComponent(selectedMember)}`, { headers });
+      if (!response.ok) {
+        setError('Could not load availability for this member.');
+        return;
+      }
+      const result = await response.json() as { availabilities: Availability[] };
+      setAvailabilities(result.availabilities);
+    }
+    void loadAvailability();
+  }, [selectedMember]);
+
+  const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
 
   const handlePreviousMonth = () => {
     if (currentMonth === 0) {
@@ -82,11 +91,9 @@ export default function AvailabilityPage() {
           <h2 className="text-2xl font-bold text-foreground">Availability</h2>
           <p className="text-muted-foreground">Manage member availability and unavailability</p>
         </div>
-        <Button>
-          <Clock className="h-4 w-4 mr-1" />
-          Add Unavailability
-        </Button>
       </div>
+
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
       <div className="flex items-center gap-3">
         <Select value={selectedMember} onValueChange={(value) => value && setSelectedMember(value)}>
@@ -94,9 +101,9 @@ export default function AvailabilityPage() {
             <SelectValue placeholder="Select member" />
           </SelectTrigger>
           <SelectContent>
-            {mockMembers.map((member) => (
+            {members.map((member) => (
               <SelectItem key={member.id} value={member.id}>
-                {member.name}
+                {member.full_name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -109,12 +116,11 @@ export default function AvailabilityPage() {
 
       <AvailabilityCalendar
         memberName={selectedMemberName}
-        availabilities={memberAvailabilities}
+        availabilities={availabilities}
         currentMonth={currentMonth}
         currentYear={currentYear}
         onPreviousMonth={handlePreviousMonth}
         onNextMonth={handleNextMonth}
-        onAddAvailability={() => console.log('Add availability')}
       />
 
       <Card className="card-glow">
@@ -123,15 +129,14 @@ export default function AvailabilityPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {mockAvailabilities.map((availability) => {
-              const member = mockMembers.find((m) => m.id === availability.member_id);
+            {availabilities.map((availability) => {
               return (
                 <div
                   key={availability.id}
                   className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
                 >
                   <div>
-                    <div className="font-medium text-foreground">{member?.name}</div>
+                    <div className="font-medium text-foreground">{selectedMemberName}</div>
                     <div className="text-sm text-muted-foreground">
                       Week {availability.week_number} - {availability.type}
                     </div>
@@ -148,8 +153,31 @@ export default function AvailabilityPage() {
                     >
                       {availability.status}
                     </span>
-                    <Button variant="ghost" size="sm">
-                      Review
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={availability.status !== 'pending'}
+                      onClick={async () => {
+                        const headers = await getAuthHeaders();
+                        if (!headers) {
+                          setError('Your session has expired. Please sign in again.');
+                          return;
+                        }
+                        const response = await fetch('/api/availability', {
+                          method: 'PUT',
+                          headers: { ...headers, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ id: availability.id, status: 'approved' }),
+                        });
+                        if (response.ok) {
+                          setAvailabilities((current) =>
+                            current.map((item) =>
+                              item.id === availability.id ? { ...item, status: 'approved' } : item
+                            )
+                          );
+                        }
+                      }}
+                    >
+                      {availability.status === 'pending' ? 'Approve' : 'Reviewed'}
                     </Button>
                   </div>
                 </div>

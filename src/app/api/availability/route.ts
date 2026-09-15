@@ -1,95 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Availability } from '@/lib/types/database';
-
-const mockAvailabilities: Availability[] = [
-  {
-    id: '1',
-    member_id: '2',
-    church_id: 'church-1',
-    type: 'weekly',
-    week_number: 1,
-    status: 'approved',
-    created_at: '2026-08-01',
-  },
-  {
-    id: '2',
-    member_id: '2',
-    church_id: 'church-1',
-    type: 'weekly',
-    week_number: 2,
-    status: 'approved',
-    created_at: '2026-08-01',
-  },
-  {
-    id: '3',
-    member_id: '1',
-    church_id: 'church-1',
-    type: 'date',
-    date: '2026-08-17',
-    status: 'pending',
-    created_at: '2026-08-01',
-  },
-];
+import { getAdminClient, getAuthContext, isStaff } from '@/lib/auth/server';
 
 export async function GET(request: NextRequest) {
+  const context = await getAuthContext(request);
+  if (!context) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   const { searchParams } = new URL(request.url);
-  const memberId = searchParams.get('member_id');
-  const churchId = searchParams.get('church_id') || 'church-1';
-
-  let filtered = mockAvailabilities.filter((a) => a.church_id === churchId);
-  if (memberId) {
-    filtered = filtered.filter((a) => a.member_id === memberId);
-  }
-
-  return NextResponse.json({ availabilities: filtered });
+  const memberId = isStaff(context.role) ? searchParams.get('member_id') : context.memberId;
+  if (!memberId) return NextResponse.json({ availabilities: [] });
+  const { data, error } = await getAdminClient().from('availability').select('*').eq('church_id', context.churchId).eq('member_id', memberId);
+  if (error) return NextResponse.json({ error: 'Could not load availability.' }, { status: 500 });
+  return NextResponse.json({ availabilities: data ?? [] });
 }
 
 export async function POST(request: NextRequest) {
+  const context = await getAuthContext(request);
+  if (!context?.memberId) return NextResponse.json({ error: 'Only active members can submit availability.' }, { status: 403 });
   const body = await request.json();
-  const { member_id, type, week_number, date, end_date, reason } = body;
-
-  const newAvailability: Availability = {
-    id: String(mockAvailabilities.length + 1),
-    member_id,
-    church_id: 'church-1',
-    type,
-    week_number,
-    date,
-    end_date,
-    reason,
-    status: 'pending',
-    created_at: new Date().toISOString(),
-  };
-
-  mockAvailabilities.push(newAvailability);
-
-  return NextResponse.json({ availability: newAvailability }, { status: 201 });
+  const { type, week_number, date, end_date, reason } = body;
+  const { data, error } = await getAdminClient().from('availability').insert({
+    member_id: context.memberId, church_id: context.churchId, type, week_number, date, end_date, reason, status: 'pending',
+  }).select('*').single();
+  if (error) return NextResponse.json({ error: 'Could not save availability.' }, { status: 500 });
+  return NextResponse.json({ availability: data }, { status: 201 });
 }
 
 export async function PUT(request: NextRequest) {
+  const context = await getAuthContext(request);
+  if (!context || !isStaff(context.role)) return NextResponse.json({ error: 'Staff access required.' }, { status: 403 });
   const body = await request.json();
   const { id, status } = body;
-
-  const availability = mockAvailabilities.find((a) => a.id === id);
-  if (!availability) {
-    return NextResponse.json({ error: 'Availability not found' }, { status: 404 });
+  if (!id || !['pending', 'approved', 'rejected'].includes(status)) {
+    return NextResponse.json({ error: 'A valid availability id and status are required.' }, { status: 400 });
   }
 
-  availability.status = status;
+  const { data, error } = await getAdminClient()
+    .from('availability')
+    .update({ status })
+    .eq('id', id)
+    .eq('church_id', context.churchId)
+    .select('*')
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: 'Could not update availability.' }, { status: 500 });
+  if (!data) return NextResponse.json({ error: 'Availability not found' }, { status: 404 });
 
-  return NextResponse.json({ availability });
+  return NextResponse.json({ availability: data });
 }
 
 export async function DELETE(request: NextRequest) {
+  const context = await getAuthContext(request);
+  if (!context || !isStaff(context.role)) return NextResponse.json({ error: 'Staff access required.' }, { status: 403 });
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'Availability id is required.' }, { status: 400 });
 
-  const index = mockAvailabilities.findIndex((a) => a.id === id);
-  if (index === -1) {
-    return NextResponse.json({ error: 'Availability not found' }, { status: 404 });
-  }
-
-  mockAvailabilities.splice(index, 1);
+  const { data, error } = await getAdminClient()
+    .from('availability')
+    .delete()
+    .eq('id', id)
+    .eq('church_id', context.churchId)
+    .select('id')
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: 'Could not delete availability.' }, { status: 500 });
+  if (!data) return NextResponse.json({ error: 'Availability not found' }, { status: 404 });
 
   return NextResponse.json({ success: true });
 }

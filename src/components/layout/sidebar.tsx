@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, MotionConfig } from 'motion/react';
 import {
   BarChart3,
@@ -45,6 +45,28 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [isStaff, setIsStaff] = useState(true);
+  const [profile, setProfile] = useState({ name: 'Loading…', role: 'Loading' });
+
+  useEffect(() => {
+    void getSupabaseClient().auth.getSession().then(async ({ data }) => {
+      if (!data.session) {
+        setProfile({ name: 'Your account', role: 'Member' });
+        return;
+      }
+      const response = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${data.session.access_token}` } });
+      if (response.ok) {
+        const result = await response.json() as { user?: { full_name?: string; member_name?: string | null; role?: string } };
+        const role = result.user?.role ?? 'member';
+        const roleLabel = role === 'admin' ? 'Administrator' : role === 'coordinator' ? 'Coordinator' : 'Member';
+        setIsStaff(role !== 'member');
+        setProfile({
+          name: result.user?.member_name || result.user?.full_name || 'Your account',
+          role: roleLabel,
+        });
+      }
+    });
+  }, []);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -84,7 +106,8 @@ export function Sidebar() {
         </Link>
 
         <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
-          {navigationGroups.map((group) => (
+          {!isStaff ? <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link> : null}
+          {isStaff ? navigationGroups.map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
               <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/65">{group.label}</p>
               {group.items.map((item, index) => {
@@ -107,23 +130,25 @@ export function Sidebar() {
                 );
               })}
             </div>
-          ))}
+          )) : null}
         </nav>
 
         <div className="flex flex-col gap-3 border-t border-sidebar-border pt-4">
-          <Link
+          {isStaff ? <Link
             href="/settings"
             className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground', pathname.startsWith('/settings') && 'bg-primary/[0.11] text-primary')}
           >
             <Settings2 className="size-[18px]" />
             Settings
-          </Link>
+          </Link> : null}
           <DevModeToggle />
           <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/60 p-3">
-            <div className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">JS</div>
+            <div className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+              {profile.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'}
+            </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-sidebar-foreground">John Smith</p>
-              <p className="text-xs text-muted-foreground">Administrator</p>
+              <p className="truncate text-sm font-medium text-sidebar-foreground">{profile.name}</p>
+              <p className="text-xs text-muted-foreground">{profile.role}</p>
             </div>
           </div>
           <Button

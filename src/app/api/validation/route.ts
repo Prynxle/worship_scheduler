@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaff } from '@/lib/auth/server';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { ScheduleContext, ValidationResult } from '@/lib/types/scheduling';
 import { Member, ScheduleAssignment } from '@/lib/types/database';
@@ -41,13 +42,25 @@ const mockMembers: Member[] = [
 ];
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const body = await request.json();
   const { service_id, assignments } = body;
+  const churchMembers = mockMembers.filter((member) => member.church_id === auth.churchId);
+  const churchMemberIds = new Set(churchMembers.map((member) => member.id));
+  const scopedAssignments = Array.isArray(assignments)
+    ? assignments.filter((assignment): assignment is ScheduleAssignment =>
+      assignment
+      && typeof assignment === 'object'
+      && typeof assignment.member_id === 'string'
+      && churchMemberIds.has(assignment.member_id),
+    )
+    : [];
 
   const context: ScheduleContext = {
     service: {
       id: service_id || 'temp',
-      church_id: 'church-1',
+      church_id: auth.churchId,
       date: new Date().toISOString(),
       week_number: 1,
       month: new Date().getMonth(),
@@ -57,13 +70,13 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-    church_id: 'church-1',
+    church_id: auth.churchId,
     month: new Date().getMonth(),
     year: new Date().getFullYear(),
     week_number: 1,
-    existing_assignments: assignments || [],
-    available_members: mockMembers,
-    all_members: mockMembers,
+    existing_assignments: scopedAssignments,
+    available_members: churchMembers,
+    all_members: churchMembers,
     rules: [
       { rule_type: 'backup_count', rule_config: { min_required: 3, max_allowed: 5 }, severity: 'critical' },
       { rule_type: 'leader_count', rule_config: {}, severity: 'critical' },
