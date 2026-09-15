@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Church, Loader2, UsersRound } from 'lucide-react';
+import { ArrowRight, Church, KeyRound, Loader2, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,9 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 export default function LoginPage() {
   const router = useRouter();
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -21,10 +24,10 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/name', {
+      const response = await fetch(isAdminMode ? '/api/auth/admin' : '/api/auth/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(isAdminMode ? { username, password } : { name }),
       });
       const result = await response.json() as {
         error?: string;
@@ -46,7 +49,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/dashboard');
+      router.push(isAdminMode ? '/dashboard' : '/member');
       router.refresh();
     } catch {
       setError('We could not reach the sign-in service. Please try again.');
@@ -95,34 +98,46 @@ export default function LoginPage() {
               <span className="text-xs uppercase tracking-[0.24em] text-[#d8b477]">JOHIA</span>
             </div>
             <p className="mb-3 text-xs uppercase tracking-[0.3em] text-[#d8b477]">Welcome in</p>
-            <CardTitle className="font-display text-4xl tracking-[-0.04em] text-[#f6ead6]">What should we call you?</CardTitle>
-            <CardDescription className="pt-2 text-[#b9aa96]">Use the name on the worship roster.</CardDescription>
+            <CardTitle className="font-display text-4xl tracking-[-0.04em] text-[#f6ead6]">
+              {isAdminMode ? 'Admin sign in' : 'What should we call you?'}
+            </CardTitle>
+            <CardDescription className="pt-2 text-[#b9aa96]">
+              {isAdminMode ? 'Use your administrator credentials.' : 'Use the name on the worship roster.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="px-7 pb-8 sm:px-9 sm:pb-10">
             <form className="space-y-5" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label className="text-[#d4c7b5]" htmlFor="name">Your name</Label>
-                <Input
-                  id="name"
-                  autoComplete="name"
-                  autoFocus
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="e.g. Zedrick"
-                  className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30"
-                  required
-                />
-              </div>
+              {isAdminMode ? (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-[#d4c7b5]" htmlFor="username">Username</Label>
+                    <Input id="username" autoComplete="username" autoFocus value={username} onChange={(event) => setUsername(event.target.value)} className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6]" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[#d4c7b5]" htmlFor="password">Password</Label>
+                    <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6]" required />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-[#d4c7b5]" htmlFor="name">Your name</Label>
+                  <Input id="name" autoComplete="name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Zedrick" className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30" required />
+                </div>
+              )}
               {error ? <p className="text-sm text-red-300" role="alert">{error}</p> : null}
               <Button
                 type="submit"
-                disabled={isLoading || !name.trim()}
+                disabled={isLoading || (isAdminMode ? !username.trim() || !password : !name.trim())}
                 className="h-12 w-full bg-[#d8b477] text-[#211a13] hover:bg-[#edcc91]"
               >
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
-                {isLoading ? 'Checking the roster…' : 'Enter workspace'}
+                {isLoading ? 'Signing in…' : isAdminMode ? 'Open dashboard' : 'Enter workspace'}
               </Button>
             </form>
+            <button type="button" className="mt-5 flex w-full items-center justify-center gap-2 text-sm text-[#d8b477] hover:underline" onClick={() => { setIsAdminMode((value) => !value); setError(''); }}>
+              <KeyRound className="h-4 w-4" />
+              {isAdminMode ? 'Use roster name instead' : 'Admin login'}
+            </button>
             <p className="mt-6 text-center text-xs leading-5 text-[#8f8171]">
               Names are matched without regard to capitalization.
             </p>

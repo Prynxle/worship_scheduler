@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaff } from '@/lib/auth/server';
 import { DevotionRotation } from '@/lib/scheduling/devotion-rotation';
 import { Member, DevotionRotation as DevotionRotationType } from '@/lib/types/database';
 
@@ -77,22 +78,38 @@ const mockRotation: DevotionRotationType[] = [
 ];
 
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const { searchParams } = new URL(request.url);
-  const churchId = searchParams.get('church_id') || 'church-1';
   const weekNumber = parseInt(searchParams.get('week_number') || '1');
+  const churchMembers = mockMembers.filter((member) => member.church_id === auth.churchId);
+  const churchRotation = mockRotation.filter((entry) => entry.church_id === auth.churchId);
 
-  const rotation = new DevotionRotation(churchId, mockRotation);
-  const nextMembers = rotation.getNextDevotionMembers(mockMembers, weekNumber, 4);
+  const rotation = new DevotionRotation(auth.churchId, churchRotation);
+  const nextMembers = rotation.getNextDevotionMembers(churchMembers, weekNumber, 4);
 
   return NextResponse.json({ rotation: nextMembers });
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const body = await request.json();
-  const { church_id, assigned_member_ids } = body;
+  const { assigned_member_ids } = body;
+  const churchMemberIds = new Set(
+    mockMembers
+      .filter((member) => member.church_id === auth.churchId)
+      .map((member) => member.id),
+  );
+  const assignedMemberIds = Array.isArray(assigned_member_ids)
+    ? assigned_member_ids.filter((id): id is string => typeof id === 'string' && churchMemberIds.has(id))
+    : [];
 
-  const rotation = new DevotionRotation(church_id || 'church-1', mockRotation);
-  const updatedRotation = await rotation.updateRotation(assigned_member_ids);
+  const rotation = new DevotionRotation(
+    auth.churchId,
+    mockRotation.filter((entry) => entry.church_id === auth.churchId),
+  );
+  const updatedRotation = await rotation.updateRotation(assignedMemberIds);
 
   return NextResponse.json({ rotation: updatedRotation });
 }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/api/rate-limit';
+import { getAdminClient } from '@/lib/auth/server';
 
 type MemberRecord = {
   id: string;
@@ -11,20 +11,6 @@ type MemberRecord = {
   login_name: string;
   status: 'active' | 'inactive';
 };
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Keep the private name as the production contract. The public-prefixed
-  // fallback supports this repository's current local .env.local only.
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ?? process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceKey) throw new Error('Supabase server credentials are not configured');
-
-  return createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
 
 export async function POST(request: Request) {
   // Rate limit BEFORE reading the body and BEFORE the try/catch below: the
@@ -67,6 +53,16 @@ export async function POST(request: Request) {
     }
     if (!member) {
       return NextResponse.json({ error: 'That name is not on the active worship roster.' }, { status: 401 });
+    }
+    if (member.user_id) {
+      const { data: linkedUser } = await getAdminClient()
+        .from('users')
+        .select('role, is_active')
+        .eq('id', member.user_id)
+        .maybeSingle<{ role: 'admin' | 'coordinator' | 'member'; is_active: boolean }>();
+      if (linkedUser && (linkedUser.role !== 'member' || !linkedUser.is_active)) {
+        return NextResponse.json({ error: 'Use the admin login for this account.' }, { status: 403 });
+      }
     }
 
     const password = randomBytes(32).toString('base64url');
@@ -131,7 +127,7 @@ export async function POST(request: Request) {
         signInEmail = existingAppUser?.email || syntheticEmail;
       }
       const appUserError = appUserId
-        ? (await admin.from('users').update({ auth_id: authId, email: syntheticEmail }).eq('id', appUserId)).error
+        ? (await admin.from('users').update({ auth_id: authId, email: syntheticEmail, role: 'member', is_active: true }).eq('id', appUserId)).error
         : null;
 
       if (!appUserId) {
@@ -184,6 +180,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       access_token: sessionData.session.access_token,
       refresh_token: sessionData.session.refresh_token,
+      role: 'member',
       member: { id: member.id, name: member.full_name, login_name: member.login_name },
     });
   } catch (error) {

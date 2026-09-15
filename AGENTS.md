@@ -1,4 +1,13 @@
-Scheduling Rules
+# Repository instructions
+
+Before reading or applying any other skill, read the canonical repository skill:
+`.agents/skills/00-worship-scheduler/SKILL.md`.
+
+It contains the codebase context, security invariants, required verification gate, and Git/branch safety rules. Those instructions apply to every task in this repository.
+
+The scheduling-specific rules below remain authoritative for scheduling behavior.
+
+## Scheduling Rules
 Rule 1
 Never assign unavailable members.
 Violation

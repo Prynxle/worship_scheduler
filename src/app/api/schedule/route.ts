@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaff } from '@/lib/auth/server';
 import { SchedulingEngine } from '@/lib/scheduling/engine';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { ScheduleContext } from '@/lib/types/scheduling';
@@ -59,24 +60,28 @@ const mockMembers: Member[] = [
 ];
 
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const { searchParams } = new URL(request.url);
   const month = parseInt(searchParams.get('month') || String(new Date().getMonth()));
   const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
-  const churchId = searchParams.get('church_id') || 'church-1';
 
-  const services = generateMockServices(month, year);
+  const services = generateMockServices(month, year, auth.churchId);
 
-  return NextResponse.json({ services, month, year, church_id: churchId });
+  return NextResponse.json({ services, month, year, church_id: auth.churchId });
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const body = await request.json();
   const { month, year, week_numbers } = body;
+  const churchMembers = mockMembers.filter((member) => member.church_id === auth.churchId);
 
   const context: ScheduleContext = {
     service: {
       id: 'temp',
-      church_id: 'church-1',
+      church_id: auth.churchId,
       date: new Date(year, month, 1).toISOString(),
       week_number: week_numbers?.[0] || 1,
       month,
@@ -86,13 +91,13 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-    church_id: 'church-1',
+    church_id: auth.churchId,
     month,
     year,
     week_number: week_numbers?.[0] || 1,
     existing_assignments: [],
-    available_members: mockMembers,
-    all_members: mockMembers,
+    available_members: churchMembers,
+    all_members: churchMembers,
     rules: [
       { rule_type: 'backup_count', rule_config: { min_required: 3, max_allowed: 5 }, severity: 'critical' },
       { rule_type: 'leader_count', rule_config: {}, severity: 'critical' },
@@ -113,10 +118,11 @@ export async function POST(request: NextRequest) {
   });
 }
 
-function generateMockServices(month: number, year: number) {
+function generateMockServices(month: number, year: number, churchId: string) {
   return [
     {
       id: '1',
+      church_id: churchId,
       date: new Date(year, month, 3).toISOString(),
       week_number: 1,
       month,
@@ -128,6 +134,7 @@ function generateMockServices(month: number, year: number) {
     },
     {
       id: '2',
+      church_id: churchId,
       date: new Date(year, month, 10).toISOString(),
       week_number: 2,
       month,
@@ -139,6 +146,7 @@ function generateMockServices(month: number, year: number) {
     },
     {
       id: '3',
+      church_id: churchId,
       date: new Date(year, month, 17).toISOString(),
       week_number: 3,
       month,
@@ -150,6 +158,7 @@ function generateMockServices(month: number, year: number) {
     },
     {
       id: '4',
+      church_id: churchId,
       date: new Date(year, month, 24).toISOString(),
       week_number: 4,
       month,
