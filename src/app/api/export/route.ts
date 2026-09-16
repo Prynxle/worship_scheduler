@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaff } from '@/lib/auth/server';
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff(request);
+  if (auth instanceof Response) return auth;
   const body = await request.json();
   const { format, schedule_id, month, year, week_numbers } = body;
 

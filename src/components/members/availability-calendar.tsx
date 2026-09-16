@@ -85,12 +85,14 @@ export function AvailabilityCalendar({
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={onAddAvailability}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add Unavailability
-            </Button>
-          </div>
+          {onAddAvailability ? (
+            <div className="flex justify-end">
+              <Button size="sm" onClick={onAddAvailability}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add Unavailability
+              </Button>
+            </div>
+          ) : null}
 
           <div className="grid gap-3">
             {weekNumbers.map((weekNumber) => {

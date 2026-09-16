@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worship Scheduler - Backend Architecture</title>
+  <style>
+    :root { --paper:#f7f3ec; --ink:#2d3142; --muted:#777b83; --line:#c9c3b9; --coral:#d86f5f; --blue:#5d7ea8; --mint:#dce9df; --wash:#efe9df; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:Inter, ui-sans-serif, system-ui, sans-serif; }
+    main { max-width:1320px; margin:0 auto; padding:44px 32px 52px; }
+    .kicker { color:var(--coral); font:700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing:.16em; text-transform:uppercase; }
+    h1 { margin:10px 0 8px; font-size:34px; line-height:1.08; letter-spacing:-.04em; }
+    .lede { max-width:820px; margin:0 0 26px; color:var(--muted); font-size:15px; line-height:1.55; }
+    .frame { overflow:hidden; border:1px solid var(--line); border-radius:14px; background:#fbf9f5; box-shadow:0 12px 30px rgba(45,49,66,.06); }
+    svg { display:block; width:100%; height:auto; }
+    .notes { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:18px; }
+    .note { padding:16px; border:1px solid var(--line); border-radius:10px; background:#fbf9f5; }
+    .note h2 { margin:0 0 7px; font-size:14px; }
+    .note p { margin:0; color:var(--muted); font-size:12px; line-height:1.55; }
+    .foot { margin-top:22px; color:var(--muted); font:11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    @media (max-width:800px) { main { padding:28px 16px 36px; } h1 { font-size:28px; } .notes { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kicker">Worship Scheduler / Architecture 02</div>
+    <h1>Backend architecture</h1>
+    <p class="lede">Next.js route handlers are the server boundary. Name authentication uses the Supabase Admin API, while schedule generation and validation remain domain services that can evolve from mock adapters into Postgres-backed workflows.</p>
+    <div class="frame">
+      <svg viewBox="0 0 1280 720" role="img" aria-labelledby="backend-title backend-desc">
+        <title id="backend-title">Worship Scheduler backend architecture</title>
+        <desc id="backend-desc">A backend flow from API route handlers through name authentication and scheduling domain services to Supabase Auth, Postgres, row-level security, and migration seeded roster data.</desc>
+        <defs>
+          <marker id="backend-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5d7ea8"/></marker>
+        </defs>
+        <rect x="0" y="0" width="1280" height="720" fill="#fbf9f5"/>
+        <rect x="28" y="70" width="292" height="468" rx="10" fill="rgba(45,49,66,.02)" stroke="rgba(45,49,66,.14)"/>
+        <rect x="336" y="70" width="490" height="468" rx="10" fill="rgba(45,49,66,.02)" stroke="rgba(45,49,66,.14)"/>
+        <rect x="842" y="70" width="410" height="468" rx="10" fill="rgba(45,49,66,.02)" stroke="rgba(45,49,66,.14)"/>
+        <rect x="44" y="74" width="112" height="14" rx="2" fill="#fbf9f5"/><text x="100" y="84" text-anchor="middle" font-size="8" letter-spacing=".14em" fill="#777b83" font-family="ui-monospace,monospace">REQUEST EDGE</text>
+        <rect x="352" y="74" width="128" height="14" rx="2" fill="#fbf9f5"/><text x="416" y="84" text-anchor="middle" font-size="8" letter-spacing=".14em" fill="#777b83" font-family="ui-monospace,monospace">DOMAIN SERVICES</text>
+        <rect x="858" y="74" width="126" height="14" rx="2" fill="#fbf9f5"/><text x="921" y="84" text-anchor="middle" font-size="8" letter-spacing=".14em" fill="#777b83" font-family="ui-monospace,monospace">SUPABASE DATA</text>
+
+        <path d="M 184 196 H 232" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 184 352 H 232" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 320 196 H 384" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 320 352 H 384" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 496 196 H 560" fill="none" stroke="#d86f5f" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 496 352 H 560" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 672 196 H 732 V 352 H 780" fill="none" stroke="#d86f5f" stroke-width="1.2" marker-end="url(#backend-arrow)"/>
+        <path d="M 672 352 H 780" fill="none" stroke="#5d7ea8" stroke-width="1.4" marker-end="url(#backend-arrow)"/>
+        <path d="M 858 352 H 812 V 196 H 780" fill="none" stroke="#5d7ea8" stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#backend-arrow)"/>
+        <path d="M 858 196 H 812 V 352 H 780" fill="none" stroke="#5d7ea8" stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#backend-arrow)"/>
+        <path d="M 858 458 H 780 V 352 H 672" fill="none" stroke="#5d7ea8" stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#backend-arrow)"/>
+
+        <g>
+          <rect x="72" y="163" width="112" height="66" rx="8" fill="#efe9df" stroke="#c9c3b9"/><text x="128" y="187" text-anchor="middle" font-size="13" font-weight="700">API routes</text><text x="128" y="208" text-anchor="middle" font-size="9" fill="#777b83">/api/*</text>
+        </g>
+        <g>
+          <rect x="232" y="163" width="88" height="66" rx="8" fill="#f3d8d2" stroke="#d86f5f" stroke-width="1.4"/><text x="276" y="187" text-anchor="middle" font-size="12" font-weight="700">Name auth</text><text x="276" y="208" text-anchor="middle" font-size="9" fill="#777b83">rate limit</text>
+        </g>
+        <g>
+          <rect x="72" y="319" width="112" height="66" rx="8" fill="#efe9df" stroke="#c9c3b9"/><text x="128" y="343" text-anchor="middle" font-size="13" font-weight="700">API routes</text><text x="128" y="364" text-anchor="middle" font-size="9" fill="#777b83">schedule / validate</text>
+        </g>
+        <g>
+          <rect x="232" y="319" width="88" height="66" rx="8" fill="#efe9df" stroke="#c9c3b9"/><text x="276" y="343" text-anchor="middle" font-size="12" font-weight="700">Mock adapter</text><text x="276" y="364" text-anchor="middle" font-size="9" fill="#777b83">current state</text>
+        </g>
+        <g>
+          <rect x="384" y="163" width="112" height="66" rx="8" fill="#dce9df" stroke="#91ae99"/><text x="440" y="187" text-anchor="middle" font-size="13" font-weight="700">Admin client</text><text x="440" y="208" text-anchor="middle" font-size="9" fill="#777b83">service role</text>
+        </g>
+        <g>
+          <rect x="384" y="319" width="112" height="66" rx="8" fill="#dce9df" stroke="#91ae99"/><text x="440" y="343" text-anchor="middle" font-size="13" font-weight="700">Scheduling</text><text x="440" y="364" text-anchor="middle" font-size="9" fill="#777b83">engine + rules</text>
+        </g>
+        <g>
+          <rect x="560" y="163" width="112" height="66" rx="8" fill="#f3d8d2" stroke="#d86f5f" stroke-width="1.4"/><text x="616" y="187" text-anchor="middle" font-size="13" font-weight="700">Supabase Auth</text><text x="616" y="208" text-anchor="middle" font-size="9" fill="#777b83">hidden auth user</text>
+        </g>
+        <g>
+          <rect x="560" y="319" width="112" height="66" rx="8" fill="#dce9df" stroke="#91ae99"/><text x="616" y="343" text-anchor="middle" font-size="13" font-weight="700">Validation</text><text x="616" y="364" text-anchor="middle" font-size="9" fill="#777b83">fairness + limits</text>
+        </g>
+        <g>
+          <rect x="780" y="319" width="112" height="66" rx="8" fill="#dce9df" stroke="#91ae99"/><text x="836" y="343" text-anchor="middle" font-size="13" font-weight="700">Replacement</text><text x="836" y="364" text-anchor="middle" font-size="9" fill="#777b83">suggestions</text>
+        </g>
+        <g>
+          <rect x="858" y="163" width="166" height="66" rx="8" fill="#efe9df" stroke="#c9c3b9"/><text x="941" y="187" text-anchor="middle" font-size="13" font-weight="700">Postgres + RLS</text><text x="941" y="208" text-anchor="middle" font-size="9" fill="#777b83">members / schedules</text>
+        </g>
+        <g>
+          <rect x="1054" y="163" width="166" height="66" rx="8" fill="#efe9df" stroke="#c9c3b9"/><text x="1137" y="187" text-anchor="middle" font-size="13" font-weight="700">Migrations</text><text x="1137" y="208" text-anchor="middle" font-size="9" fill="#777b83">roster + policies</text>
+        </g>
+        <g>
+          <rect x="858" y="425" width="362" height="70" rx="8" fill="#fbf9f5" stroke="#c9c3b9"/><text x="1039" y="449" text-anchor="middle" font-size="13" font-weight="700">Scheduling invariants</text><text x="1039" y="468" text-anchor="middle" font-size="9" fill="#777b83">never unavailable / active only / 1 leader / 3 backups</text><text x="1039" y="484" text-anchor="middle" font-size="9" fill="#777b83">no duplicate role / monthly cap / rotation warnings</text>
+        </g>
+
+        <text x="350" y="286" font-size="9" fill="#777b83" font-family="ui-monospace,monospace">domain decision</text>
+        <text x="894" y="145" font-size="9" fill="#d86f5f" font-family="ui-monospace,monospace">persistent source of truth</text>
+        <line x1="44" y1="574" x2="1236" y2="574" stroke="#c9c3b9"/>
+        <text x="44" y="604" font-size="10" fill="#777b83" font-family="ui-monospace,monospace">SOLID = command or read flow</text>
+        <text x="330" y="604" font-size="10" fill="#777b83" font-family="ui-monospace,monospace">DASHED = result / replacement feedback</text>
+        <rect x="776" y="592" width="12" height="12" rx="2" fill="#dce9df" stroke="#91ae99"/><text x="796" y="602" font-size="10" fill="#777b83">domain service</text>
+        <rect x="898" y="592" width="12" height="12" rx="2" fill="#f3d8d2" stroke="#d86f5f"/><text x="918" y="602" font-size="10" fill="#777b83">security focal point</text>
+      </svg>
+    </div>
+    <div class="notes">
+      <article class="note"><h2>Auth boundary</h2><p>The name route validates the active roster case-insensitively, creates or recovers a hidden Supabase Auth identity, and returns a session.</p></article>
+      <article class="note"><h2>Scheduling boundary</h2><p>The engine, validator, fairness, cooldown, leader rotation, and replacement modules keep business rules separate from HTTP transport.</p></article>
+      <article class="note"><h2>Data maturity</h2><p>Core tables and RLS migrations exist. Several API routes still use mock data, so persistence is the next backend integration seam.</p></article>
+    </div>
+    <div class="foot">Evidence: src/app/api, src/lib/scheduling, src/lib/supabase/client.ts, supabase/migrations, AGENTS.md scheduling rules.</div>
+  </main>
+</body>
+</html>

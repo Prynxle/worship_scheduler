@@ -81,10 +81,8 @@ export function ScheduleCard({
             <div className="flex items-center gap-2">
               <Badge className={getStatusColor(status)}>{status}</Badge>
               <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <Button variant="ghost" size="icon">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
+                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                  <MoreVertical className="h-4 w-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={onView}>

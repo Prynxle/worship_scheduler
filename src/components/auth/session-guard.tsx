@@ -25,6 +25,18 @@ export function SessionGuard({ children }: SessionGuardProps) {
           router.replace('/login');
           return;
         }
+        const response = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        });
+        if (!response.ok) {
+          router.replace('/login');
+          return;
+        }
+        const result = await response.json() as { user?: { role?: string } };
+        if (result.user?.role === 'member' && window.location.pathname !== '/member') {
+          router.replace('/member');
+          return;
+        }
         setIsChecking(false);
       } catch {
         if (cancelled) return;

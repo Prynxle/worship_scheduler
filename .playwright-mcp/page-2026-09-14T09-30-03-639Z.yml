@@ -1,0 +1,172 @@
+- generic [ref=f9e1]:
+  - button "Open Next.js Dev Tools" [ref=f9e7] [cursor=pointer]
+  - alert [ref=f9e11]
+  - generic [ref=f9e12]:
+    - complementary [ref=f9e14]:
+      - link "JOHIA Bankers Ministry operations" [ref=f9e15] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f9e23]:
+          - generic [ref=f9e24]: JOHIA Bankers
+          - generic [ref=f9e25]: Ministry operations
+      - navigation "Main navigation" [ref=f9e26]:
+        - generic [ref=f9e27]:
+          - paragraph [ref=f9e28]: Workspace
+          - link "Overview" [ref=f9e30] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Schedule" [ref=f9e38] [cursor=pointer]:
+            - /url: /schedule
+          - link "Members" [ref=f9e43] [cursor=pointer]:
+            - /url: /members
+          - link "Availability" [ref=f9e51] [cursor=pointer]:
+            - /url: /availability
+          - link "Ministries" [ref=f9e57] [cursor=pointer]:
+            - /url: /ministries
+        - generic [ref=f9e62]:
+          - paragraph [ref=f9e63]: Insights
+          - link "Analytics" [ref=f9e65] [cursor=pointer]:
+            - /url: /analytics
+          - link "Exports" [ref=f9e70] [cursor=pointer]:
+            - /url: /exports
+      - generic [ref=f9e75]:
+        - link "Settings" [ref=f9e76] [cursor=pointer]:
+          - /url: /settings
+        - button "Dev Mode" [ref=f9e80]
+        - generic [ref=f9e82]:
+          - generic [ref=f9e83]: JS
+          - generic [ref=f9e84]:
+            - paragraph [ref=f9e85]: John Smith
+            - paragraph [ref=f9e86]: Administrator
+        - button "Sign out" [ref=f9e87]
+    - generic [ref=f9e88]:
+      - banner [ref=f9e89]:
+        - generic [ref=f9e91]:
+          - generic [ref=f9e92]:
+            - generic [ref=f9e93]: Workspace
+            - generic [ref=f9e96]: members
+          - heading "Worship Scheduler" [level=1] [ref=f9e97]
+          - paragraph [ref=f9e98]: Manage your ministry schedules
+        - generic [ref=f9e99]:
+          - generic [ref=f9e100]:
+            - textbox "Search workspace" [ref=f9e101]
+            - generic: ⌘ K
+          - button "Notifications" [ref=f9e102]
+          - generic [ref=f9e105]:
+            - paragraph [ref=f9e106]: Sunday, August 2
+            - paragraph [ref=f9e107]: Planning season
+      - main [ref=f9e108]:
+        - generic [ref=f9e110]:
+          - generic [ref=f9e111]:
+            - generic [ref=f9e112]:
+              - heading "Members" [level=2] [ref=f9e113]
+              - paragraph [ref=f9e114]: Manage your ministry team members
+            - button "Add Member" [ref=f9e115]
+          - generic [ref=f9e116]:
+            - textbox "Search members..." [ref=f9e121]
+            - button "Filter" [ref=f9e122]
+            - button "5 Members" [ref=f9e123]
+          - generic [ref=f9e124]:
+            - tablist [ref=f9e125]:
+              - tab "All" [selected] [ref=f9e126]
+              - tab "Active" [ref=f9e127]
+              - tab "Inactive" [ref=f9e128]
+            - tabpanel "All" [ref=f9e129]:
+              - generic [ref=f9e130]:
+                - generic [ref=f9e135]:
+                  - generic [ref=f9e136]:
+                    - generic [ref=f9e137]:
+                      - generic [ref=f9e138]: H
+                      - generic [ref=f9e142]:
+                        - heading "Heidi" [level=3] [ref=f9e144]
+                        - generic [ref=f9e145]:
+                          - generic [ref=f9e146]: active
+                          - generic [ref=f9e147]: female
+                    - button [active] [ref=f9e148]
+                  - generic [ref=f9e149]:
+                    - generic [ref=f9e150]:
+                      - generic [ref=f9e151]: Roles
+                      - generic [ref=f9e152]:
+                        - generic [ref=f9e153]: Worship Leader
+                        - generic [ref=f9e154]: Singer
+                    - generic [ref=f9e155]: "Assignments: 2/3"
+                - generic [ref=f9e161]:
+                  - generic [ref=f9e162]:
+                    - generic [ref=f9e163]:
+                      - generic [ref=f9e164]: F
+                      - generic [ref=f9e168]:
+                        - generic [ref=f9e169]:
+                          - heading "Feng" [level=3] [ref=f9e170]
+                          - generic [ref=f9e171]: (Tapeng)
+                        - generic [ref=f9e172]:
+                          - generic [ref=f9e173]: active
+                          - generic [ref=f9e174]: male
+                    - button [ref=f9e175]
+                  - generic [ref=f9e176]:
+                    - generic [ref=f9e177]:
+                      - generic [ref=f9e178]: Roles
+                      - generic [ref=f9e179]:
+                        - generic [ref=f9e180]: Worship Leader
+                        - generic [ref=f9e181]: Singer
+                    - generic [ref=f9e182]:
+                      - generic [ref=f9e183]: Instruments
+                      - generic [ref=f9e184]: Guitar 1
+                    - generic [ref=f9e186]: "Assignments: 1/3"
+                - generic [ref=f9e192]:
+                  - generic [ref=f9e193]:
+                    - generic [ref=f9e194]:
+                      - generic [ref=f9e195]: Z
+                      - generic [ref=f9e199]:
+                        - generic [ref=f9e200]:
+                          - heading "Zedrick" [level=3] [ref=f9e201]
+                          - generic [ref=f9e202]: (Zed)
+                        - generic [ref=f9e203]:
+                          - generic [ref=f9e204]: active
+                          - generic [ref=f9e205]: male
+                    - button [ref=f9e206]
+                  - generic [ref=f9e207]:
+                    - generic [ref=f9e208]:
+                      - generic [ref=f9e209]: Roles
+                      - generic [ref=f9e210]: Instrumentalist
+                    - generic [ref=f9e212]:
+                      - generic [ref=f9e213]: Instruments
+                      - generic [ref=f9e214]:
+                        - generic [ref=f9e215]: Guitar 1
+                        - generic [ref=f9e216]: Piano
+                    - generic [ref=f9e217]: "Assignments: 3/3"
+                - generic [ref=f9e223]:
+                  - generic [ref=f9e224]:
+                    - generic [ref=f9e225]:
+                      - generic [ref=f9e226]: K
+                      - generic [ref=f9e230]:
+                        - heading "Kass" [level=3] [ref=f9e232]
+                        - generic [ref=f9e233]:
+                          - generic [ref=f9e234]: active
+                          - generic [ref=f9e235]: female
+                    - button [ref=f9e236]
+                  - generic [ref=f9e237]:
+                    - generic [ref=f9e238]:
+                      - generic [ref=f9e239]: Roles
+                      - generic [ref=f9e240]:
+                        - generic [ref=f9e241]: Instrumentalist
+                        - generic [ref=f9e242]: Devotion
+                    - generic [ref=f9e243]:
+                      - generic [ref=f9e244]: Instruments
+                      - generic [ref=f9e245]: Piano
+                    - generic [ref=f9e247]: "Assignments: 2/3"
+                - generic [ref=f9e253]:
+                  - generic [ref=f9e254]:
+                    - generic [ref=f9e255]:
+                      - generic [ref=f9e256]: S
+                      - generic [ref=f9e260]:
+                        - heading "Simone" [level=3] [ref=f9e262]
+                        - generic [ref=f9e263]:
+                          - generic [ref=f9e264]: active
+                          - generic [ref=f9e265]: female
+                    - button [ref=f9e266]
+                  - generic [ref=f9e267]:
+                    - generic [ref=f9e268]:
+                      - generic [ref=f9e269]: Roles
+                      - generic [ref=f9e270]: Instrumentalist
+                    - generic [ref=f9e272]:
+                      - generic [ref=f9e273]: Instruments
+                      - generic [ref=f9e274]: Drums
+                    - generic [ref=f9e276]: "Assignments: 4/4"

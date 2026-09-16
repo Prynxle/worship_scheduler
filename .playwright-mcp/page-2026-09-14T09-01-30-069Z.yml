@@ -1,0 +1,181 @@
+- generic [active] [ref=f6e1]:
+  - button "Open Next.js Dev Tools" [ref=f6e7] [cursor=pointer]
+  - alert [ref=f6e11]
+  - generic [ref=f6e42]:
+    - complementary [ref=f6e44]:
+      - link "JOHIA Bankers Ministry operations" [ref=f6e45] [cursor=pointer]:
+        - /url: /dashboard
+        - generic [ref=f6e53]:
+          - generic [ref=f6e54]: JOHIA Bankers
+          - generic [ref=f6e55]: Ministry operations
+      - navigation "Main navigation" [ref=f6e56]:
+        - generic [ref=f6e57]:
+          - paragraph [ref=f6e58]: Workspace
+          - link "Overview" [ref=f6e60] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Schedule" [ref=f6e69] [cursor=pointer]:
+            - /url: /schedule
+          - link "Members" [ref=f6e74] [cursor=pointer]:
+            - /url: /members
+          - link "Availability" [ref=f6e81] [cursor=pointer]:
+            - /url: /availability
+          - link "Ministries" [ref=f6e87] [cursor=pointer]:
+            - /url: /ministries
+        - generic [ref=f6e92]:
+          - paragraph [ref=f6e93]: Insights
+          - link "Analytics" [ref=f6e95] [cursor=pointer]:
+            - /url: /analytics
+          - link "Exports" [ref=f6e100] [cursor=pointer]:
+            - /url: /exports
+      - generic [ref=f6e105]:
+        - link "Settings" [ref=f6e106] [cursor=pointer]:
+          - /url: /settings
+        - button "Dev Mode" [ref=f6e110]
+        - generic [ref=f6e112]:
+          - generic [ref=f6e113]: JS
+          - generic [ref=f6e114]:
+            - paragraph [ref=f6e115]: John Smith
+            - paragraph [ref=f6e116]: Administrator
+        - button "Sign out" [ref=f6e117]
+    - generic [ref=f6e118]:
+      - banner [ref=f6e119]:
+        - generic [ref=f6e121]:
+          - generic [ref=f6e122]:
+            - generic [ref=f6e123]: Workspace
+            - generic [ref=f6e126]: dashboard
+          - heading "Worship Scheduler" [level=1] [ref=f6e127]
+          - paragraph [ref=f6e128]: Manage your ministry schedules
+        - generic [ref=f6e129]:
+          - generic [ref=f6e130]:
+            - textbox "Search workspace" [ref=f6e131]
+            - generic: ⌘ K
+          - button "Notifications" [ref=f6e132]
+          - generic [ref=f6e135]:
+            - paragraph [ref=f6e136]: Sunday, August 2
+            - paragraph [ref=f6e137]: Planning season
+      - main [ref=f6e138]:
+        - generic [ref=f6e140]:
+          - generic [ref=f6e142]:
+            - generic [ref=f6e143]:
+              - generic [ref=f6e144]: Sunday service planning
+              - heading "Good morning, John." [level=2] [ref=f6e148]
+              - paragraph [ref=f6e149]: Your ministry is on track. Review this month's coverage, resolve two conflicts, and keep every service validated.
+            - generic [ref=f6e150]:
+              - button "Refresh" [ref=f6e151]
+              - link "New schedule" [ref=f6e152] [cursor=pointer]:
+                - /url: /schedule
+          - generic [ref=f6e153]:
+            - generic [ref=f6e157]:
+              - generic [ref=f6e158]: Total Members
+              - generic [ref=f6e166]:
+                - generic [ref=f6e167]: "18"
+                - paragraph [ref=f6e168]: Active ministry members
+            - generic [ref=f6e172]:
+              - generic [ref=f6e173]: Upcoming Services
+              - generic [ref=f6e178]:
+                - generic [ref=f6e179]: "4"
+                - paragraph [ref=f6e180]: This month
+            - generic [ref=f6e184]:
+              - generic [ref=f6e185]: Pending Conflicts
+              - generic [ref=f6e190]:
+                - generic [ref=f6e191]: "2"
+                - paragraph [ref=f6e192]: Need attention
+            - generic [ref=f6e196]:
+              - generic [ref=f6e197]: Completed
+              - generic [ref=f6e203]:
+                - generic [ref=f6e204]: "12"
+                - paragraph [ref=f6e205]: Schedules published
+          - generic [ref=f6e206]:
+            - generic [ref=f6e207]:
+              - generic [ref=f6e208]: Upcoming Services
+              - generic [ref=f6e213]:
+                - generic [ref=f6e214]:
+                  - generic [ref=f6e215]:
+                    - generic [ref=f6e216]: "1"
+                    - generic [ref=f6e218]:
+                      - generic [ref=f6e219]: Heidi
+                      - generic [ref=f6e220]: Mon, Aug 3
+                  - generic [ref=f6e224]:
+                    - generic [ref=f6e225]:
+                      - generic [ref=f6e226]: "1"
+                      - generic [ref=f6e228]: "2"
+                      - generic [ref=f6e230]: "3"
+                    - generic [ref=f6e232]: published
+                - generic [ref=f6e233]:
+                  - generic [ref=f6e234]:
+                    - generic [ref=f6e235]: "2"
+                    - generic [ref=f6e237]:
+                      - generic [ref=f6e238]: Feng
+                      - generic [ref=f6e239]: Mon, Aug 10
+                  - generic [ref=f6e243]:
+                    - generic [ref=f6e244]:
+                      - generic [ref=f6e245]: "1"
+                      - generic [ref=f6e247]: "2"
+                      - generic [ref=f6e249]: "3"
+                    - generic [ref=f6e251]: validated
+                - generic [ref=f6e252]:
+                  - generic [ref=f6e253]:
+                    - generic [ref=f6e254]: "3"
+                    - generic [ref=f6e256]:
+                      - generic [ref=f6e257]: Shael
+                      - generic [ref=f6e258]: Mon, Aug 17
+                  - generic [ref=f6e262]:
+                    - generic [ref=f6e263]:
+                      - generic [ref=f6e264]: "1"
+                      - generic [ref=f6e266]: "2"
+                    - generic [ref=f6e268]: draft
+                - generic [ref=f6e269]:
+                  - generic [ref=f6e270]:
+                    - generic [ref=f6e271]: "4"
+                    - generic [ref=f6e273]:
+                      - generic [ref=f6e274]: Marlyn
+                      - generic [ref=f6e275]: Mon, Aug 24
+                  - generic [ref=f6e279]:
+                    - generic [ref=f6e280]:
+                      - generic [ref=f6e281]: "1"
+                      - generic [ref=f6e283]: "2"
+                      - generic [ref=f6e285]: "3"
+                    - generic [ref=f6e287]: draft
+            - generic [ref=f6e288]:
+              - generic [ref=f6e289]:
+                - generic [ref=f6e290]:
+                  - generic [ref=f6e291]: Validation pulse
+                  - paragraph [ref=f6e292]: Schedule health this month
+                - generic [ref=f6e293]: Healthy
+              - generic [ref=f6e295]:
+                - generic [ref=f6e297]:
+                  - paragraph [ref=f6e298]: 86%
+                  - paragraph [ref=f6e299]: of assignments validated
+                - generic [ref=f6e340]:
+                  - generic [ref=f6e341]: Week 1
+                  - generic [ref=f6e342]: Week 4
+          - generic [ref=f6e343]:
+            - generic [ref=f6e344]:
+              - generic [ref=f6e345]:
+                - generic [ref=f6e346]:
+                  - generic [ref=f6e347]: Recent activity
+                  - paragraph [ref=f6e348]: The latest changes across your workspace
+                - link "View all" [ref=f6e349] [cursor=pointer]:
+                  - /url: /analytics
+              - generic [ref=f6e350]:
+                - generic [ref=f6e351]:
+                  - generic [ref=f6e356]:
+                    - paragraph [ref=f6e357]: Schedule published
+                    - paragraph [ref=f6e358]: August week 1 is ready to share
+                  - generic [ref=f6e359]: 2h ago
+                - generic [ref=f6e360]:
+                  - generic [ref=f6e365]:
+                    - paragraph [ref=f6e366]: Availability updated
+                    - paragraph [ref=f6e367]: Heidi marked week 3 unavailable
+                  - generic [ref=f6e368]: 5h ago
+                - generic [ref=f6e369]:
+                  - generic [ref=f6e373]:
+                    - paragraph [ref=f6e374]: Conflict needs attention
+                    - paragraph [ref=f6e375]: Shael is over the monthly limit
+                  - generic [ref=f6e376]: Yesterday
+            - generic [ref=f6e378]:
+              - generic [ref=f6e379]:
+                - heading "Prepare the next service" [level=3] [ref=f6e383]
+                - paragraph [ref=f6e384]: Assign a leader, confirm three backups, and validate before publishing.
+              - link "Open schedule" [ref=f6e385] [cursor=pointer]:
+                - /url: /schedule
