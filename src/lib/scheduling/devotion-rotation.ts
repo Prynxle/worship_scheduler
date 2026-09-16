@@ -1,5 +1,8 @@
 import { DevotionSlot } from '../types/scheduling';
 import { Member, DevotionRotation as DevotionRotationRecord } from '../types/database';
+import { isWeeklyUnavailable } from './availability';
+
+const now = new Date();
 
 export class DevotionRotation {
   private church_id: string;
@@ -13,9 +16,11 @@ export class DevotionRotation {
   getNextDevotionMembers(
     members: Member[],
     weekNumber: number,
-    count: number = 4
+    count: number = 4,
+    month: number = now.getMonth(),
+    year: number = now.getFullYear()
   ): DevotionSlot[] {
-    const eligible = this.getEligibleMembers(members, weekNumber);
+    const eligible = this.getEligibleMembers(members, weekNumber, month, year);
     const sorted = this.sortByRotation(eligible);
 
     return sorted.slice(0, count).map((member, index) => ({
@@ -28,19 +33,21 @@ export class DevotionRotation {
     }));
   }
 
-  private getEligibleMembers(members: Member[], weekNumber: number): Member[] {
+  private getEligibleMembers(
+    members: Member[],
+    weekNumber: number,
+    month: number,
+    year: number
+  ): Member[] {
     return members.filter((member) => {
       if (member.status !== 'active') return false;
 
       const hasDevotionRole = member.roles?.some((r) => r.role?.name === 'Devotion');
       if (!hasDevotionRole) return false;
 
-      const isUnavailable = member.availability?.some((a) => {
-        if (a.type === 'weekly' && a.week_number === weekNumber) {
-          return true;
-        }
-        return false;
-      });
+      const isUnavailable = member.availability?.some((a) =>
+        isWeeklyUnavailable(a, weekNumber, month, year)
+      );
       if (isUnavailable) return false;
 
       return true;

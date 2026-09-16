@@ -3,6 +3,7 @@ import {
   ValidationResult,
 } from '../types/scheduling';
 import { Member, ScheduleAssignment } from '../types/database';
+import { isWeeklyUnavailable } from './availability';
 
 export class ScheduleValidator {
   private context: ScheduleContext;
@@ -35,7 +36,7 @@ export class ScheduleValidator {
       if (!member) continue;
 
       const isUnavailable = member.availability?.some((a) => {
-        if (a.type === 'weekly' && a.week_number === this.context.service.week_number) {
+        if (isWeeklyUnavailable(a, this.context.service.week_number, this.context.service.month, this.context.service.year)) {
           return true;
         }
         if (a.type === 'date' && a.date) {
