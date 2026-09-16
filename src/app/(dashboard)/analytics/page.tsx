@@ -33,7 +33,7 @@ const mockHeatmapData = [
   { week_number: 1, unavailable_count: 3, unavailable_members: ['Shael', 'Sam', 'Pia'] },
   { week_number: 2, unavailable_count: 2, unavailable_members: ['Heidi', 'Beng'] },
   { week_number: 3, unavailable_count: 1, unavailable_members: ['Feng'] },
-  { week_number: 4, unavailable_count: 4, unavailable_members: ['Shael', 'Marlyn', 'Sam', 'Matt'] },
+  { week_number: 4, unavailable_count: 4, unavailable_members: ['Shael', 'Marlyn', 'Sam', 'Mat'] },
 ];
 
 export default function AnalyticsPage() {

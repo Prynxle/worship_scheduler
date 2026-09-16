@@ -1,22 +1,46 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Church, KeyRound, Loader2, UsersRound } from 'lucide-react';
+import { ArrowRight, Church, Loader2, ShieldCheck, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabase/client';
 
+const LOGIN_MODES = [
+  { id: 'member', label: 'Member' },
+  { id: 'coordinator', label: 'Coordinator' },
+] as const;
+
+type LoginMode = (typeof LOGIN_MODES)[number]['id'];
+
 export default function LoginPage() {
   const router = useRouter();
+  const [loginMode, setLoginMode] = useState<LoginMode>('member');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [isAdminMode, setIsAdminMode] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  function changeMode(next: LoginMode) {
+    setLoginMode(next);
+    setError('');
+  }
+
+  // Arrow-key switching between Member and Coordinator tabs, per the tab
+  // pattern: ArrowRight moves forward, ArrowLeft moves back (wrapping).
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const currentIndex = LOGIN_MODES.findIndex((mode) => mode.id === loginMode);
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const next = LOGIN_MODES[(currentIndex + direction + LOGIN_MODES.length) % LOGIN_MODES.length].id;
+    changeMode(next);
+    requestAnimationFrame(() => document.getElementById(`login-tab-${next}`)?.focus());
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,19 +48,24 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(isAdminMode ? '/api/auth/admin' : '/api/auth/name', {
+      const payload = loginMode === 'coordinator'
+        ? { username, password }
+        : { name };
+
+      const response = await fetch('/api/auth/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isAdminMode ? { username, password } : { name }),
+        body: JSON.stringify(payload),
       });
       const result = await response.json() as {
         error?: string;
+        role?: string;
         access_token?: string;
         refresh_token?: string;
       };
 
       if (!response.ok || !result.access_token || !result.refresh_token) {
-        setError(result.error ?? 'We could not sign you in.');
+        setError(result.error ?? (loginMode === 'coordinator' ? 'Invalid username or password' : 'We could not sign you in.'));
         return;
       }
 
@@ -49,7 +78,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push(isAdminMode ? '/dashboard' : '/member');
+      router.push(result.role && result.role !== 'member' ? '/dashboard' : '/member');
       router.refresh();
     } catch {
       setError('We could not reach the sign-in service. Please try again.');
@@ -57,6 +86,11 @@ export default function LoginPage() {
       setIsLoading(false);
     }
   }
+
+  const isCoordinator = loginMode === 'coordinator';
+  const canSubmit = isCoordinator
+    ? Boolean(username.trim() && password)
+    : Boolean(name.trim());
 
   return (
     <main className="relative flex min-h-screen overflow-hidden bg-[#11100e] text-[#f5efe4]">
@@ -98,48 +132,120 @@ export default function LoginPage() {
               <span className="text-xs uppercase tracking-[0.24em] text-[#d8b477]">JOHIA</span>
             </div>
             <p className="mb-3 text-xs uppercase tracking-[0.3em] text-[#d8b477]">Welcome in</p>
-            <CardTitle className="font-display text-4xl tracking-[-0.04em] text-[#f6ead6]">
-              {isAdminMode ? 'Admin sign in' : 'What should we call you?'}
-            </CardTitle>
-            <CardDescription className="pt-2 text-[#b9aa96]">
-              {isAdminMode ? 'Use your administrator credentials.' : 'Use the name on the worship roster.'}
-            </CardDescription>
+            {isCoordinator ? (
+              <>
+                <CardTitle className="font-display text-4xl tracking-[-0.04em] text-[#f6ead6]">Coordinator sign-in</CardTitle>
+                <CardDescription className="pt-2 text-[#b9aa96]">Use your coordinator username and password.</CardDescription>
+              </>
+            ) : (
+              <>
+                <CardTitle className="font-display text-4xl tracking-[-0.04em] text-[#f6ead6]">What should we call you?</CardTitle>
+                <CardDescription className="pt-2 text-[#b9aa96]">Use the name on the active member list.</CardDescription>
+              </>
+            )}
+
+            <div
+              role="tablist"
+              aria-label="Sign-in type"
+              className="mt-7 grid grid-cols-2 rounded-lg border border-white/10 bg-black/20 p-1"
+            >
+              {LOGIN_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  id={`login-tab-${mode.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={loginMode === mode.id}
+                  aria-controls={`login-panel-${mode.id}`}
+                  tabIndex={loginMode === mode.id ? 0 : -1}
+                  onClick={() => changeMode(mode.id)}
+                  onKeyDown={handleTabKeyDown}
+                  className={`h-9 rounded-md text-sm font-medium transition-colors ${
+                    loginMode === mode.id
+                      ? 'bg-[#d8b477] text-[#211a13]'
+                      : 'text-[#b9aa96] hover:text-[#f6ead6]'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </CardHeader>
+
           <CardContent className="px-7 pb-8 sm:px-9 sm:pb-10">
             <form className="space-y-5" onSubmit={handleSubmit}>
-              {isAdminMode ? (
-                <>
+              {isCoordinator ? (
+                <div
+                  id="login-panel-coordinator"
+                  role="tabpanel"
+                  aria-labelledby="login-tab-coordinator"
+                  className="space-y-4"
+                >
                   <div className="space-y-2">
                     <Label className="text-[#d4c7b5]" htmlFor="username">Username</Label>
-                    <Input id="username" autoComplete="username" autoFocus value={username} onChange={(event) => setUsername(event.target.value)} className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6]" required />
+                    <Input
+                      id="username"
+                      autoComplete="username"
+                      autoFocus
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder="e.g. coordzed"
+                      className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[#d4c7b5]" htmlFor="password">Password</Label>
-                    <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6]" required />
+                    <Input
+                      id="password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Your password"
+                      className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30"
+                      required
+                    />
                   </div>
-                </>
+                </div>
               ) : (
-                <div className="space-y-2">
+                <div
+                  id="login-panel-member"
+                  role="tabpanel"
+                  aria-labelledby="login-tab-member"
+                  className="space-y-2"
+                >
                   <Label className="text-[#d4c7b5]" htmlFor="name">Your name</Label>
-                  <Input id="name" autoComplete="name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Zedrick" className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30" required />
+                  <Input
+                    id="name"
+                    autoComplete="name"
+                    autoFocus
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. Zedrick"
+                    className="h-12 border-white/10 bg-black/20 text-base text-[#f6ead6] placeholder:text-[#8f8171] focus-visible:border-[#d8b477] focus-visible:ring-[#d8b477]/30"
+                    required
+                  />
                 </div>
               )}
+
               {error ? <p className="text-sm text-red-300" role="alert">{error}</p> : null}
+
               <Button
                 type="submit"
-                disabled={isLoading || (isAdminMode ? !username.trim() || !password : !name.trim())}
+                disabled={isLoading || !canSubmit}
                 className="h-12 w-full bg-[#d8b477] text-[#211a13] hover:bg-[#edcc91]"
               >
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
-                {isLoading ? 'Signing in…' : isAdminMode ? 'Open dashboard' : 'Enter workspace'}
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isCoordinator ? <ShieldCheck className="mr-2 h-4 w-4" /> : <ArrowRight className="mr-2 h-4 w-4" />}
+                {isLoading
+                  ? (isCoordinator ? 'Signing in…' : 'Checking the members…')
+                  : (isCoordinator ? 'Sign in' : 'Enter workspace')}
               </Button>
             </form>
-            <button type="button" className="mt-5 flex w-full items-center justify-center gap-2 text-sm text-[#d8b477] hover:underline" onClick={() => { setIsAdminMode((value) => !value); setError(''); }}>
-              <KeyRound className="h-4 w-4" />
-              {isAdminMode ? 'Use roster name instead' : 'Admin login'}
-            </button>
             <p className="mt-6 text-center text-xs leading-5 text-[#8f8171]">
-              Names are matched without regard to capitalization.
+              {isCoordinator
+                ? 'Coordinator access is limited to the church leadership team.'
+                : 'Names are matched without regard to capitalization.'}
             </p>
           </CardContent>
         </Card>

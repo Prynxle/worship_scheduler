@@ -39,7 +39,7 @@ const mockMembers: Member[] = [
   {
     id: '3',
     church_id: 'church-1',
-    full_name: 'Caleb M.',
+    full_name: 'Caleb',
     status: 'active',
     max_monthly_assignments: 3,
     priority_score: 60,
