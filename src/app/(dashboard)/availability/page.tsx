@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AvailabilityCalendar } from '@/components/members/availability-calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,26 +43,55 @@ export default function AvailabilityPage() {
     void loadMembers();
   }, []);
 
+  const loadAvailability = useCallback(async () => {
+    if (!selectedMember) {
+      return;
+    }
+    const headers = await getAuthHeaders();
+    if (!headers) {
+      setError('Your session has expired. Please sign in again.');
+      return;
+    }
+    const response = await fetch(`/api/availability?member_id=${encodeURIComponent(selectedMember)}`, { headers });
+    if (!response.ok) {
+      setError('Could not load availability for this member.');
+      return;
+    }
+    const result = await response.json() as { availabilities: Availability[] };
+    setAvailabilities(result.availabilities);
+  }, [selectedMember]);
+
+  useEffect(() => {
+    const refresh = async () => {
+      await loadAvailability();
+    };
+    void refresh();
+  }, [loadAvailability]);
+
   useEffect(() => {
     if (!selectedMember) {
       return;
     }
-    async function loadAvailability() {
-      const headers = await getAuthHeaders();
-      if (!headers) {
-        setError('Your session has expired. Please sign in again.');
-        return;
-      }
-      const response = await fetch(`/api/availability?member_id=${encodeURIComponent(selectedMember)}`, { headers });
-      if (!response.ok) {
-        setError('Could not load availability for this member.');
-        return;
-      }
-      const result = await response.json() as { availabilities: Availability[] };
-      setAvailabilities(result.availabilities);
-    }
-    void loadAvailability();
-  }, [selectedMember]);
+    const supabase = getSupabaseClient();
+    const channel = supabase
+      .channel(`availability-changes-${selectedMember}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'availability',
+          filter: `member_id=eq.${selectedMember}`,
+        },
+        () => {
+          void loadAvailability();
+        }
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [selectedMember, loadAvailability]);
 
   const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
 
@@ -98,7 +127,9 @@ export default function AvailabilityPage() {
       <div className="flex items-center gap-3">
         <Select value={selectedMember} onValueChange={(value) => value && setSelectedMember(value)}>
           <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Select member" />
+            <SelectValue placeholder="Select member">
+              {(value: string) => members.find((member) => member.id === value)?.full_name ?? 'Select member'}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {members.map((member) => (
