@@ -65,6 +65,7 @@ export interface User {
   id: string;
   auth_id?: string;
   email: string;
+  username?: string | null;
   full_name: string;
   role: 'admin' | 'coordinator' | 'member';
   is_active: boolean;

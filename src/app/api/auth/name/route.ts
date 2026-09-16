@@ -2,6 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/api/rate-limit';
 import { getAdminClient } from '@/lib/auth/server';
+import {
+  getStaffAuthEmail,
+  getStaffConfiguredPassword,
+  normalizeStaffUsername,
+} from '@/lib/auth/staff-login';
 
 type MemberRecord = {
   id: string;
@@ -11,6 +16,162 @@ type MemberRecord = {
   login_name: string;
   status: 'active' | 'inactive';
 };
+
+type StaffUserRecord = {
+  id: string;
+  auth_id: string | null;
+  role: 'admin' | 'coordinator';
+  full_name: string;
+};
+
+/**
+ * Staff (coordinator/admin) login path. Mirrors the member path's response
+ * shape: `{ access_token, refresh_token, role, member: {...} }` where `member`
+ * carries the staff identity so the client can distinguish roles.
+ *
+ * Security notes:
+ *  - Usernames are resolved from the DB (users.username) and church-scoped to
+ *    'JOHIA Bankers'; active status and role are enforced server-side.
+ *  - When no Supabase Auth identity exists yet (users.auth_id IS NULL), the
+ *    configured password must match BEFORE an identity is created; a wrong
+ *    first login never provisions an account (prevents identity hijacking).
+ *  - A referenced auth identity that no longer exists fails closed with a
+ *    console.warn so operators can detect orphaned staff rows.
+ */
+async function handleStaffLogin(
+  admin: ReturnType<typeof getAdminClient>,
+  rawUsername: string,
+  password: string,
+) {
+  const username = normalizeStaffUsername(rawUsername);
+
+  if (!username || username.length > 100) {
+    return NextResponse.json({ error: 'Enter your username and password to continue.' }, { status: 400 });
+  }
+  if (!password || password.length > 200) {
+    return NextResponse.json({ error: 'Enter your username and password to continue.' }, { status: 400 });
+  }
+
+  const { data: church } = await admin
+    .from('churches')
+    .select('id')
+    .eq('name', 'JOHIA Bankers')
+    .maybeSingle<{ id: string }>();
+  if (!church) {
+    console.error('Staff login church lookup failed: JOHIA Bankers not found');
+    return NextResponse.json({ error: 'Invalid username or password.' }, { status: 401 });
+  }
+
+  const { data: staffUser, error: staffError } = await admin
+    .from('users')
+    .select('id, auth_id, role, full_name')
+    .eq('username', username)
+    .eq('is_active', true)
+    .in('role', ['admin', 'coordinator'])
+    .eq('church_id', church.id)
+    .maybeSingle<StaffUserRecord>();
+
+  if (staffError) {
+    console.error('Staff login user lookup failed:', staffError);
+    return NextResponse.json({ error: 'We could not check your credentials right now.' }, { status: 500 });
+  }
+  if (!staffUser) {
+    return NextResponse.json({ error: 'Invalid username or password.' }, { status: 401 });
+  }
+
+  const configuredPassword = getStaffConfiguredPassword(username);
+  let authId = staffUser.auth_id;
+
+  if (!authId) {
+    // Lazy provisioning: the identity does not exist yet. Reject unless the
+    // provided password matches the configured one exactly, so a wrong first
+    // login never creates an account.
+    if (!configuredPassword || password !== configuredPassword) {
+      return NextResponse.json({ error: 'Invalid username or password.' }, { status: 401 });
+    }
+
+    const authEmail = getStaffAuthEmail(username);
+    const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+      email: authEmail,
+      password: configuredPassword,
+      email_confirm: true,
+      user_metadata: { staff_username: username },
+    });
+
+    let authUser = createdUser?.user ?? null;
+    let createdAuthUser = false;
+    if (createError && !authUser) {
+      // A previous interrupted attempt may have created the Auth user but
+      // failed before linking it to public.users.
+      const { data: listedUsers, error: listError } = await admin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
+      authUser = listedUsers.users.find((user) => user.email === authEmail) ?? null;
+      if (listError || !authUser) {
+        console.error('Staff login auth user recovery failed:', createError, listError);
+        return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
+      }
+    }
+
+    if (!authUser) {
+      console.error('Staff login auth user creation failed:', createError);
+      return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
+    }
+
+    authId = authUser.id;
+    createdAuthUser = !createError;
+
+    const { error: passwordError } = await admin.auth.admin.updateUserById(authId, {
+      password: configuredPassword,
+    });
+    if (passwordError) {
+      console.error('Staff login auth user password update failed:', passwordError);
+      return NextResponse.json({ error: 'We could not start your session.' }, { status: 500 });
+    }
+
+    const { error: linkError } = await admin
+      .from('users')
+      .update({ auth_id: authId })
+      .eq('id', staffUser.id);
+    if (linkError) {
+      console.error('Staff login auth link failed:', linkError);
+      if (createdAuthUser) await admin.auth.admin.deleteUser(authId);
+      return NextResponse.json({ error: 'We could not finish your account setup.' }, { status: 500 });
+    }
+  } else {
+    // Identity already linked: verify it still exists in Supabase Auth.
+    const { data: authLookup, error: authLookupError } = await admin.auth.admin.getUserById(authId);
+    if (authLookupError || !authLookup?.user) {
+      console.warn('Staff login referenced a missing auth identity', {
+        staff_user_id: staffUser.id,
+        username,
+      });
+      return NextResponse.json({ error: 'Invalid username or password.' }, { status: 401 });
+    }
+  }
+
+  const { data: sessionData, error: sessionError } = await admin.auth.signInWithPassword({
+    email: getStaffAuthEmail(username),
+    password,
+  });
+  if (sessionError || !sessionData.session) {
+    console.warn('Staff login session rejected', { username });
+    return NextResponse.json({ error: 'Invalid username or password.' }, { status: 401 });
+  }
+
+  return NextResponse.json({
+    access_token: sessionData.session.access_token,
+    refresh_token: sessionData.session.refresh_token,
+    role: staffUser.role,
+    member: {
+      id: staffUser.id,
+      username,
+      role: staffUser.role,
+      full_name: staffUser.full_name,
+    },
+  });
+}
 
 export async function POST(request: Request) {
   // Rate limit BEFORE reading the body and BEFORE the try/catch below: the
@@ -30,7 +191,19 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { name?: unknown };
+    const body = (await request.json()) as {
+      name?: unknown;
+      username?: unknown;
+      password?: unknown;
+    };
+
+    // Staff (coordinator/admin) path: username + password credentials.
+    // This keeps the same rate-limit key, error conventions, and token
+    // response shape as the member path below.
+    if (typeof body.username === 'string' && typeof body.password === 'string') {
+      return await handleStaffLogin(getAdminClient(), body.username, body.password);
+    }
+
     const loginName = typeof body.name === 'string'
       ? body.name.trim().toLocaleLowerCase()
       : '';
