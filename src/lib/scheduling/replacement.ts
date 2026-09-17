@@ -3,6 +3,7 @@ import {
   ReplacementSuggestion,
 } from '../types/scheduling';
 import { Member, Role, Instrument } from '../types/database';
+import { isWeeklyUnavailable } from './availability';
 
 export class ReplacementEngine {
   private context: ScheduleContext;
@@ -36,7 +37,7 @@ export class ReplacementEngine {
       if (member.status !== 'active') return false;
 
       const isUnavailable = member.availability?.some((a) => {
-        if (a.type === 'weekly' && a.week_number === this.context.service.week_number) {
+        if (isWeeklyUnavailable(a, this.context.service.week_number, this.context.service.month, this.context.service.year)) {
           return true;
         }
         if (a.type === 'date' && a.date) {

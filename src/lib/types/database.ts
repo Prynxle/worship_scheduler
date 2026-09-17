@@ -65,6 +65,7 @@ export interface User {
   id: string;
   auth_id?: string;
   email: string;
+  username?: string | null;
   full_name: string;
   role: 'admin' | 'coordinator' | 'member';
   is_active: boolean;
@@ -134,6 +135,8 @@ export interface Availability {
   church_id: string;
   type: 'weekly' | 'date' | 'vacation' | 'temporary_leave' | 'emergency_leave' | 'recurring';
   week_number?: number;
+  month?: number;
+  year?: number;
   date?: string;
   end_date?: string;
   reason?: string;

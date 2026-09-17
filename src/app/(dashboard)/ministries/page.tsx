@@ -148,7 +148,7 @@ export default function MinistriesPage() {
               { name: 'Guitar 1', required: true, members: 'Zedrick, Ivan, Pia' },
               { name: 'Guitar 2', required: false, members: 'Kai, Pia' },
               { name: 'Drums', required: true, members: 'Simone' },
-              { name: 'Bass', required: true, members: 'Matt, Caleb O., Dhon' },
+              { name: 'Bass', required: true, members: 'Mat, Caleb, Dhon' },
             ].map((instrument) => (
               <div
                 key={instrument.name}

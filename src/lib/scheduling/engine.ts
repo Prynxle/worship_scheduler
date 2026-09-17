@@ -7,6 +7,7 @@ import {
   InstrumentAssignment,
 } from '../types/scheduling';
 import { Member, Role, Service, ScheduleAssignment } from '../types/database';
+import { isWeeklyUnavailable } from './availability';
 
 export class SchedulingEngine {
   private context: ScheduleContext;
@@ -59,8 +60,8 @@ export class SchedulingEngine {
     return this.context.available_members.filter((member) => {
       if (member.status !== 'active') return false;
 
-      const hasUnavailableWeek = member.availability?.some(
-        (a) => a.type === 'weekly' && a.week_number === weekNumber
+      const hasUnavailableWeek = member.availability?.some((a) =>
+        isWeeklyUnavailable(a, weekNumber, this.context.month, this.context.year)
       );
       if (hasUnavailableWeek) return false;
 
