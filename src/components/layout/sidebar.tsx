@@ -7,6 +7,7 @@ import { motion, MotionConfig } from 'motion/react';
 import {
   BarChart3,
   CalendarDays,
+  CalendarPlus2,
   Church,
   Clock3,
   Download,
@@ -107,6 +108,21 @@ export function Sidebar() {
 
         <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
           {!isStaff ? <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link> : null}
+          {isStaff ? (
+            <Link
+              href="/events"
+              className={cn(
+                'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                pathname === '/events' || pathname.startsWith('/events/')
+                  ? 'bg-primary/[0.11] font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+              )}
+            >
+              {(pathname === '/events' || pathname.startsWith('/events/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
+              <CalendarPlus2 className="size-[18px] text-muted-foreground group-hover:text-primary" />
+              <span>Events</span>
+            </Link>
+          ) : null}
           {isStaff ? navigationGroups.map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
               <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/65">{group.label}</p>
