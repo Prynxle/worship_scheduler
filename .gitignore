@@ -46,3 +46,4 @@ supabase/.temp/
 *.tsbuildinfo
 next-env.d.ts
 zed/
+opencode.json
