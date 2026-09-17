@@ -1,4 +1,4 @@
-import { format, startOfMonth, endOfMonth, eachWeekOfInterval, getWeekOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks, isWithinInterval } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachWeekOfInterval, startOfWeek, addWeeks, addDays, isWithinInterval } from 'date-fns';
 
 export function getWeekNumber(date: Date): number {
   const monthStart = startOfMonth(date);
@@ -22,6 +22,31 @@ export function getWeekDate(weekNumber: number, month: number, year: number): Da
   return addWeeks(firstMonday, weekNumber - 1);
 }
 
+/** Monday-to-Sunday range for a week of the given month (month is 0-based). */
+export function getWeekDateRange(
+  weekNumber: number,
+  month: number,
+  year: number
+): { start: Date; end: Date } {
+  const start = getWeekDate(weekNumber, month, year);
+  return { start, end: addDays(start, 6) };
+}
+
+/**
+ * Valid week numbers (1..getWeeksInMonth) for a month, excluding weeks that
+ * have fully passed. A week stays requestable through its final day, matching
+ * the calendar's "(past)" dimming rule.
+ */
+export function getAvailableWeeks(month: number, year: number, now: Date = new Date()): number[] {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const weeks: number[] = [];
+  for (let weekNumber = 1; weekNumber <= getWeeksInMonth(month, year); weekNumber++) {
+    const range = getWeekDateRange(weekNumber, month, year);
+    if (range.end.getTime() >= today) weeks.push(weekNumber);
+  }
+  return weeks;
+}
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   return format(d, 'MMM dd, yyyy');
@@ -39,6 +64,26 @@ export function isDateInRange(date: Date, startDate: Date, endDate: Date): boole
 export function getMonthName(month: number): string {
   const date = new Date(2024, month, 1);
   return format(date, 'MMMM');
+}
+
+/**
+ * Current week of the month (1-5) using the database's "first Sunday" semantics,
+ * matching `get_week_number` in the functions/triggers migration. Dates before the
+ * month's first Sunday are treated as week 1 so a request for the current week is
+ * still allowed.
+ */
+export function getCurrentWeekNumber(now: Date = new Date()): number {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const firstDayDow = firstDay.getDay();
+  const firstSunday =
+    firstDayDow === 0 ? firstDay : new Date(year, month, 1 + (7 - firstDayDow));
+
+  if (now.getTime() < firstSunday.getTime()) return 1;
+
+  const daysBetween = Math.floor((now.getTime() - firstSunday.getTime()) / 86_400_000);
+  return Math.floor(daysBetween / 7) + 1;
 }
 
 export function getCurrentMonth(): { month: number; year: number } {

@@ -93,6 +93,29 @@ export default function AvailabilityPage() {
     };
   }, [selectedMember, loadAvailability]);
 
+  const reviewRequest = useCallback(
+    async (id: string, status: 'approved' | 'rejected') => {
+      const headers = await getAuthHeaders();
+      if (!headers) {
+        setError('Your session has expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/availability', {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      if (response.ok) {
+        setAvailabilities((current) =>
+          current.map((item) => (item.id === id ? { ...item, status } : item))
+        );
+      } else {
+        setError('Could not update that request.');
+      }
+    },
+    []
+  );
+
   const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
 
   const handlePreviousMonth = () => {
@@ -160,60 +183,63 @@ export default function AvailabilityPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {availabilities.map((availability) => {
-              return (
-                <div
-                  key={availability.id}
-                  className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
-                >
-                  <div>
-                    <div className="font-medium text-foreground">{selectedMemberName}</div>
-                    <div className="text-sm text-muted-foreground">
-                      Week {availability.week_number} - {availability.type}
+            {availabilities.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No unavailability requests yet.</p>
+            ) : (
+              availabilities.map((availability) => {
+                return (
+                  <div
+                    key={availability.id}
+                    className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
+                  >
+                    <div>
+                      <div className="font-medium text-foreground">{selectedMemberName}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {availability.type === 'weekly'
+                          ? `Week ${availability.week_number}${
+                              availability.month !== undefined && availability.year !== undefined
+                                ? ` · ${new Date(availability.year, availability.month).toLocaleString('en-US', { month: 'long' })} ${availability.year}`
+                                : ''
+                            }`
+                          : availability.type}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                          availability.status === 'approved'
+                            ? 'bg-primary/15 text-primary'
+                            : availability.status === 'rejected'
+                            ? 'bg-destructive/15 text-destructive'
+                            : 'bg-[oklch(0.70_0.08_80)]/15 text-[oklch(0.70_0.08_80)]'
+                        }`}
+                      >
+                        {availability.status}
+                      </span>
+                      {availability.status === 'pending' ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => reviewRequest(availability.id, 'approved')}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => reviewRequest(availability.id, 'rejected')}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                        availability.status === 'approved'
-                          ? 'bg-primary/15 text-primary'
-                          : availability.status === 'rejected'
-                          ? 'bg-destructive/15 text-destructive'
-                          : 'bg-[oklch(0.70_0.08_80)]/15 text-[oklch(0.70_0.08_80)]'
-                      }`}
-                    >
-                      {availability.status}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={availability.status !== 'pending'}
-                      onClick={async () => {
-                        const headers = await getAuthHeaders();
-                        if (!headers) {
-                          setError('Your session has expired. Please sign in again.');
-                          return;
-                        }
-                        const response = await fetch('/api/availability', {
-                          method: 'PUT',
-                          headers: { ...headers, 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ id: availability.id, status: 'approved' }),
-                        });
-                        if (response.ok) {
-                          setAvailabilities((current) =>
-                            current.map((item) =>
-                              item.id === availability.id ? { ...item, status: 'approved' } : item
-                            )
-                          );
-                        }
-                      }}
-                    >
-                      {availability.status === 'pending' ? 'Approve' : 'Reviewed'}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </CardContent>
       </Card>

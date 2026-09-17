@@ -135,6 +135,8 @@ export interface Availability {
   church_id: string;
   type: 'weekly' | 'date' | 'vacation' | 'temporary_leave' | 'emergency_leave' | 'recurring';
   week_number?: number;
+  month?: number;
+  year?: number;
   date?: string;
   end_date?: string;
   reason?: string;

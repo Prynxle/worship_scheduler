@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Availability } from '@/lib/types/database';
+import { getWeekDateRange, getWeeksInMonth } from '@/lib/utils/date-utils';
+import { cn } from '@/lib/utils';
 
 interface AvailabilityCalendarProps {
   memberName: string;
@@ -29,26 +31,25 @@ export function AvailabilityCalendar({
     month: 'long',
   });
 
-  const weeksInMonth = 4;
+  const weeksInMonth = getWeeksInMonth(currentMonth, currentYear);
   const weekNumbers = Array.from({ length: weeksInMonth }, (_, i) => i + 1);
 
   const getWeekAvailability = (weekNumber: number) => {
     return availabilities.filter(
-      (a) => a.type === 'weekly' && a.week_number === weekNumber
+      (a) =>
+        a.type === 'weekly' &&
+        a.week_number === weekNumber &&
+        (a.month === undefined || a.month === currentMonth) &&
+        (a.year === undefined || a.year === currentYear)
     );
   };
 
-  const getWeekDateRange = (weekNumber: number) => {
-    const firstDay = new Date(currentYear, currentMonth, 1);
-    const firstMonday = new Date(firstDay);
-    while (firstMonday.getDay() !== 1) {
-      firstMonday.setDate(firstMonday.getDate() + 1);
-    }
-    const start = new Date(firstMonday);
-    start.setDate(start.getDate() + (weekNumber - 1) * 7);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    return { start, end };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const isWeekPast = (weekNumber: number) => {
+    const { end } = getWeekDateRange(weekNumber, currentMonth, currentYear);
+    return end.getTime() < today.getTime();
   };
 
   const getStatusColor = (status: string) => {
@@ -96,16 +97,25 @@ export function AvailabilityCalendar({
 
           <div className="grid gap-3">
             {weekNumbers.map((weekNumber) => {
-              const { start, end } = getWeekDateRange(weekNumber);
-              const weekAvail = getWeekAvailability(weekNumber);
+              const { start, end } = getWeekDateRange(weekNumber, currentMonth, currentYear);
+              const weekAvail = getWeekAvailability(weekNumber).filter(
+                (a) => a.status !== 'rejected'
+              );
+              const past = isWeekPast(weekNumber);
 
               return (
                 <div
                   key={weekNumber}
-                  className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
+                  className={cn(
+                    'flex items-center justify-between rounded-lg border border-border p-4',
+                    past ? 'bg-muted/60 opacity-50' : 'hover-surface cursor-default'
+                  )}
                 >
                   <div>
-                    <div className="font-medium text-foreground">Week {weekNumber}</div>
+                    <div className="font-medium text-foreground">
+                      Week {weekNumber}
+                      {past ? ' (past)' : null}
+                    </div>
                     <div className="text-sm text-muted-foreground">
                       {start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
                       {end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
