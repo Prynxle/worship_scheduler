@@ -27,10 +27,9 @@ const getStatusClass = (status: string) => {
 const getMonthName = (month: number) =>
   new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' });
 
-const formatWeekRange = (weekNumber: number, month: number, year: number) => {
-  const range = getWeekDateRange(weekNumber, month, year);
-  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${fmt(range.start)} - ${fmt(range.end)}`;
+const formatWeekSunday = (weekNumber: number, month: number, year: number) => {
+  const start = getWeekDateRange(weekNumber, month, year).start;
+  return start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
 const getRequestLabel = (request: Availability) => {
@@ -188,13 +187,13 @@ export default function MemberPage() {
                 <Select value={week} onValueChange={(value) => value && setWeek(value)}>
                   <SelectTrigger id="week" className="w-full">
                     <SelectValue placeholder="Select week">
-                      {`WEEK ${week} ${formatWeekRange(Number(week), Number(month), year)}`}
+                      {`WEEK ${week} ${formatWeekSunday(Number(week), Number(month), year)}`}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {availableWeeks.map((weekNumber) => (
                       <SelectItem key={weekNumber} value={String(weekNumber)}>
-                        {`WEEK ${weekNumber} ${formatWeekRange(weekNumber, Number(month), year)}`}
+                        {`WEEK ${weekNumber} ${formatWeekSunday(weekNumber, Number(month), year)}`}
                       </SelectItem>
                     ))}
                   </SelectContent>
