@@ -48,8 +48,8 @@ export function AvailabilityCalendar({
   today.setHours(0, 0, 0, 0);
 
   const isWeekPast = (weekNumber: number) => {
-    const { end } = getWeekDateRange(weekNumber, currentMonth, currentYear);
-    return end.getTime() < today.getTime();
+    const { start } = getWeekDateRange(weekNumber, currentMonth, currentYear);
+    return start.getTime() < today.getTime();
   };
 
   const getStatusColor = (status: string) => {
@@ -97,7 +97,7 @@ export function AvailabilityCalendar({
 
           <div className="grid gap-3">
             {weekNumbers.map((weekNumber) => {
-              const { start, end } = getWeekDateRange(weekNumber, currentMonth, currentYear);
+              const { start } = getWeekDateRange(weekNumber, currentMonth, currentYear);
               const weekAvail = getWeekAvailability(weekNumber).filter(
                 (a) => a.status !== 'rejected'
               );
@@ -117,8 +117,7 @@ export function AvailabilityCalendar({
                       {past ? ' (past)' : null}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
-                      {end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

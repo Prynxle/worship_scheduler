@@ -1,28 +1,39 @@
-import { format, startOfMonth, endOfMonth, eachWeekOfInterval, startOfWeek, addWeeks, addDays, isWithinInterval } from 'date-fns';
+import { format, endOfMonth, eachWeekOfInterval, addWeeks, addDays, isWithinInterval } from 'date-fns';
 
-export function getWeekNumber(date: Date): number {
-  const monthStart = startOfMonth(date);
-  const firstMonday = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const diffDays = Math.floor((date.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.floor(diffDays / 7) + 1;
+/**
+ * First Sunday of a month (on or after the 1st), matching the database's
+ * `get_week_number` semantics. Weeks are anchored here so no week starts in
+ * the previous month.
+ */
+export function getFirstSunday(month: number, year: number): Date {
+  const monthStart = new Date(year, month, 1);
+  const dow = monthStart.getDay();
+  return dow === 0 ? monthStart : new Date(year, month, 1 + (7 - dow));
 }
 
+/** Week of the month for a date (1-based), 0 for days before the first Sunday. */
+export function getWeekNumber(date: Date): number {
+  const firstSunday = getFirstSunday(date.getMonth(), date.getFullYear());
+  const diffMs = date.getTime() - firstSunday.getTime();
+  if (diffMs < 0) return 0;
+  return Math.floor(diffMs / (7 * 86_400_000)) + 1;
+}
+
+/** Number of Sunday-anchored weeks that start within the month. */
 export function getWeeksInMonth(month: number, year: number): number {
-  const date = new Date(year, month, 1);
-  const monthStart = startOfMonth(date);
-  const monthEnd = endOfMonth(date);
-  const weeks = eachWeekOfInterval({ start: monthStart, end: monthEnd }, { weekStartsOn: 1 });
+  const firstSunday = getFirstSunday(month, year);
+  const monthEnd = endOfMonth(new Date(year, month, 1));
+  const weeks = eachWeekOfInterval({ start: firstSunday, end: monthEnd }, { weekStartsOn: 0 });
   return weeks.length;
 }
 
+/** Week 1 of the month starts on its first Sunday. */
 export function getWeekDate(weekNumber: number, month: number, year: number): Date {
-  const date = new Date(year, month, 1);
-  const monthStart = startOfMonth(date);
-  const firstMonday = startOfWeek(monthStart, { weekStartsOn: 1 });
-  return addWeeks(firstMonday, weekNumber - 1);
+  const firstSunday = getFirstSunday(month, year);
+  return addWeeks(firstSunday, weekNumber - 1);
 }
 
-/** Monday-to-Sunday range for a week of the given month (month is 0-based). */
+/** Sunday-to-Saturday range for a week of the given month (month is 0-based). */
 export function getWeekDateRange(
   weekNumber: number,
   month: number,
@@ -33,16 +44,15 @@ export function getWeekDateRange(
 }
 
 /**
- * Valid week numbers (1..getWeeksInMonth) for a month, excluding weeks that
- * have fully passed. A week stays requestable through its final day, matching
- * the calendar's "(past)" dimming rule.
+ * Valid week numbers (1..getWeeksInMonth) for a month, excluding weeks whose
+ * Sunday service has already passed. The week stays requestable on its Sunday.
  */
 export function getAvailableWeeks(month: number, year: number, now: Date = new Date()): number[] {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const weeks: number[] = [];
   for (let weekNumber = 1; weekNumber <= getWeeksInMonth(month, year); weekNumber++) {
     const range = getWeekDateRange(weekNumber, month, year);
-    if (range.end.getTime() >= today) weeks.push(weekNumber);
+    if (range.start.getTime() >= today) weeks.push(weekNumber);
   }
   return weeks;
 }
@@ -68,17 +78,12 @@ export function getMonthName(month: number): string {
 
 /**
  * Current week of the month (1-5) using the database's "first Sunday" semantics,
- * matching `get_week_number` in the functions/triggers migration. Dates before the
+ * matching `get_week_number` in the functions/triggers migration. Days before the
  * month's first Sunday are treated as week 1 so a request for the current week is
  * still allowed.
  */
 export function getCurrentWeekNumber(now: Date = new Date()): number {
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const firstDayDow = firstDay.getDay();
-  const firstSunday =
-    firstDayDow === 0 ? firstDay : new Date(year, month, 1 + (7 - firstDayDow));
+  const firstSunday = getFirstSunday(now.getMonth(), now.getFullYear());
 
   if (now.getTime() < firstSunday.getTime()) return 1;
 
