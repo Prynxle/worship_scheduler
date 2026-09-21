@@ -235,3 +235,21 @@ export interface Notification {
   is_read: boolean;
   created_at: string;
 }
+
+export type EventKind = 'Service' | 'Rehearsal' | 'Gathering';
+export type EventColor = 'primary' | 'sky' | 'violet';
+
+export interface ChurchEvent {
+  id: string;
+  church_id: string;
+  title: string;
+  date: string;
+  time?: string | null;
+  location?: string | null;
+  kind: EventKind;
+  color: EventColor;
+  attendees: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
