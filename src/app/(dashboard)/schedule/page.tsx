@@ -5,7 +5,8 @@ import { ScheduleCard } from '@/components/schedule/schedule-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Search, Filter, Calendar } from 'lucide-react';
+import { Plus, Search, Filter, Calendar, CalendarOff } from 'lucide-react';
+import { getSupabaseClient } from '@/lib/supabase/client';
 
 const mockSchedules = [
   {
@@ -96,6 +97,51 @@ const mockSchedules = [
 export default function SchedulePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState('');
+  const [error, setError] = useState('');
+
+  const handleMockUnavailability = async () => {
+    setLoading(true);
+    setResult('');
+    setError('');
+    try {
+      const session = (await getSupabaseClient().auth.getSession()).data.session;
+      if (!session) {
+        setError('Your session has expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/schedule/mock-unavailability', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ month: 9, year: 2026 }),
+      });
+      if (response.status === 401 || response.status === 403) {
+        setError('You do not have permission to add mock unavailability.');
+        return;
+      }
+      const payload = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+        added?: number;
+        skipped?: number;
+      };
+      if (!response.ok || !payload.success) {
+        setError(payload.error ?? 'Could not add mock unavailability.');
+        return;
+      }
+      setResult(
+        `Added ${payload.added ?? 0} mock unavailability records for October 2026 (skipped ${payload.skipped ?? 0}).`
+      );
+    } catch {
+      setError('Could not add mock unavailability.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredSchedules = mockSchedules.filter((schedule) => {
     const matchesSearch =
@@ -115,11 +161,20 @@ export default function SchedulePage() {
           <h2 className="text-2xl font-bold text-foreground">Schedule</h2>
           <p className="text-muted-foreground">Manage worship service schedules</p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-1" />
-          Generate Schedule
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleMockUnavailability} disabled={loading}>
+            <CalendarOff className="h-4 w-4 mr-1" />
+            Mock Unavailability
+          </Button>
+          <Button>
+            <Plus className="h-4 w-4 mr-1" />
+            Generate Schedule
+          </Button>
+        </div>
       </div>
+
+      {result ? <p role="status" className="text-sm text-muted-foreground">{result}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
