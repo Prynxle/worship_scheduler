@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaff } from '@/lib/auth/server';
 import { SchedulingEngine } from '@/lib/scheduling/engine';
-import { ScheduleValidator } from '@/lib/scheduling/validator';
-import { ScheduleContext } from '@/lib/types/scheduling';
+import { ScheduleContext, SchedulingFailureError } from '@/lib/types/scheduling';
 import { Member } from '@/lib/types/database';
 
 const mockMembers: Member[] = [
@@ -95,6 +94,7 @@ export async function POST(request: NextRequest) {
     month,
     year,
     week_number: week_numbers?.[0] || 1,
+    week_numbers: Array.isArray(week_numbers) && week_numbers.length > 0 ? week_numbers : undefined,
     existing_assignments: [],
     available_members: churchMembers,
     all_members: churchMembers,
@@ -107,15 +107,18 @@ export async function POST(request: NextRequest) {
   };
 
   const engine = new SchedulingEngine(context);
-  const generatedServices = await engine.generateSchedule();
-
-  const validator = new ScheduleValidator(context);
-  const validationResults = await validator.validate();
-
-  return NextResponse.json({
-    services: generatedServices,
-    validation: validationResults,
-  });
+  try {
+    const generatedServices = await engine.generateSchedule();
+    return NextResponse.json({
+      services: generatedServices,
+      validation: generatedServices.flatMap((service) => service.conflicts),
+    });
+  } catch (error) {
+    if (error instanceof SchedulingFailureError) {
+      return NextResponse.json({ services: [], validation: [], failures: error.failures }, { status: 422 });
+    }
+    throw error;
+  }
 }
 
 function generateMockServices(month: number, year: number, churchId: string) {

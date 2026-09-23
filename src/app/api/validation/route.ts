@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaff } from '@/lib/auth/server';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
-import { ScheduleContext, ValidationResult } from '@/lib/types/scheduling';
+import { ScheduleContext } from '@/lib/types/scheduling';
 import { Member, ScheduleAssignment } from '@/lib/types/database';
 
 const mockMembers: Member[] = [
