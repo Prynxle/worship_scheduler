@@ -30,7 +30,9 @@ export async function POST(request: NextRequest) {
       week_number !== undefined && month !== undefined && year !== undefined
         ? getWeekDateRange(week_number, month, year)
         : null;
-    if (weekRange && weekRange.end.getTime() < Date.now()) {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (weekRange && weekRange.start.getTime() < todayStart.getTime()) {
       return NextResponse.json({ error: 'That week has already passed.' }, { status: 400 });
     }
 
