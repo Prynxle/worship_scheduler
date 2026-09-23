@@ -2,7 +2,7 @@ import {
   ScheduleContext,
   ValidationResult,
 } from '../types/scheduling';
-import { Member, ScheduleAssignment } from '../types/database';
+import { Instrument, Member } from '../types/database';
 import { isWeeklyUnavailable } from './availability';
 
 export class ScheduleValidator {
@@ -14,12 +14,13 @@ export class ScheduleValidator {
 
   async validate(): Promise<ValidationResult[]> {
     const results: ValidationResult[] = [];
-
     results.push(...this.checkAvailability());
+    results.push(...this.checkActiveMembers());
     results.push(...this.checkAssignmentLimits());
     results.push(...this.checkDualRoles());
     results.push(...this.checkLeaderCount());
     results.push(...this.checkBackupCount());
+    results.push(...this.checkRequiredRoles());
     results.push(...this.checkRoleQualifications());
     results.push(...this.checkCooldown());
     results.push(...this.checkFairness());
@@ -36,13 +37,23 @@ export class ScheduleValidator {
       if (!member) continue;
 
       const isUnavailable = member.availability?.some((a) => {
+        if (!['pending', 'approved'].includes(a.status)) return false;
         if (isWeeklyUnavailable(a, this.context.service.week_number, this.context.service.month, this.context.service.year)) {
           return true;
         }
+        if (a.type === 'recurring' && a.week_number === this.context.service.week_number &&
+          (a.month === undefined || a.month === this.context.service.month) &&
+          (a.year === undefined || a.year === this.context.service.year)) {
+          return true;
+        }
         if (a.type === 'date' && a.date) {
-          const date = new Date(a.date);
-          const serviceDate = new Date(this.context.service.date);
-          return date.toDateString() === serviceDate.toDateString();
+          return this.sameDate(a.date, this.context.service.date);
+        }
+        if (['vacation', 'temporary_leave', 'emergency_leave', 'recurring'].includes(a.type) && a.date) {
+          const serviceDate = new Date(`${this.context.service.date.slice(0, 10)}T00:00:00`);
+          const start = new Date(a.date);
+          const end = a.end_date ? new Date(a.end_date) : start;
+          return serviceDate >= start && serviceDate <= end;
         }
         return false;
       });
@@ -60,6 +71,21 @@ export class ScheduleValidator {
     }
 
     return results;
+  }
+
+  private checkActiveMembers(): ValidationResult[] {
+    return this.context.existing_assignments.flatMap((assignment) => {
+      const member = this.context.all_members.find((candidate) => candidate.id === assignment.member_id);
+      if (!member || member.status === 'active') return [];
+      return [{
+        rule_type: 'active_member_check',
+        severity: 'critical' as const,
+        member_id: member.id,
+        member_name: member.full_name,
+        message: `${member.full_name} is inactive and cannot be assigned`,
+        recommendation: 'Assign an active member',
+      }];
+    });
   }
 
   private checkAssignmentLimits(): ValidationResult[] {
@@ -141,7 +167,11 @@ export class ScheduleValidator {
 
   private checkBackupCount(): ValidationResult[] {
     const results: ValidationResult[] = [];
-    const backups = this.context.existing_assignments.filter((a) => !a.is_leader);
+    const backups = this.context.existing_assignments.filter((a) => {
+      if (a.is_leader) return false;
+      if (a.instrument_id) return false;
+      return !a.role || ['singer', 'backup', 'backup singer', 'backup singers'].includes(a.role.name.toLowerCase());
+    });
 
     const minRequired = this.context.rules.find(
       (r) => r.rule_type === 'backup_count'
@@ -149,7 +179,7 @@ export class ScheduleValidator {
 
     const maxAllowed = this.context.rules.find(
       (r) => r.rule_type === 'backup_count'
-    )?.rule_config.max_allowed as number || 5;
+    )?.rule_config.max_allowed as number || 3;
 
     if (backups.length < minRequired) {
       results.push({
@@ -163,12 +193,37 @@ export class ScheduleValidator {
     if (backups.length > maxAllowed) {
       results.push({
         rule_type: 'backup_count',
-        severity: 'warning',
+        severity: 'critical',
         message: `${backups.length} backup singers assigned (maximum: ${maxAllowed})`,
         recommendation: 'Remove excess backup singers',
       });
     }
 
+    return results;
+  }
+
+  private checkRequiredRoles(): ValidationResult[] {
+    const results: ValidationResult[] = [];
+    const assignments = this.context.existing_assignments;
+    const hasDevotionRole = this.context.all_members.some((member) => member.roles?.some((role) => role.role?.name.toLowerCase() === 'devotion'));
+    if (hasDevotionRole && !assignments.some((assignment) => assignment.role?.name.toLowerCase() === 'devotion')) {
+      results.push({
+        rule_type: 'role_validation', severity: 'critical', role_name: 'Devotion',
+        message: 'Required Devotion role is not assigned', recommendation: 'Assign a qualified devotion member',
+      });
+    }
+    const requiredInstruments = this.context.all_members.flatMap((member) => member.skills?.map((skill) => skill.instrument) ?? [])
+      .filter((instrument) => instrument?.is_required)
+      .filter((instrument): instrument is Instrument => Boolean(instrument))
+      .filter((instrument, index, all) => all.findIndex((candidate) => candidate.id === instrument.id) === index);
+    for (const instrument of requiredInstruments) {
+      if (!assignments.some((assignment) => assignment.instrument_id === instrument.id)) {
+        results.push({
+          rule_type: 'instrument_constraint', severity: 'critical', role_name: instrument.name,
+          message: `Required ${instrument.name} is not assigned`, recommendation: `Assign a qualified ${instrument.name} player`,
+        });
+      }
+    }
     return results;
   }
 
@@ -180,7 +235,7 @@ export class ScheduleValidator {
       if (!member) continue;
 
       if (assignment.is_leader) {
-        const hasLeaderRole = member.roles?.some((r) => r.role?.name === 'Worship Leader');
+        const hasLeaderRole = member.roles?.some((r) => r.role?.name.toLowerCase() === 'worship leader');
         if (!hasLeaderRole) {
           results.push({
             rule_type: 'role_validation',
@@ -189,6 +244,33 @@ export class ScheduleValidator {
             member_name: member.full_name,
             message: `${member.full_name} is not qualified as Worship Leader`,
             recommendation: 'Assign a qualified worship leader',
+          });
+        }
+      } else if (assignment.role && ['singer', 'backup', 'backup singer', 'backup singers', 'devotion'].includes(assignment.role.name.toLowerCase())) {
+        const roleName = assignment.role.name.toLowerCase();
+        const qualified = member.roles?.some((role) => role.role_id === assignment.role_id || role.role?.name.toLowerCase() === roleName);
+        if (!qualified) {
+          results.push({
+            rule_type: 'role_validation',
+            severity: 'critical',
+            member_id: member.id,
+            member_name: member.full_name,
+            role_name: assignment.role.name,
+            message: `${member.full_name} is not qualified for ${assignment.role.name}`,
+            recommendation: `Assign a member qualified for ${assignment.role.name}`,
+          });
+        }
+      } else if (assignment.instrument_id) {
+        const hasSkill = member.skills?.some((skill) => skill.instrument_id === assignment.instrument_id);
+        if (!hasSkill) {
+          results.push({
+            rule_type: 'role_validation',
+            severity: 'critical',
+            member_id: member.id,
+            member_name: member.full_name,
+            role_name: assignment.instrument?.name,
+            message: `${member.full_name} is not qualified for ${assignment.instrument?.name ?? 'the assigned instrument'}`,
+            recommendation: 'Assign a member with the required instrument skill',
           });
         }
       }
@@ -287,5 +369,9 @@ export class ScheduleValidator {
     }
 
     return counts;
+  }
+
+  private sameDate(left: string, right: string): boolean {
+    return new Date(left).toISOString().slice(0, 10) === new Date(right).toISOString().slice(0, 10);
   }
 }

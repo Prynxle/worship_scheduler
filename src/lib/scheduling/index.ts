@@ -4,3 +4,4 @@ export { ReplacementEngine } from './replacement';
 export { FairnessCalculator } from './fairness';
 export { DevotionRotation } from './devotion-rotation';
 export { ruleExecutors } from './rules';
+export { FairnessScorer } from './scorer';

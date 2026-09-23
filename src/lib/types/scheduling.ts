@@ -10,6 +10,28 @@ export interface ScheduleContext {
   available_members: Member[];
   all_members: Member[];
   rules: SchedulingRuleConfig[];
+  /** Assignments already committed in the target month/service scope. */
+  historical_assignments?: ScheduleAssignment[];
+  /** Generate these weeks as one optimization problem. */
+  week_numbers?: number[];
+  /** Optional ministry-level scheduling settings. */
+  config?: SchedulingConfig;
+}
+
+export interface FairnessWeights {
+  monthly_workload: number;
+  historical_workload: number;
+  recent_workload: number;
+  consecutive_assignment: number;
+  role_workload: number;
+  cooldown: number;
+  leader_rotation: number;
+}
+
+export interface SchedulingConfig {
+  allows_dual_role?: boolean;
+  fairness_weights?: Partial<FairnessWeights>;
+  cooldown_weeks?: number;
 }
 
 export interface SchedulingRuleConfig {
@@ -26,6 +48,27 @@ export interface ValidationResult {
   role_name?: string;
   message: string;
   recommendation?: string;
+}
+
+export interface SchedulingFailure {
+  service_id?: string;
+  week_number: number;
+  date: string;
+  role_name: string;
+  required_slots: number;
+  eligible_candidates: string[];
+  rejected_candidates: Array<{ member_id: string; member_name: string; reason: string }>;
+  message: string;
+}
+
+export class SchedulingFailureError extends Error {
+  readonly failures: SchedulingFailure[];
+
+  constructor(failures: SchedulingFailure[]) {
+    super(failures.map((failure) => failure.message).join('; '));
+    this.name = 'SchedulingFailureError';
+    this.failures = failures;
+  }
 }
 
 export interface ReplacementSuggestion {

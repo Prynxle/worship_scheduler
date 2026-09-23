@@ -1,313 +1,269 @@
 import {
-  ScheduleContext,
-  ValidationResult,
-  ReplacementSuggestion,
-  FairnessReport,
   GeneratedService,
-  InstrumentAssignment,
+  ScheduleContext,
+  SchedulingFailure,
+  SchedulingFailureError,
 } from '../types/scheduling';
-import { Member, Role, Service, ScheduleAssignment } from '../types/database';
+import { Availability, Instrument, Member, Role, ScheduleAssignment } from '../types/database';
+import { getWeekDate } from '../utils/date-utils';
+import { FairnessScorer, TemporaryMemberState } from './scorer';
 import { isWeeklyUnavailable } from './availability';
 
+type SlotKind = 'leader' | 'backup' | 'devotion' | 'instrument';
+interface AssignmentSlot { id: string; weekNumber: number; date: string; kind: SlotKind; roleName: string; role?: Role; instrument?: Instrument; isLeader: boolean; }
+interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number; previousState?: TemporaryMemberState; }
+interface Rejection { member: Member; reason: string; }
+interface ServiceState { choices: AssignmentChoice[]; usedMemberIds: Set<string>; }
+
+const BACKUP_NAMES = new Set(['singer', 'backup', 'backup singer', 'backup singers']);
+
 export class SchedulingEngine {
-  private context: ScheduleContext;
+  private readonly context: ScheduleContext;
+  private readonly scorer: FairnessScorer;
+  private readonly memberState: Map<string, TemporaryMemberState>;
+  private readonly serviceStates = new Map<number, ServiceState>();
+  private readonly failures: SchedulingFailure[] = [];
+  private searchNodes = 0;
 
   constructor(context: ScheduleContext) {
     this.context = context;
+    this.scorer = new FairnessScorer(context.config);
+    this.memberState = this.initializeState();
   }
 
   async generateSchedule(): Promise<GeneratedService[]> {
-    const services: GeneratedService[] = [];
-
-    for (const weekNumber of this.context.service.week_number
-      ? [this.context.service.week_number]
-      : [1, 2, 3, 4]) {
-      const service = await this.generateWeekService(weekNumber);
-      services.push(service);
+    const weeks = [...new Set(this.context.week_numbers ?? [this.context.service.week_number])].sort((a, b) => a - b);
+    const slots = weeks.flatMap((weekNumber) => this.buildSlots(weekNumber));
+    const assignments = this.solve(slots);
+    if (!assignments) {
+      throw new SchedulingFailureError(this.failures.length > 0 ? this.failures : [{
+        service_id: this.context.service.id, week_number: this.context.week_number, date: this.context.service.date,
+        role_name: 'schedule', required_slots: slots.length, eligible_candidates: [], rejected_candidates: [],
+        message: 'No valid schedule satisfies the configured hard constraints.',
+      }]);
     }
-
+    const services = weeks.map((weekNumber) => this.toGeneratedService(weekNumber, assignments));
+    await this.validateGeneratedServices(services, assignments);
     return services;
   }
 
-  private async generateWeekService(weekNumber: number): Promise<GeneratedService> {
-    const availableMembers = this.getAvailableMembers(weekNumber);
+  private initializeState(): Map<string, TemporaryMemberState> {
+    const historical = this.context.historical_assignments ?? [];
+    const targetDate = new Date(this.context.service.date).getTime();
+    const state = new Map<string, TemporaryMemberState>();
+    for (const member of this.context.all_members) {
+      const roleHistory = new Map<string, number>();
+      for (const assignment of historical.filter((item) => item.member_id === member.id)) {
+        const roleName = this.assignmentRoleName(assignment);
+        roleHistory.set(roleName, (roleHistory.get(roleName) ?? 0) + 1);
+      }
+      const lastScheduled = member.last_scheduled_date ? new Date(member.last_scheduled_date).getTime() : 0;
+      const recentFromLastDate = lastScheduled > 0 && targetDate >= lastScheduled && targetDate - lastScheduled <= 56 * 86_400_000 ? 1 : 0;
+      const recentHistorical = historical.filter((item) => {
+        if (item.member_id !== member.id) return false;
+        const date = new Date(item.created_at).getTime();
+        return Number.isFinite(date) && targetDate >= date && targetDate - date <= 56 * 86_400_000;
+      }).length;
+      state.set(member.id, {
+        currentMonthAssignments: this.context.existing_assignments.filter((item) => item.member_id === member.id).length,
+        totalAssignments: Math.max(member.total_assignments, historical.filter((item) => item.member_id === member.id).length),
+        recentAssignments: Math.max(recentFromLastDate, recentHistorical),
+        lastAssignedDate: member.last_scheduled_date,
+        lastAssignedWeek: undefined,
+        consecutiveAssignments: 0,
+        roleHistory,
+        leaderAssignments: historical.filter((item) => item.member_id === member.id && item.is_leader).length,
+      });
+    }
+    return state;
+  }
 
-    const leader = this.selectLeader(availableMembers);
-    const backupSingers = this.selectBackupSingers(availableMembers, leader);
-    const instrumentalists = this.selectInstrumentalists(availableMembers);
-    const devotion = this.selectDevotionMember(availableMembers);
-
-    const conflicts = this.validateService({
-      leader,
-      backup_singers: backupSingers,
-      instrumentalists,
-      devotion,
-      week_number: weekNumber,
+  private solve(unfilledSlots: AssignmentSlot[]): AssignmentChoice[] | null {
+    if (++this.searchNodes > 25_000) return null;
+    if (unfilledSlots.length === 0) return [...this.serviceStates.values()].flatMap((service) => service.choices);
+    const evaluated = unfilledSlots.map((slot) => ({ slot, pool: this.getEligibleCandidates(slot) }));
+    evaluated.sort((a, b) => a.pool.candidates.length - b.pool.candidates.length || this.slotPriority(a.slot) - this.slotPriority(b.slot) || a.slot.id.localeCompare(b.slot.id));
+    const selected = evaluated[0];
+    if (selected.pool.candidates.length === 0) {
+      this.failures.push(this.createFailure(selected.slot, selected.pool.rejections));
+      return null;
+    }
+    const cooldownWeeks = this.context.config?.cooldown_weeks ?? this.getRuleNumber('cooldown', 'weeks', 1);
+    const ranked = selected.pool.candidates.map((member) => {
+      const score = this.scorer.score(member, this.memberState.get(member.id)!, selected.slot.roleName,
+        selected.slot.weekNumber, selected.slot.isLeader, cooldownWeeks, selected.slot.date);
+      return { member, score };
+    }).sort((a, b) => {
+      const byScore = a.score.total - b.score.total;
+      if (byScore !== 0) return byScore;
+      const recent = this.memberState.get(a.member.id)!.recentAssignments - this.memberState.get(b.member.id)!.recentAssignments;
+      if (recent !== 0) return recent;
+      const role = (this.memberState.get(a.member.id)!.roleHistory.get(selected.slot.roleName) ?? 0) -
+        (this.memberState.get(b.member.id)!.roleHistory.get(selected.slot.roleName) ?? 0);
+      return role || a.member.id.localeCompare(b.member.id);
     });
+    const remaining = unfilledSlots.filter((slot) => slot.id !== selected.slot.id);
+    for (const candidate of ranked) {
+      const choice = { slot: selected.slot, member: candidate.member, score: candidate.score.total };
+      this.apply(choice);
+      const result = this.solve(remaining);
+      if (result) return result;
+      this.rollback(choice);
+    }
+    return null;
+  }
 
+  private apply(choice: AssignmentChoice): void {
+    const service = this.getServiceState(choice.slot.weekNumber);
+    service.choices.push(choice);
+    service.usedMemberIds.add(choice.member.id);
+    const state = this.memberState.get(choice.member.id)!;
+    choice.previousState = { ...state, roleHistory: new Map(state.roleHistory) };
+    state.currentMonthAssignments += 1;
+    state.totalAssignments += 1;
+    state.recentAssignments += 1;
+    state.consecutiveAssignments = state.lastAssignedWeek === choice.slot.weekNumber - 1 ? state.consecutiveAssignments + 1 : 1;
+    state.lastAssignedWeek = choice.slot.weekNumber;
+    state.lastAssignedDate = choice.slot.date;
+    state.roleHistory.set(choice.slot.roleName, (state.roleHistory.get(choice.slot.roleName) ?? 0) + 1);
+    if (choice.slot.isLeader) state.leaderAssignments += 1;
+  }
+
+  private rollback(choice: AssignmentChoice): void {
+    const service = this.getServiceState(choice.slot.weekNumber);
+    const index = service.choices.indexOf(choice);
+    if (index >= 0) service.choices.splice(index, 1);
+    if (!service.choices.some((item) => item.member.id === choice.member.id)) service.usedMemberIds.delete(choice.member.id);
+    const state = this.memberState.get(choice.member.id)!;
+    if (choice.previousState) {
+      Object.assign(state, choice.previousState);
+      state.roleHistory = new Map(choice.previousState.roleHistory);
+    }
+  }
+
+  private getEligibleCandidates(slot: AssignmentSlot): { candidates: Member[]; rejections: Rejection[] } {
+    const service = this.getServiceState(slot.weekNumber);
+    const candidates: Member[] = [];
+    const rejections: Rejection[] = [];
+    for (const member of [...this.context.all_members].sort((a, b) => a.id.localeCompare(b.id))) {
+      const reason = this.rejectionReason(member, slot, service);
+      if (reason) rejections.push({ member, reason }); else candidates.push(member);
+    }
+    return { candidates, rejections };
+  }
+
+  private rejectionReason(member: Member, slot: AssignmentSlot, service: ServiceState): string | null {
+    if (member.status !== 'active') return 'inactive';
+    if (this.isUnavailable(member, slot.weekNumber, slot.date)) return 'unavailable';
+    const state = this.memberState.get(member.id);
+    if (!state) return 'member state unavailable';
+    if (state.currentMonthAssignments >= (member.max_monthly_assignments || this.getRuleNumber('assignment_limit', 'default_max', 3))) return 'monthly limit reached';
+    if (!this.context.config?.allows_dual_role && service.usedMemberIds.has(member.id)) return 'already assigned in this service';
+    if (slot.kind === 'leader' && !this.hasRole(member, 'Worship Leader')) return 'not qualified for Worship Leader';
+    if (slot.kind === 'backup' && !this.hasAnyRole(member, BACKUP_NAMES)) return 'not qualified for Backup';
+    if (slot.kind === 'devotion' && !this.hasRole(member, 'Devotion')) return 'not qualified for Devotion';
+    if (slot.kind === 'instrument' && !member.skills?.some((skill) => skill.instrument_id === slot.instrument?.id)) return `not qualified for ${slot.instrument?.name ?? 'instrument'}`;
+    return null;
+  }
+
+  private buildSlots(weekNumber: number): AssignmentSlot[] {
+    const date = getWeekDate(weekNumber, this.context.month, this.context.year).toISOString().slice(0, 10);
+    const slots: AssignmentSlot[] = [{ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRole('Worship Leader') }];
+    for (let index = 1; index <= this.getRuleNumber('backup_count', 'min_required', 3); index += 1) {
+      slots.push({ id: `${weekNumber}:backup:${index}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByNames(BACKUP_NAMES), isLeader: false });
+    }
+    if (this.context.all_members.some((member) => this.hasRole(member, 'Devotion'))) {
+      slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRole('Devotion'), isLeader: false });
+    }
+    for (const instrument of this.getInstruments()) {
+      if (instrument.is_required) slots.push({ id: `${weekNumber}:instrument:${instrument.id}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false });
+    }
+    return slots;
+  }
+
+  private toGeneratedService(weekNumber: number, assignments: AssignmentChoice[]): GeneratedService {
+    const choices = assignments.filter((choice) => choice.slot.weekNumber === weekNumber);
     return {
       week_number: weekNumber,
-      date: this.getWeekDate(weekNumber),
-      leader,
-      backup_singers: backupSingers,
-      instrumentalists,
-      devotion,
-      conflicts,
+      date: choices[0]?.slot.date ?? getWeekDate(weekNumber, this.context.month, this.context.year).toISOString().slice(0, 10),
+      leader: choices.find((choice) => choice.slot.kind === 'leader')?.member ?? null,
+      backup_singers: choices.filter((choice) => choice.slot.kind === 'backup').map((choice) => choice.member),
+      instrumentalists: choices.filter((choice) => choice.slot.kind === 'instrument' && choice.slot.instrument).map((choice) => ({ instrument: choice.slot.instrument!, member: choice.member, is_fallback: false })),
+      devotion: choices.find((choice) => choice.slot.kind === 'devotion')?.member ?? null,
+      conflicts: [],
     };
   }
 
-  private getAvailableMembers(weekNumber: number): Member[] {
-    return this.context.available_members.filter((member) => {
-      if (member.status !== 'active') return false;
-
-      const hasUnavailableWeek = member.availability?.some((a) =>
-        isWeeklyUnavailable(a, weekNumber, this.context.month, this.context.year)
-      );
-      if (hasUnavailableWeek) return false;
-
-      const hasUnavailableDate = member.availability?.some((a) => {
-        if (a.type !== 'date' || !a.date) return false;
-        const date = new Date(a.date);
-        const weekDate = new Date(this.context.service.date);
-        return date.getFullYear() === weekDate.getFullYear() &&
-          date.getMonth() === weekDate.getMonth() &&
-          this.getWeekOfMonth(date) === weekNumber;
-      });
-      if (hasUnavailableDate) return false;
-
-      return true;
-    });
-  }
-
-  private selectLeader(availableMembers: Member[]): Member | null {
-    const eligible = availableMembers.filter((member) =>
-      member.roles?.some((r) => r.role?.name === 'Worship Leader')
-    );
-
-    if (eligible.length === 0) return null;
-
-    const monthAssignments = this.getMonthAssignments();
-    const sorted = eligible.sort((a, b) => {
-      const aCount = monthAssignments.get(a.id) || 0;
-      const bCount = monthAssignments.get(b.id) || 0;
-      if (aCount !== bCount) return aCount - bCount;
-
-      const aLastDate = a.last_scheduled_date ? new Date(a.last_scheduled_date) : new Date(0);
-      const bLastDate = b.last_scheduled_date ? new Date(b.last_scheduled_date) : new Date(0);
-      return aLastDate.getTime() - bLastDate.getTime();
-    });
-
-    return sorted[0];
-  }
-
-  private selectBackupSingers(availableMembers: Member[], leader: Member | null): Member[] {
-    const eligible = availableMembers.filter((member) => {
-      if (leader && member.id === leader.id) return false;
-      return member.roles?.some((r) => r.role?.name === 'Singer');
-    });
-
-    const monthAssignments = this.getMonthAssignments();
-    const sorted = eligible.sort((a, b) => {
-      const aCount = monthAssignments.get(a.id) || 0;
-      const bCount = monthAssignments.get(b.id) || 0;
-      return aCount - bCount;
-    });
-
-    const minRequired = this.context.rules.find(
-      (r) => r.rule_type === 'backup_count'
-    )?.rule_config.min_required as number || 3;
-
-    const maxAllowed = this.context.rules.find(
-      (r) => r.rule_type === 'backup_count'
-    )?.rule_config.max_allowed as number || 5;
-
-    return sorted.slice(0, Math.min(maxAllowed, Math.max(minRequired, sorted.length)));
-  }
-
-  private selectInstrumentalists(availableMembers: Member[]): InstrumentAssignment[] {
-    const assignments: InstrumentAssignment[] = [];
-    const usedMembers = new Set<string>();
-
-    const instruments = this.getInstruments();
-
-    for (const instrument of instruments) {
-      const eligible = availableMembers.filter((member) => {
-        if (usedMembers.has(member.id)) return false;
-        return member.skills?.some(
-          (s) => s.instrument_id === instrument.id && s.is_primary
-        );
-      });
-
-      if (eligible.length > 0) {
-        const monthAssignments = this.getMonthAssignments();
-        const sorted = eligible.sort((a, b) => {
-          const aCount = monthAssignments.get(a.id) || 0;
-          const bCount = monthAssignments.get(b.id) || 0;
-          return aCount - bCount;
-        });
-
-        assignments.push({
-          instrument,
-          member: sorted[0],
-          is_fallback: false,
-        });
-        usedMembers.add(sorted[0].id);
-      } else {
-        const fallback = availableMembers.filter((member) => {
-          if (usedMembers.has(member.id)) return false;
-          return member.skills?.some((s) => s.instrument_id === instrument.id);
-        });
-
-        if (fallback.length > 0) {
-          assignments.push({
-            instrument,
-            member: fallback[0],
-            is_fallback: true,
-          });
-          usedMembers.add(fallback[0].id);
-        } else {
-          assignments.push({
-            instrument,
-            member: null,
-            is_fallback: false,
-          });
-        }
+  private async validateGeneratedServices(services: GeneratedService[], assignments: AssignmentChoice[]): Promise<void> {
+    const { ScheduleValidator } = await import('./validator');
+    for (const service of services) {
+      const context: ScheduleContext = {
+        ...this.context,
+        service: { ...this.context.service, week_number: service.week_number, date: service.date },
+        existing_assignments: this.toScheduleAssignments(service, assignments),
+      };
+      const results = await new ScheduleValidator(context).validate();
+      service.conflicts = results;
+      if (results.some((result) => result.severity === 'critical')) {
+        throw new SchedulingFailureError([{
+          service_id: this.context.service.id, week_number: service.week_number, date: service.date,
+          role_name: 'service validation', required_slots: assignments.filter((item) => item.slot.weekNumber === service.week_number).length,
+          eligible_candidates: [], rejected_candidates: [], message: `Generated service for week ${service.week_number} failed independent validation.`,
+        }]);
       }
     }
-
-    return assignments;
   }
 
-  private selectDevotionMember(availableMembers: Member[]): Member | null {
-    const eligible = availableMembers.filter((member) =>
-      member.roles?.some((r) => r.role?.name === 'Devotion')
-    );
-
-    if (eligible.length === 0) return null;
-
-    const monthAssignments = this.getMonthAssignments();
-    const sorted = eligible.sort((a, b) => {
-      const aCount = monthAssignments.get(a.id) || 0;
-      const bCount = monthAssignments.get(b.id) || 0;
-      return aCount - bCount;
-    });
-
-    return sorted[0];
+  private toScheduleAssignments(service: GeneratedService, assignments: AssignmentChoice[]): ScheduleAssignment[] {
+    return assignments.filter((choice) => choice.slot.weekNumber === service.week_number).map((choice, index) => ({
+      id: `generated-${service.week_number}-${index}`, service_id: this.context.service.id, member_id: choice.member.id,
+      role_id: choice.slot.role?.id ?? `generated-${choice.slot.roleName.toLowerCase().replace(/\s+/g, '-')}`,
+      instrument_id: choice.slot.instrument?.id, is_leader: choice.slot.isLeader, status: 'pending',
+      created_at: service.date, updated_at: service.date, member: choice.member, role: choice.slot.role, instrument: choice.slot.instrument,
+    }));
   }
 
-  private validateService(service: {
-    leader: Member | null;
-    backup_singers: Member[];
-    instrumentalists: InstrumentAssignment[];
-    devotion: Member | null;
-    week_number: number;
-  }): ValidationResult[] {
-    const results: ValidationResult[] = [];
-
-    if (!service.leader) {
-      results.push({
-        rule_type: 'leader_count',
-        severity: 'critical',
-        message: 'No worship leader assigned',
-        recommendation: 'Assign a qualified worship leader',
-      });
-    }
-
-    const minBackup = this.context.rules.find(
-      (r) => r.rule_type === 'backup_count'
-    )?.rule_config.min_required as number || 3;
-
-    if (service.backup_singers.length < minBackup) {
-      results.push({
-        rule_type: 'backup_count',
-        severity: 'critical',
-        message: `Only ${service.backup_singers.length} backup singers assigned (minimum: ${minBackup})`,
-        recommendation: 'Add more backup singers',
-      });
-    }
-
-    const guitarCount = service.instrumentalists.filter(
-      (i) => i.instrument.name.toLowerCase().includes('guitar') && i.member
-    ).length;
-
-    if (guitarCount === 0) {
-      results.push({
-        rule_type: 'instrument_constraint',
-        severity: 'critical',
-        message: 'No guitarist assigned',
-        recommendation: 'Assign at least one guitarist',
-      });
-    }
-
-    if (service.devotion === null) {
-      results.push({
-        rule_type: 'role_validation',
-        severity: 'warning',
-        message: 'No devotion leader assigned',
-        recommendation: 'Assign a devotion leader',
-      });
-    }
-
-    const allAssigned = [
-      service.leader,
-      ...service.backup_singers,
-      ...service.instrumentalists.filter((i) => i.member).map((i) => i.member),
-      service.devotion,
-    ].filter(Boolean);
-
-    const memberIds = allAssigned.map((m) => m!.id);
-    const duplicates = memberIds.filter((id, index) => memberIds.indexOf(id) !== index);
-
-    if (duplicates.length > 0) {
-      results.push({
-        rule_type: 'dual_role_check',
-        severity: 'critical',
-        member_id: duplicates[0],
-        message: 'Member assigned to multiple roles',
-        recommendation: 'Remove duplicate assignment',
-      });
-    }
-
-    return results;
+  private createFailure(slot: AssignmentSlot, rejections: Rejection[]): SchedulingFailure {
+    return {
+      service_id: this.context.service.id, week_number: slot.weekNumber, date: slot.date, role_name: slot.roleName, required_slots: 1,
+      eligible_candidates: [], rejected_candidates: rejections.map(({ member, reason }) => ({ member_id: member.id, member_name: member.full_name, reason })),
+      message: `No eligible candidate for ${slot.roleName} in week ${slot.weekNumber}.`,
+    };
   }
 
-  private getMonthAssignments(): Map<string, number> {
-    const counts = new Map<string, number>();
-
-    for (const assignment of this.context.existing_assignments) {
-      const current = counts.get(assignment.member_id) || 0;
-      counts.set(assignment.member_id, current + 1);
-    }
-
-    return counts;
+  private slotPriority(slot: AssignmentSlot): number {
+    return slot.kind === 'leader' ? 0 : slot.kind === 'instrument' ? 1 : slot.kind === 'devotion' ? 2 : 3;
   }
 
-  private getInstruments() {
-    return this.context.available_members
-      .flatMap((m) => m.skills?.map((s) => s.instrument) || [])
-      .filter((inst): inst is NonNullable<typeof inst> => inst !== undefined && inst !== null)
-      .filter((inst, index, self) => self.findIndex((i) => i.id === inst.id) === index);
+  private getServiceState(weekNumber: number): ServiceState {
+    let state = this.serviceStates.get(weekNumber);
+    if (!state) { state = { choices: [], usedMemberIds: new Set() }; this.serviceStates.set(weekNumber, state); }
+    return state;
   }
 
-  private getWeekDate(weekNumber: number): string {
-    const date = new Date(this.context.service.date);
-    const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-    const firstMonday = new Date(firstDay);
-    while (firstMonday.getDay() !== 1) {
-      firstMonday.setDate(firstMonday.getDate() + 1);
-    }
-    const targetDate = new Date(firstMonday);
-    targetDate.setDate(targetDate.getDate() + (weekNumber - 1) * 7);
-    return targetDate.toISOString().split('T')[0];
+  private isUnavailable(member: Member, weekNumber: number, date: string): boolean {
+    return member.availability?.some((availability: Availability) => {
+      if (!['pending', 'approved'].includes(availability.status)) return false;
+      if (isWeeklyUnavailable(availability, weekNumber, this.context.month, this.context.year)) return true;
+      if (availability.type === 'recurring' && availability.week_number === weekNumber &&
+        (availability.month === undefined || availability.month === this.context.month) &&
+        (availability.year === undefined || availability.year === this.context.year)) return true;
+      const target = new Date(`${date}T00:00:00`);
+      if (availability.type === 'date' && availability.date) return this.sameDate(availability.date, date);
+      if (['vacation', 'temporary_leave', 'emergency_leave', 'recurring'].includes(availability.type) && availability.date) {
+        const start = new Date(availability.date); const end = availability.end_date ? new Date(availability.end_date) : start;
+        return target >= start && target <= end;
+      }
+      return false;
+    }) ?? false;
   }
 
-  private getWeekOfMonth(date: Date): number {
-    const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-    const firstMonday = new Date(firstDay);
-    while (firstMonday.getDay() !== 1) {
-      firstMonday.setDate(firstMonday.getDate() + 1);
-    }
-    const diffDays = Math.floor((date.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
-    return Math.floor(diffDays / 7) + 1;
-  }
+  private sameDate(left: string, right: string): boolean { return new Date(left).toISOString().slice(0, 10) === right; }
+  private hasRole(member: Member, roleName: string): boolean { return member.roles?.some((role) => role.role?.is_active !== false && role.role?.name.toLowerCase() === roleName.toLowerCase()) ?? false; }
+  private hasAnyRole(member: Member, roleNames: Set<string>): boolean { return member.roles?.some((role) => role.role?.is_active !== false && roleNames.has(role.role?.name.toLowerCase() ?? '')) ?? false; }
+  private findRole(roleName: string): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role?.name.toLowerCase() === roleName.toLowerCase()); }
+  private findRoleByNames(names: Set<string>): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role !== undefined && names.has(role.name.toLowerCase())); }
+  private getInstruments(): Instrument[] { return this.context.all_members.flatMap((member) => member.skills?.map((skill) => skill.instrument) ?? []).filter((instrument): instrument is Instrument => Boolean(instrument)).filter((instrument, index, all) => all.findIndex((candidate) => candidate.id === instrument.id) === index).sort((a, b) => a.id.localeCompare(b.id)); }
+  private getRuleNumber(ruleType: string, key: string, fallback: number): number { const value = this.context.rules.find((rule) => rule.rule_type === ruleType)?.rule_config[key]; return typeof value === 'number' ? value : fallback; }
+  private assignmentRoleName(assignment: ScheduleAssignment): string { if (assignment.is_leader) return 'Worship Leader'; return assignment.role?.name ?? assignment.instrument?.name ?? 'Assignment'; }
 }
