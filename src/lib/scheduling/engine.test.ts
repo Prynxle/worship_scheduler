@@ -74,4 +74,41 @@ describe('SchedulingEngine', () => {
       second.map((service) => [service.leader?.id, ...service.backup_singers.map((candidate) => candidate.id)]),
     );
   });
+
+  it('rejects a member holding the October mock unavailability record in October but keeps them eligible in other months', async () => {
+    // Exact shape written by the mock-unavailability route for October 2026.
+    const octoberMock: Availability = {
+      id: 'mock-availability', member_id: 'leader', church_id: 'church',
+      type: 'weekly', week_number: 1, month: 9, year: 2026,
+      reason: 'Mock unavailability (October 2026 test)', status: 'approved', created_at: '',
+    };
+    const members = [
+      member('leader', [role('leader', leaderRole), role('leader', backupRole)], { availability: [octoberMock] }),
+      member('backup-1'), member('backup-2'), member('backup-3'),
+    ];
+
+    // October 2026 (month 9, overriding the helper's August default): the only
+    // leader is unavailable for week 1 so generation must fail with that reason.
+    await expect(new SchedulingEngine(context(members, {
+      month: 9, year: 2026,
+      service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
+    })).generateSchedule()).rejects.toMatchObject({ name: 'SchedulingFailureError' });
+    try {
+      await new SchedulingEngine(context(members, {
+        month: 9, year: 2026,
+        service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
+      })).generateSchedule();
+    } catch (error) {
+      expect(error).toBeInstanceOf(SchedulingFailureError);
+      const leaderFailure = (error as SchedulingFailureError).failures.find((failure) => failure.role_name === 'Worship Leader');
+      expect(leaderFailure?.rejected_candidates.some(
+        (candidate) => candidate.member_id === 'leader' && candidate.reason === 'unavailable',
+      )).toBe(true);
+    }
+
+    // A different month (the helper's default August 2026): the record does not
+    // apply and the same member is eligible and selected as leader.
+    const [service] = await new SchedulingEngine(context(members)).generateSchedule();
+    expect(service.leader?.id).toBe('leader');
+  });
 });
