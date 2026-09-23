@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -47,7 +47,7 @@ export function Sidebar() {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [isStaff, setIsStaff] = useState(true);
-  const [profile, setProfile] = useState({ name: 'Loading…', role: 'Loading' });
+  const [profile, setProfile] = useState({ name: 'Loadingâ€¦', role: 'Loading' });
 
   useEffect(() => {
     void getSupabaseClient().auth.getSession().then(async ({ data }) => {
@@ -107,7 +107,24 @@ export function Sidebar() {
         </Link>
 
         <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
-          {!isStaff ? <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link> : null}
+          {!isStaff ? (
+  <>
+    <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link>
+    <Link
+      href="/events"
+      className={cn(
+        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+        pathname === '/events' || pathname.startsWith('/events/')
+          ? 'bg-primary/[0.11] font-medium text-primary'
+          : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+      )}
+    >
+      {(pathname === '/events' || pathname.startsWith('/events/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
+      <CalendarPlus2 className="size-[18px] text-muted-foreground group-hover:text-primary" />
+      <span>Events</span>
+    </Link>
+  </>
+) : null}
           {isStaff ? (
             <Link
               href="/events"
@@ -175,7 +192,7 @@ export function Sidebar() {
             disabled={signingOut}
           >
             <LogOut className="size-[18px]" />
-            {signingOut ? 'Signing out…' : 'Sign out'}
+            {signingOut ? 'Signing outâ€¦' : 'Sign out'}
           </Button>
         </div>
       </aside>
