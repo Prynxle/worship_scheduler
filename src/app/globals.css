@@ -569,3 +569,148 @@
     transition: none;
   }
 }
+
+/* ────────────────────────────────────────────────
+   Events calendar: FullCalendar with app-native
+   minimal styling. Scoped to .event-calendar-fc.
+   Force app palette tokens over theme defaults so the
+   calendar reads as part of the UI regardless of OS
+   color-scheme.
+   ──────────────────────────────────────────────── */
+.event-calendar-fc,
+.event-calendar-fc .fc {
+  --fc-classic-background: transparent;
+  --fc-classic-foreground: var(--foreground);
+  --fc-classic-faint-foreground: var(--muted-foreground);
+  --fc-classic-muted-foreground: var(--muted-foreground);
+  --fc-classic-border: var(--border);
+  --fc-classic-strong-border: var(--input);
+  --fc-classic-faint: var(--secondary);
+  --fc-classic-muted: var(--secondary);
+  --fc-classic-strong: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --fc-classic-today: color-mix(in oklab, var(--primary) 10%, transparent);
+  --fc-classic-highlight: color-mix(in oklab, var(--primary) 10%, transparent);
+  --fc-classic-background-event-opacity: 12%;
+  --fc-classic-event: var(--primary);
+  --fc-classic-event-contrast: var(--primary-foreground);
+  --fc-classic-primary: var(--primary);
+  --fc-classic-primary-foreground: var(--primary-foreground);
+}
+
+.event-calendar-fc {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.event-calendar-fc .evc-cell {
+  display: flex;
+  flex-direction: column;
+  min-height: 6rem;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+@media (min-width: 640px) {
+  .event-calendar-fc .evc-cell {
+    min-height: 7rem;
+    padding: 0.75rem;
+  }
+}
+
+.event-calendar-fc [data-date] {
+  border-inline-end: 1px solid var(--border);
+  border-block-end: 1px solid var(--border);
+}
+
+.event-calendar-fc .evc-cell:hover {
+  background-color: color-mix(in oklab, var(--secondary) 55%, transparent);
+}
+
+.event-calendar-fc .evc-out {
+  opacity: 0.4;
+}
+
+.event-calendar-fc .evc-selected {
+  background-color: color-mix(in oklab, var(--primary) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 50%, transparent);
+}
+
+.event-calendar-fc .evc-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.event-calendar-fc .evc-num-wrap {
+  display: inline-flex;
+}
+
+.event-calendar-fc .evc-daynum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--foreground);
+}
+
+.event-calendar-fc .evc-daynum.evc-today {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+
+.event-calendar-fc .evc-daynum.evc-num-selected {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.event-calendar-fc .evc-dow {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.event-calendar-fc .evc-event-slot {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--foreground);
+}
+
+.event-calendar-fc .evc-event {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.event-calendar-fc .evc-dot {
+  flex-shrink: 0;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+}
+
+.event-calendar-fc .evc-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+@media (min-width: 640px) {
+  .event-calendar-fc .evc-event-title {
+    font-size: 0.75rem;
+  }
+}
+
+.event-calendar-fc .evc-more {
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+}
