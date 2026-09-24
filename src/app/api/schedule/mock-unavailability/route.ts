@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
-import { planMockUnavailability } from '@/lib/scheduling/mock-unavailability';
+import { planMockUnavailability, soleQualifiedMemberIds } from '@/lib/scheduling/mock-unavailability';
 import { getMonthName } from '@/lib/utils/date-utils';
 
 const DEFAULT_MONTH = 9; // October for the October 2026 test run
 const DEFAULT_YEAR = 2026;
 
+/**
+ * Self-healing mock-unavailability test tool.
+ *
+ * The route owns and replaces every availability row matching
+ *   reason LIKE 'Mock unavailability (%'
+ * for the authenticated church/month/year (this route always writes that
+ * reason prefix with type='weekly'). Real availability rows are never touched:
+ * mock rows always carry the "Mock unavailability (" reason prefix, while real
+ * rows have a NULL reason or other text.
+ *
+ * The delete-then-insert flow is NOT transactional: a crash between the steps
+ * leaves the month temporarily without its mock rows. Convergence is restored
+ * by the next run because the plan is deterministic (id-sorted rotation) and
+ * the unique index (availability_active_weekly_member_month_week_idx) prevents
+ * duplicate weekly rows per member.
+ */
 export async function POST(request: NextRequest) {
   const auth = await requireStaff(request);
   if (auth instanceof Response) return auth;
@@ -52,6 +68,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Could not load members.' }, { status: 500 });
   }
 
+  // Same join pattern as schedule-data.ts: member roles and instrument skills
+  // feed the sole-qualified-member exclusion set below.
+  const memberIds = (members ?? []).map((member) => member.id);
+  const [{ data: roleRows, error: rolesError }, { data: skillRows, error: skillsError }] = await Promise.all([
+    admin.from('member_roles').select('*, role:roles(*)').in('member_id', memberIds),
+    admin.from('member_skills').select('*, instrument:instruments(*)').in('member_id', memberIds),
+  ]);
+  if (rolesError || skillsError) {
+    return NextResponse.json({ error: 'Could not load member qualifications.' }, { status: 500 });
+  }
+
+  // Members who are the only active holder of a leader/backup/devotion/
+  // required-instrument slot are never mocked into unavailability: mocking
+  // them would make routine generation fail (e.g. Simone is the sole Drums
+  // holder). The helper mirrors engine.buildSlots.
+  const excluded = soleQualifiedMemberIds({
+    memberIds,
+    roles: roleRows ?? [],
+    skills: skillRows ?? [],
+  });
+
+  // Self-heal: replace this route's own rows for church/month/year BEFORE
+  // planning so repeated runs converge to the deterministic plan. The reason
+  // LIKE predicate can never match real availability rows; type='weekly' is
+  // the type this route always writes. If the delete fails, stop: proceeding
+  // would double-write mock rows until the unique index rejects them.
+  const { count: deletedCount, error: deleteError } = await admin
+    .from('availability')
+    .delete({ count: 'exact' })
+    .eq('church_id', auth.churchId)
+    .eq('type', 'weekly')
+    .eq('month', month)
+    .eq('year', year)
+    .like('reason', 'Mock unavailability (%');
+  if (deleteError) {
+    return NextResponse.json({ error: 'Could not replace existing mock unavailability.' }, { status: 500 });
+  }
+
   // Pre-check mirrors the partial unique index predicate
   // (availability_active_weekly_member_month_week_idx): one pending/approved
   // weekly row per (member_id, year, month, week_number).
@@ -70,7 +124,7 @@ export async function POST(request: NextRequest) {
   const existingKeys = new Set(
     (existingRows ?? []).map((row) => `${row.member_id}:${row.week_number}`)
   );
-  const records = planMockUnavailability(members ?? [], month, year);
+  const records = planMockUnavailability(members ?? [], month, year, excluded);
   const reason = `Mock unavailability (${getMonthName(month)} ${year} test)`;
 
   let added = 0;
@@ -106,6 +160,7 @@ export async function POST(request: NextRequest) {
     success: true,
     added,
     skipped,
+    deleted: deletedCount ?? 0,
     total_members: (members ?? []).length,
     month,
     year,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SchedulingEngine } from './engine';
 import { SchedulingFailureError, ScheduleContext } from '../types/scheduling';
-import type { Availability, Member, MemberRole, Role, ScheduleAssignment, Service } from '../types/database';
+import type { Availability, Instrument, Member, MemberRole, MemberSkill, Role, ScheduleAssignment, Service } from '../types/database';
 
 const leaderRole: Role = { id: 'leader', ministry_id: 'ministry', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '' };
 const backupRole: Role = { id: 'backup', ministry_id: 'ministry', name: 'Singer', min_required: 3, max_allowed: 3, priority: 2, is_active: true, created_at: '' };
@@ -110,5 +110,34 @@ describe('SchedulingEngine', () => {
     // apply and the same member is eligible and selected as leader.
     const [service] = await new SchedulingEngine(context(members)).generateSchedule();
     expect(service.leader?.id).toBe('leader');
+  });
+
+  it('reports a monthly-limit (not unavailability) failure when one Drums member cannot cover 4 weeks', async () => {
+    // Regression for the October 2026 mock test run: with a single Drums holder
+    // and max_monthly_assignments = 3, week 4 must fail with 'monthly limit
+    // reached' — never with 'unavailable'.
+    const drumsInstrument: Instrument = { id: 'drums', ministry_id: 'ministry', name: 'Drums', is_required: true, min_count: 1, max_count: 2, created_at: '' };
+    const drumSkill: MemberSkill = { id: 'drum-skill', member_id: 'drummer', instrument_id: 'drums', skill_level: 'advanced', is_primary: true, created_at: '', instrument: drumsInstrument };
+    const drummer = member('drummer', [], { skills: [drumSkill] });
+    const leaders = ['leader-1', 'leader-2', 'leader-3'].map((id) => member(id, [role(id, leaderRole)]));
+    const backups = ['backup-1', 'backup-2', 'backup-3', 'backup-4'].map((id) => member(id));
+    const october = () => context([drummer, ...leaders, ...backups], {
+      month: 9, year: 2026, week_numbers: [1, 2, 3, 4],
+      service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
+    });
+
+    await expect(new SchedulingEngine(october()).generateSchedule()).rejects.toMatchObject({ name: 'SchedulingFailureError' });
+    try {
+      await new SchedulingEngine(october()).generateSchedule();
+    } catch (error) {
+      expect(error).toBeInstanceOf(SchedulingFailureError);
+      const drumsFailure = (error as SchedulingFailureError).failures.find((failure) => failure.role_name === 'Drums');
+      expect(drumsFailure).toBeDefined();
+      expect(drumsFailure!.week_number).toBe(4);
+      expect(drumsFailure!.rejected_candidates.some(
+        (candidate) => candidate.member_id === 'drummer' && candidate.reason === 'monthly limit reached',
+      )).toBe(true);
+      expect(drumsFailure!.rejected_candidates.some((candidate) => candidate.reason === 'unavailable')).toBe(false);
+    }
   });
 });
