@@ -2,6 +2,7 @@ import { EventColor, EventKind } from '@/lib/types/database';
 
 export const EVENT_KINDS: EventKind[] = ['Service', 'Rehearsal', 'Gathering'];
 export const EVENT_COLORS: EventColor[] = ['primary', 'sky', 'violet'];
+export const MAX_EVENTS_PER_DAY = 4;
 
 export type EventInput = {
   title: string;

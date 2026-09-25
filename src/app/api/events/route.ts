@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, getAuthContext, isStaff } from '@/lib/auth/server';
-import { validateEventInput } from '@/lib/api/events';
+import { MAX_EVENTS_PER_DAY, validateEventInput } from '@/lib/api/events';
 
 export async function GET(request: NextRequest) {
   const context = await getAuthContext(request);
@@ -36,6 +36,20 @@ export async function POST(request: NextRequest) {
   }
 
   const { title, date, time, location, kind, color, attendees } = validated.value;
+
+  const { count, error: countError } = await getAdminClient()
+    .from('events')
+    .select('*', { count: 'exact', head: true })
+    .eq('church_id', context.churchId)
+    .eq('date', date);
+  if (countError) return NextResponse.json({ error: 'Could not check event limit.' }, { status: 500 });
+  if ((count ?? 0) >= MAX_EVENTS_PER_DAY) {
+    return NextResponse.json(
+      { error: `This day already has the maximum of ${MAX_EVENTS_PER_DAY} events.` },
+      { status: 409 }
+    );
+  }
+
   const { data, error } = await getAdminClient()
     .from('events')
     .insert({
