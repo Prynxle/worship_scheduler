@@ -35,6 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { MAX_EVENTS_PER_DAY } from '@/lib/api/events';
 import type { ChurchEvent, EventColor, EventKind } from '@/lib/types/database';
 
 const colorClasses: Record<EventColor, string> = {
@@ -150,6 +151,8 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   }, [year, month]);
 
   const selectedEvents = visibleEvents.filter((event) => event.date === selectedDate);
+  const dayEventCount = events.filter((event) => event.date === selectedDate).length;
+  const atDayLimit = dayEventCount >= MAX_EVENTS_PER_DAY;
   const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1));
 
   function changeMonth(delta: number) {
@@ -166,7 +169,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
 
   async function addEvent() {
     const title = newTitle.trim();
-    if (!title || !canManage) return;
+    if (!title || !canManage || atDayLimit) return;
     const headers = await getAuthHeaders();
     if (!headers) return;
     const response = await fetch('/api/events', {
@@ -181,6 +184,9 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
       setMeridiem('PM');
       setDialogOpen(false);
       await loadEvents();
+    } else {
+      const result = (await response.json().catch(() => null)) as { error?: string } | null;
+      setError(result?.error ?? 'Could not add the event.');
     }
   }
 
@@ -278,6 +284,10 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                     </span>
                   );
                 }}
+                moreLinkClass={() => 'evc-more-static'}
+                moreLinkDidMount={(info) => {
+                  info.el.tabIndex = -1;
+                }}
                 moreLinkContent={(info: MoreLinkInfo) => <span className="evc-more">+{info.num} more</span>}
                 dateClick={(info: DateClickInfo) => selectDate(info.date)}
                 eventClick={(info: EventClickInfo) =>
@@ -298,11 +308,20 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                 <CardTitle className="mt-1 text-xl">{formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })}</CardTitle>
               </div>
               {canManage ? (
-                <Button size="sm" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
+                atDayLimit ? (
+                  <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Full · max {MAX_EVENTS_PER_DAY}/day</span>
+                ) : (
+                  <Button size="sm" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
+                )
               ) : null}
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 pt-5">
+            {canManage && atDayLimit ? (
+              <p className="rounded-lg border border-border/70 bg-secondary/25 px-3 py-2 text-xs text-muted-foreground">
+                This day has reached its {MAX_EVENTS_PER_DAY}-event limit.
+              </p>
+            ) : null}
             {selectedEvents.length ? (
               selectedEvents.map((event) => (
                 <div key={event.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">

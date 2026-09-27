@@ -714,3 +714,8 @@
   font-size: 0.625rem;
   color: var(--muted-foreground);
 }
+
+.event-calendar-fc .evc-more-static {
+  pointer-events: none;
+  cursor: default;
+}
