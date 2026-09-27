@@ -1,175 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireStaff } from '@/lib/auth/server';
+import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { SchedulingEngine } from '@/lib/scheduling/engine';
-import { ScheduleContext, SchedulingFailureError } from '@/lib/types/scheduling';
-import { Member } from '@/lib/types/database';
+import { loadScheduleData } from '@/lib/scheduling/schedule-data';
+import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
+import { ScheduleContext, SchedulingFailureError, GeneratedService } from '@/lib/types/scheduling';
+import { Member, Role, ScheduleAssignment, Service } from '@/lib/types/database';
 
-const mockMembers: Member[] = [
-  {
-    id: '1',
-    church_id: 'church-1',
-    full_name: 'Heidi',
-    status: 'active',
-    max_monthly_assignments: 3,
-    priority_score: 85,
-    total_assignments: 2,
-    last_scheduled_date: '2026-08-03',
-    created_at: '2026-01-01',
-    updated_at: '2026-08-01',
-    roles: [
-      { id: '1', member_id: '1', role_id: 'r1', skill_level: 'expert', is_preferred: true, created_at: '2026-01-01', role: { id: 'r1', ministry_id: 'm1', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '2026-01-01' } },
-      { id: '2', member_id: '1', role_id: 'r2', skill_level: 'advanced', is_preferred: true, created_at: '2026-01-01', role: { id: 'r2', ministry_id: 'm1', name: 'Singer', min_required: 3, max_allowed: 5, priority: 2, is_active: true, created_at: '2026-01-01' } },
-    ],
-    skills: [],
-    availability: [],
-  },
-  {
-    id: '2',
-    church_id: 'church-1',
-    full_name: 'Feng',
-    status: 'active',
-    max_monthly_assignments: 3,
-    priority_score: 90,
-    total_assignments: 1,
-    last_scheduled_date: '2026-08-10',
-    created_at: '2026-01-01',
-    updated_at: '2026-08-01',
-    roles: [
-      { id: '3', member_id: '2', role_id: 'r1', skill_level: 'advanced', is_preferred: true, created_at: '2026-01-01', role: { id: 'r1', ministry_id: 'm1', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '2026-01-01' } },
-    ],
-    skills: [],
-    availability: [],
-  },
-  {
-    id: '3',
-    church_id: 'church-1',
-    full_name: 'Beng',
-    status: 'active',
-    max_monthly_assignments: 3,
-    priority_score: 70,
-    total_assignments: 2,
-    created_at: '2026-01-01',
-    updated_at: '2026-08-01',
-    roles: [
-      { id: '4', member_id: '3', role_id: 'r2', skill_level: 'advanced', is_preferred: true, created_at: '2026-01-01', role: { id: 'r2', ministry_id: 'm1', name: 'Singer', min_required: 3, max_allowed: 5, priority: 2, is_active: true, created_at: '2026-01-01' } },
-    ],
-    skills: [],
-    availability: [],
-  },
-];
+function parseMonthYear(request: Request, body?: Record<string, unknown>) {
+  const url = new URL(request.url);
+  const monthValue = body?.month ?? (url.searchParams.get('month') === null ? new Date().getMonth() : Number(url.searchParams.get('month')));
+  const yearValue = body?.year ?? (url.searchParams.get('year') === null ? new Date().getFullYear() : Number(url.searchParams.get('year')));
+  if (typeof monthValue !== 'number' || !Number.isInteger(monthValue) || monthValue < 0 || monthValue > 11 || typeof yearValue !== 'number' || !Number.isInteger(yearValue) || yearValue < 2000 || yearValue > 2100) throw new Error('Month must be 0-11 and year must be between 2000 and 2100.');
+  return { month: monthValue, year: yearValue };
+}
+
+function serviceAssignments(service: Service, assignments: ScheduleAssignment[]) {
+  const own = assignments.filter((assignment) => assignment.service_id === service.id);
+  const leader = own.find((assignment) => assignment.is_leader)?.member;
+  return { id: service.id, church_id: service.church_id, date: service.date, week_number: service.week_number, leader_name: leader?.full_name ?? 'Unassigned', leader_avatar: leader?.avatar_url, backup_singers: own.filter((assignment) => !assignment.is_leader && (assignment.role?.name.toLowerCase().includes('vocal') || assignment.role?.name.toLowerCase().includes('singer'))).map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })), instrumentalists: own.filter((assignment) => assignment.instrument).map((assignment) => ({ instrument: assignment.instrument?.name ?? 'Instrument', name: assignment.member?.full_name ?? 'Unassigned' })), devotion_name: own.find((assignment) => assignment.role?.name.toLowerCase().includes('devotion'))?.member?.full_name, status: service.status === 'archived' ? 'draft' : service.status, conflict_count: 0 };
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireStaff(request);
   if (auth instanceof Response) return auth;
-  const { searchParams } = new URL(request.url);
-  const month = parseInt(searchParams.get('month') || String(new Date().getMonth()));
-  const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
-
-  const services = generateMockServices(month, year, auth.churchId);
-
-  return NextResponse.json({ services, month, year, church_id: auth.churchId });
+  try { const { month, year } = parseMonthYear(request); const data = await loadScheduleData(auth.churchId, month, year); return NextResponse.json({ services: data.services.map((service) => serviceAssignments(service, data.assignments)), month, year, church_id: auth.churchId }); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not load schedules.' }, { status: 400 }); }
 }
 
 export async function POST(request: NextRequest) {
   const auth = await requireStaff(request);
   if (auth instanceof Response) return auth;
-  const body = await request.json();
-  const { month, year, week_numbers } = body;
-  const churchMembers = mockMembers.filter((member) => member.church_id === auth.churchId);
-
-  const context: ScheduleContext = {
-    service: {
-      id: 'temp',
-      church_id: auth.churchId,
-      date: new Date(year, month, 1).toISOString(),
-      week_number: week_numbers?.[0] || 1,
-      month,
-      year,
-      service_type: 'sunday',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    church_id: auth.churchId,
-    month,
-    year,
-    week_number: week_numbers?.[0] || 1,
-    week_numbers: Array.isArray(week_numbers) && week_numbers.length > 0 ? week_numbers : undefined,
-    existing_assignments: [],
-    available_members: churchMembers,
-    all_members: churchMembers,
-    rules: [
-      { rule_type: 'backup_count', rule_config: { min_required: 3, max_allowed: 5 }, severity: 'critical' },
-      { rule_type: 'leader_count', rule_config: {}, severity: 'critical' },
-      { rule_type: 'cooldown', rule_config: { weeks: 1 }, severity: 'warning' },
-      { rule_type: 'fairness', rule_config: {}, severity: 'suggestion' },
-    ],
-  };
-
-  const engine = new SchedulingEngine(context);
   try {
-    const generatedServices = await engine.generateSchedule();
-    return NextResponse.json({
-      services: generatedServices,
-      validation: generatedServices.flatMap((service) => service.conflicts),
-    });
+    const body = await request.json() as Record<string, unknown>;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Request body must be an object.' }, { status: 400 });
+    const { month, year } = parseMonthYear(request, body);
+    const count = getWeeksInMonth(month, year);
+    const requested = body.week_numbers;
+    const weekNumbers = requested === undefined ? Array.from({ length: count }, (_, index) => index + 1) : requested;
+    if (!Array.isArray(weekNumbers) || weekNumbers.length === 0 || weekNumbers.some((week) => typeof week !== 'number' || !Number.isInteger(week) || week < 1 || week > count)) return NextResponse.json({ error: 'week_numbers must contain valid weeks for the requested month.' }, { status: 400 });
+    const data = await loadScheduleData(auth.churchId, month, year, typeof body.ministry_id === 'string' ? body.ministry_id : undefined);
+    const selected = new Set(weekNumbers);
+    const protectedServices = data.services.filter((service) => selected.has(service.week_number) && ['published', 'validated'].includes(service.status));
+    if (protectedServices.length) return NextResponse.json({ error: 'Published or validated services cannot be regenerated.', service_ids: protectedServices.map((service) => service.id) }, { status: 409 });
+    const replaceable = new Set(data.services.filter((service) => selected.has(service.week_number)).map((service) => service.id));
+    const historicalAssignments = data.assignments.filter((assignment) => !replaceable.has(assignment.service_id));
+    const firstWeek = weekNumbers[0];
+    const context: ScheduleContext = { service: { id: 'generation', church_id: auth.churchId, date: formatLocalDate(getWeekDate(firstWeek, month, year)), week_number: firstWeek, month, year, service_type: 'sunday', status: 'draft', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, church_id: auth.churchId, month, year, week_number: firstWeek, week_numbers: weekNumbers, existing_assignments: historicalAssignments, historical_assignments: data.assignments, available_members: data.members, all_members: data.members, rules: data.rules, config: data.config };
+    const generated = await new SchedulingEngine(context).generateSchedule();
+    await persistGeneratedSchedule(auth.userId, auth.churchId, month, year, generated, data, replaceable);
+    return NextResponse.json({ services: generated, validation: generated.flatMap((service) => service.conflicts), month, year }, { status: 201 });
   } catch (error) {
-    if (error instanceof SchedulingFailureError) {
-      return NextResponse.json({ services: [], validation: [], failures: error.failures }, { status: 422 });
-    }
-    throw error;
+    if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
+    if (error instanceof SchedulingFailureError) return NextResponse.json({ services: [], validation: [], failures: error.failures }, { status: 422 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not generate schedule.' }, { status: 400 });
   }
 }
 
-function generateMockServices(month: number, year: number, churchId: string) {
-  return [
-    {
-      id: '1',
-      church_id: churchId,
-      date: new Date(year, month, 3).toISOString(),
-      week_number: 1,
-      month,
-      year,
-      service_type: 'sunday',
-      status: 'published',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      church_id: churchId,
-      date: new Date(year, month, 10).toISOString(),
-      week_number: 2,
-      month,
-      year,
-      service_type: 'sunday',
-      status: 'validated',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      church_id: churchId,
-      date: new Date(year, month, 17).toISOString(),
-      week_number: 3,
-      month,
-      year,
-      service_type: 'sunday',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: '4',
-      church_id: churchId,
-      date: new Date(year, month, 24).toISOString(),
-      week_number: 4,
-      month,
-      year,
-      service_type: 'sunday',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ];
+async function persistGeneratedSchedule(userId: string, churchId: string, month: number, year: number, generated: GeneratedService[], data: Awaited<ReturnType<typeof loadScheduleData>>, replaceable: Set<string>) {
+  const admin = getAdminClient();
+  if (replaceable.size) { const { error } = await admin.from('services').delete().in('id', [...replaceable]).eq('church_id', churchId); if (error) throw new Error('Could not replace existing draft services.'); }
+  for (const generatedService of generated) {
+    const { data: service, error: serviceError } = await admin.from('services').insert({ church_id: churchId, date: generatedService.date, week_number: generatedService.week_number, month, year, service_type: 'sunday', status: 'draft', generated_by: userId }).select('*').single<Service>();
+    if (serviceError || !service) throw new Error('Could not save generated service.');
+    const { error: assignmentError } = await admin.from('schedule_assignments').insert(assignmentRows(service, generatedService, userId));
+    if (assignmentError) throw new Error('Could not save generated assignments.');
+  }
+}
+
+function roleFor(member: Member | null, predicate: (role: Role) => boolean): Role | undefined { return member?.roles?.map((item) => item.role).find((role) => role ? predicate(role) : false); }
+function assignmentRows(service: Service, generated: GeneratedService, userId: string) {
+  const now = new Date().toISOString(); const rows: Array<Record<string, unknown>> = [];
+  const add = (member: Member | null, role: Role | undefined, instrumentId?: string, isLeader = false) => { if (member && role) rows.push({ service_id: service.id, member_id: member.id, role_id: role.id, instrument_id: instrumentId, is_leader: isLeader, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }); };
+  add(generated.leader, roleFor(generated.leader, (role) => role.name.toLowerCase() === 'worship leader'), undefined, true);
+  for (const member of generated.backup_singers) add(member, roleFor(member, (role) => /vocal|singer|backup/.test(role.name.toLowerCase())));
+  for (const item of generated.instrumentalists) add(item.member, roleFor(item.member, (role) => role.name.toLowerCase().includes(item.instrument.name.toLowerCase()) || /guitar|drum|pian|keyboard/.test(role.name.toLowerCase())), item.instrument.id);
+  add(generated.devotion, roleFor(generated.devotion, (role) => role.name.toLowerCase().includes('devotion')));
+  return rows;
 }

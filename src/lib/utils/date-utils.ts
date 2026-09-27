@@ -67,6 +67,18 @@ export function formatWeekDate(weekNumber: number, month: number, year: number):
   return format(weekDate, 'MMM dd');
 }
 
+/**
+ * Local (not UTC) calendar date string `yyyy-MM-dd` for the given Date, derived
+ * from local date components. Unlike `.toISOString().slice(0, 10)` this never
+ * drifts to the previous day on machines with a positive UTC offset — e.g. a
+ * Sunday at local midnight in October 2026 on UTC+8 is still 2026-10-04, not
+ * 2026-10-03. Used for persisted service dates so `set_week_number` computes
+ * the correct week 1..4.
+ */
+export function formatLocalDate(date: Date): string {
+  return format(date, 'yyyy-MM-dd');
+}
+
 export function isDateInRange(date: Date, startDate: Date, endDate: Date): boolean {
   return isWithinInterval(date, { start: startDate, end: endDate });
 }

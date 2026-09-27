@@ -5,7 +5,7 @@ import {
   SchedulingFailureError,
 } from '../types/scheduling';
 import { Availability, Instrument, Member, Role, ScheduleAssignment } from '../types/database';
-import { getWeekDate } from '../utils/date-utils';
+import { formatLocalDate, getWeekDate } from '../utils/date-utils';
 import { FairnessScorer, TemporaryMemberState } from './scorer';
 import { isWeeklyUnavailable } from './availability';
 
@@ -15,7 +15,7 @@ interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number
 interface Rejection { member: Member; reason: string; }
 interface ServiceState { choices: AssignmentChoice[]; usedMemberIds: Set<string>; }
 
-const BACKUP_NAMES = new Set(['singer', 'backup', 'backup singer', 'backup singers']);
+const BACKUP_NAMES = new Set(['singer', 'singers', 'vocalist', 'vocal', 'backup', 'backup singer', 'backup singers']);
 
 export class SchedulingEngine {
   private readonly context: ScheduleContext;
@@ -167,7 +167,7 @@ export class SchedulingEngine {
   }
 
   private buildSlots(weekNumber: number): AssignmentSlot[] {
-    const date = getWeekDate(weekNumber, this.context.month, this.context.year).toISOString().slice(0, 10);
+    const date = formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year));
     const slots: AssignmentSlot[] = [{ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRole('Worship Leader') }];
     for (let index = 1; index <= this.getRuleNumber('backup_count', 'min_required', 3); index += 1) {
       slots.push({ id: `${weekNumber}:backup:${index}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByNames(BACKUP_NAMES), isLeader: false });
@@ -185,7 +185,7 @@ export class SchedulingEngine {
     const choices = assignments.filter((choice) => choice.slot.weekNumber === weekNumber);
     return {
       week_number: weekNumber,
-      date: choices[0]?.slot.date ?? getWeekDate(weekNumber, this.context.month, this.context.year).toISOString().slice(0, 10),
+      date: choices[0]?.slot.date ?? formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year)),
       leader: choices.find((choice) => choice.slot.kind === 'leader')?.member ?? null,
       backup_singers: choices.filter((choice) => choice.slot.kind === 'backup').map((choice) => choice.member),
       instrumentalists: choices.filter((choice) => choice.slot.kind === 'instrument' && choice.slot.instrument).map((choice) => ({ instrument: choice.slot.instrument!, member: choice.member, is_fallback: false })),

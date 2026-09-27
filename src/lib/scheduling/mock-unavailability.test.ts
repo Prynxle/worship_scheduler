@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planMockUnavailability } from './mock-unavailability';
+import { planMockUnavailability, soleQualifiedMemberIds } from './mock-unavailability';
 import { getWeeksInMonth } from '../utils/date-utils';
 
 const roster = [
@@ -56,5 +56,143 @@ describe('planMockUnavailability', () => {
         expect(row.year).toBe(year);
       }
     }
+  });
+});
+
+describe('planMockUnavailability with excludedMemberIds', () => {
+  it('excludes the given member ids while keeping every non-excluded week unchanged', () => {
+    const full = planMockUnavailability(roster, 9, 2026);
+    const plan = planMockUnavailability(roster, 9, 2026, new Set(['m-2']));
+    expect(plan).toHaveLength(roster.length - 1);
+    for (const row of plan) {
+      expect(row.member_id).not.toBe('m-2');
+      const original = full.find((item) => item.member_id === row.member_id);
+      expect(original).toBeDefined();
+      expect(row.week_number).toBe(original!.week_number);
+    }
+    expect(new Set(plan.map((row) => row.member_id)).size).toBe(plan.length);
+  });
+
+  it('ignores excluded ids that are not members and preserves default behavior for an empty set', () => {
+    const plan = planMockUnavailability(roster, 9, 2026, new Set(['missing']));
+    expect(plan).toHaveLength(roster.length);
+    expect(plan).toEqual(planMockUnavailability(roster, 9, 2026));
+  });
+});
+
+describe('soleQualifiedMemberIds', () => {
+  const twoLeadersTwoBackups = [
+    { member_id: 'm-1', role: { name: 'Worship Leader', is_active: true } },
+    { member_id: 'm-2', role: { name: 'Worship Leader', is_active: true } },
+    { member_id: 'm-3', role: { name: 'Singer', is_active: true } },
+    { member_id: 'm-4', role: { name: 'Singer', is_active: true } },
+  ];
+
+  it('excludes the sole Worship Leader holder but not leaders in a 2+ holder group', () => {
+    const sole = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3'],
+      roles: [
+        { member_id: 'm-1', role: { name: 'Worship Leader', is_active: true } },
+        { member_id: 'm-2', role: { name: 'Singer', is_active: true } },
+        { member_id: 'm-3', role: { name: 'Singer', is_active: true } },
+      ],
+      skills: [],
+    });
+    expect(sole.has('m-1')).toBe(true);
+
+    const shared = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4'],
+      roles: twoLeadersTwoBackups,
+      skills: [],
+    });
+    expect(shared.has('m-1')).toBe(false);
+    expect(shared.has('m-2')).toBe(false);
+    expect(shared.has('m-3')).toBe(false);
+  });
+
+  it('excludes a sole required-instrument holder (Simone-shaped)', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4', 'm-5'],
+      roles: [
+        ...twoLeadersTwoBackups,
+        { member_id: 'm-5', role: { name: 'Singer', is_active: true } },
+      ],
+      skills: [{ member_id: 'm-1', instrument: { id: 'drums', is_required: true } }],
+    });
+    expect(excluded.has('m-1')).toBe(true);
+  });
+
+  it('does not exclude when 2+ members hold the required instrument', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4'],
+      roles: twoLeadersTwoBackups,
+      skills: [
+        { member_id: 'm-1', instrument: { id: 'drums', is_required: true } },
+        { member_id: 'm-2', instrument: { id: 'drums', is_required: true } },
+      ],
+    });
+    expect(excluded.size).toBe(0);
+  });
+
+  it('does not exclude when a required instrument has zero active holders', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4'],
+      roles: twoLeadersTwoBackups,
+      skills: [
+        { member_id: 'm-inactive', instrument: { id: 'drums', is_required: true } },
+        { member_id: 'm-3', instrument: { id: 'piano', is_required: false } },
+      ],
+    });
+    expect(excluded.size).toBe(0);
+  });
+
+  it('excludes a sole active Devotion holder and ignores a zero-holder devotion slot', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4', 'm-5'],
+      roles: [
+        { member_id: 'm-1', role: { name: 'Devotion', is_active: true } },
+        ...twoLeadersTwoBackups,
+        { member_id: 'm-5', role: { name: 'Singer', is_active: true } },
+      ],
+      skills: [],
+    });
+    expect(excluded.has('m-1')).toBe(true);
+
+    const noDevotion = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3', 'm-4'],
+      roles: twoLeadersTwoBackups,
+      skills: [],
+    });
+    expect(noDevotion.size).toBe(0);
+  });
+
+  it('does not count inactive roles (is_active:false)', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3'],
+      roles: [
+        { member_id: 'm-1', role: { name: 'Worship Leader', is_active: false } },
+        { member_id: 'm-2', role: { name: 'Singer', is_active: true } },
+        { member_id: 'm-3', role: { name: 'Singer', is_active: true } },
+      ],
+      skills: [],
+    });
+    expect(excluded.has('m-1')).toBe(false);
+  });
+
+  it('never counts or excludes members outside the active memberIds (HIGH-risk)', () => {
+    const excluded = soleQualifiedMemberIds({
+      memberIds: ['m-1', 'm-2', 'm-3'],
+      roles: [
+        { member_id: 'm-inactive', role: { name: 'Worship Leader', is_active: true } },
+        { member_id: 'm-1', role: { name: 'Singer', is_active: true } },
+        { member_id: 'm-2', role: { name: 'Singer', is_active: true } },
+        { member_id: 'm-3', role: { name: 'Singer', is_active: true } },
+      ],
+      skills: [
+        { member_id: 'm-inactive', instrument: { id: 'drums', is_required: true } },
+      ],
+    });
+    expect(excluded.size).toBe(0);
+    expect(excluded.has('m-inactive')).toBe(false);
   });
 });
