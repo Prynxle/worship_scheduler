@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getWeeksInMonth } from './date-utils';
+import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getMonthIndex, getWeeksInMonth } from './date-utils';
 
 describe('getCurrentWeekNumber (database first-Sunday semantics)', () => {
   it('treats dates before the first Sunday of the month as week 1', () => {
@@ -69,5 +69,21 @@ describe('getAvailableWeeks', () => {
 
   it('returns all weeks for a future month', () => {
     expect(getAvailableWeeks(11, 2026, new Date(2026, 8, 16))).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('getMonthIndex (0-based, matching services.month)', () => {
+  it('returns the 0-based month index', () => {
+    // The month mismatch that this change fixed: September 2026 was written to
+    // services.month as 9 instead of 8, because a 1-based literal was used at
+    // the call site.
+    expect(getMonthIndex(new Date(2026, 8, 6))).toBe(8);
+    expect(getMonthIndex(new Date(2026, 0, 1))).toBe(0);
+    expect(getMonthIndex(new Date(2026, 11, 31))).toBe(11);
+  });
+
+  it('is independent of the day of the month', () => {
+    expect(getMonthIndex(new Date(2026, 8, 1))).toBe(8);
+    expect(getMonthIndex(new Date(2026, 8, 30))).toBe(8);
   });
 });

@@ -47,7 +47,10 @@ export default function SchedulePage() {
     try {
       const session = (await getSupabaseClient().auth.getSession()).data.session;
       if (!session) throw new Error('Your session has expired. Please sign in again.');
-      const response = await fetch('/api/schedule/mock-unavailability', { method: 'POST', headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ month: 9, year: 2026 }) });
+      // Send the page's own 0-indexed { month, year } (identical to the
+      // Generate Schedule call above) so the fixtures always land in the month
+      // actually being generated, instead of a hardcoded literal month.
+      const response = await fetch('/api/schedule/mock-unavailability', { method: 'POST', headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ month, year }) });
       const payload = await response.json() as { success?: boolean; error?: string; added?: number; skipped?: number };
       if (!response.ok || !payload.success) throw new Error(payload.error ?? 'Could not add mock unavailability.');
       setResult('Added ' + (payload.added ?? 0) + ' mock unavailability records (skipped ' + (payload.skipped ?? 0) + ').');

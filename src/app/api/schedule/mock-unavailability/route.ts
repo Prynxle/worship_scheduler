@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { planMockUnavailability, soleQualifiedMemberIds } from '@/lib/scheduling/mock-unavailability';
-import { getMonthName } from '@/lib/utils/date-utils';
-
-const DEFAULT_MONTH = 9; // October for the October 2026 test run
-const DEFAULT_YEAR = 2026;
+import { getCurrentMonth, getMonthName } from '@/lib/utils/date-utils';
 
 /**
  * Self-healing mock-unavailability test tool.
@@ -40,8 +37,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const rawMonth: unknown = body.month === undefined ? DEFAULT_MONTH : body.month;
-  const rawYear: unknown = body.year === undefined ? DEFAULT_YEAR : body.year;
+  // Default to the CURRENT month, 0-indexed, rather than a hardcoded literal.
+  // The caller (the schedule page) always sends its own { month, year } so the
+  // fixtures always land in the month actually being generated.
+  const current = getCurrentMonth();
+  const rawMonth: unknown = body.month === undefined ? current.month : body.month;
+  const rawYear: unknown = body.year === undefined ? current.year : body.year;
   if (typeof rawMonth !== 'number' || !Number.isInteger(rawMonth) ||
       typeof rawYear !== 'number' || !Number.isInteger(rawYear)) {
     return NextResponse.json({ error: 'Month and year must be whole numbers.' }, { status: 400 });
