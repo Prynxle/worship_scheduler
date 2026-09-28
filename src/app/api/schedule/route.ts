@@ -4,7 +4,8 @@ import { SchedulingEngine } from '@/lib/scheduling/engine';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { ScheduleContext, SchedulingFailureError, GeneratedService } from '@/lib/types/scheduling';
-import { Member, Role, ScheduleAssignment, Service } from '@/lib/types/database';
+import { Instrument, Member, Role, ScheduleAssignment, Service } from '@/lib/types/database';
+import { isBackupRoleName, isDevotionRoleName, isInstrumentalistRoleName, isWorshipLeaderRoleName, matchesInstrumentName } from '@/lib/scheduling/role-classifier';
 
 function parseMonthYear(request: Request, body?: Record<string, unknown>) {
   const url = new URL(request.url);
@@ -17,7 +18,7 @@ function parseMonthYear(request: Request, body?: Record<string, unknown>) {
 function serviceAssignments(service: Service, assignments: ScheduleAssignment[]) {
   const own = assignments.filter((assignment) => assignment.service_id === service.id);
   const leader = own.find((assignment) => assignment.is_leader)?.member;
-  return { id: service.id, church_id: service.church_id, date: service.date, week_number: service.week_number, leader_name: leader?.full_name ?? 'Unassigned', leader_avatar: leader?.avatar_url, backup_singers: own.filter((assignment) => !assignment.is_leader && (assignment.role?.name.toLowerCase().includes('vocal') || assignment.role?.name.toLowerCase().includes('singer'))).map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })), instrumentalists: own.filter((assignment) => assignment.instrument).map((assignment) => ({ instrument: assignment.instrument?.name ?? 'Instrument', name: assignment.member?.full_name ?? 'Unassigned' })), devotion_name: own.find((assignment) => assignment.role?.name.toLowerCase().includes('devotion'))?.member?.full_name, status: service.status === 'archived' ? 'draft' : service.status, conflict_count: 0 };
+  return { id: service.id, church_id: service.church_id, date: service.date, week_number: service.week_number, leader_name: leader?.full_name ?? 'Unassigned', leader_avatar: leader?.avatar_url, backup_singers: own.filter((assignment) => !assignment.is_leader && assignment.role && isBackupRoleName(assignment.role.name)).map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })), instrumentalists: own.filter((assignment) => assignment.instrument).map((assignment) => ({ instrument: assignment.instrument?.name ?? 'Instrument', name: assignment.member?.full_name ?? 'Unassigned' })), devotion_name: own.find((assignment) => assignment.role && isDevotionRoleName(assignment.role.name))?.member?.full_name, status: service.status === 'archived' ? 'draft' : service.status, conflict_count: 0 };
 }
 
 export async function GET(request: NextRequest) {
@@ -57,23 +58,50 @@ export async function POST(request: NextRequest) {
 }
 
 async function persistGeneratedSchedule(userId: string, churchId: string, month: number, year: number, generated: GeneratedService[], data: Awaited<ReturnType<typeof loadScheduleData>>, replaceable: Set<string>) {
+  // There is no transaction here, so every role must be resolved BEFORE the
+  // first mutation. Otherwise an unresolvable role would delete the existing
+  // draft month, leave a partially written month behind, and still 400.
+  const plans = generated.map((generatedService) => ({ generatedService, resolved: resolveAssignments(generatedService) }));
+  const now = new Date().toISOString();
   const admin = getAdminClient();
   if (replaceable.size) { const { error } = await admin.from('services').delete().in('id', [...replaceable]).eq('church_id', churchId); if (error) throw new Error('Could not replace existing draft services.'); }
-  for (const generatedService of generated) {
+  for (const { generatedService, resolved } of plans) {
     const { data: service, error: serviceError } = await admin.from('services').insert({ church_id: churchId, date: generatedService.date, week_number: generatedService.week_number, month, year, service_type: 'sunday', status: 'draft', generated_by: userId }).select('*').single<Service>();
     if (serviceError || !service) throw new Error('Could not save generated service.');
-    const { error: assignmentError } = await admin.from('schedule_assignments').insert(assignmentRows(service, generatedService, userId));
+    const { error: assignmentError } = await admin.from('schedule_assignments').insert(assignmentRowsFor(service, resolved, userId, now));
     if (assignmentError) throw new Error('Could not save generated assignments.');
   }
 }
 
+interface ResolvedAssignment { memberId: string; roleId: string; instrumentId: string | undefined; isLeader: boolean; }
+
 function roleFor(member: Member | null, predicate: (role: Role) => boolean): Role | undefined { return member?.roles?.map((item) => item.role).find((role) => role ? predicate(role) : false); }
-function assignmentRows(service: Service, generated: GeneratedService, userId: string) {
-  const now = new Date().toISOString(); const rows: Array<Record<string, unknown>> = [];
-  const add = (member: Member | null, role: Role | undefined, instrumentId?: string, isLeader = false) => { if (member && role) rows.push({ service_id: service.id, member_id: member.id, role_id: role.id, instrument_id: instrumentId, is_leader: isLeader, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }); };
-  add(generated.leader, roleFor(generated.leader, (role) => role.name.toLowerCase() === 'worship leader'), undefined, true);
-  for (const member of generated.backup_singers) add(member, roleFor(member, (role) => /vocal|singer|backup/.test(role.name.toLowerCase())));
-  for (const item of generated.instrumentalists) add(item.member, roleFor(item.member, (role) => role.name.toLowerCase().includes(item.instrument.name.toLowerCase()) || /guitar|drum|pian|keyboard/.test(role.name.toLowerCase())), item.instrument.id);
-  add(generated.devotion, roleFor(generated.devotion, (role) => role.name.toLowerCase().includes('devotion')));
-  return rows;
+
+// Union of both pre-classifier instrument clauses, most specific first: the
+// instrument-name match the writer always had, then the shared instrument-role
+// classifier that additionally accepts 'Instrumentalist'.
+function instrumentRoleFor(member: Member | null, instrument: Instrument): Role | undefined {
+  return roleFor(member, (role) => matchesInstrumentName(role.name, instrument.name)) ?? roleFor(member, (role) => isInstrumentalistRoleName(role.name));
+}
+
+function resolveAssignments(generated: GeneratedService): ResolvedAssignment[] {
+  const resolved: ResolvedAssignment[] = [];
+  const add = (member: Member | null, role: Role | undefined, instrumentId?: string, isLeader = false) => {
+    if (!member) return;
+    if (!role) throw new Error(`Could not resolve a persisted role for ${member.full_name}.`);
+    resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader });
+  };
+  add(generated.leader, roleFor(generated.leader, (role) => isWorshipLeaderRoleName(role.name)), undefined, true);
+  for (const member of generated.backup_singers) add(member, roleFor(member, (role) => isBackupRoleName(role.name)));
+  for (const item of generated.instrumentalists) add(item.member, instrumentRoleFor(item.member, item.instrument), item.instrument.id);
+  add(generated.devotion, roleFor(generated.devotion, (role) => isDevotionRoleName(role.name)));
+  return resolved;
+}
+
+function assignmentRowsFor(service: Service, resolved: ResolvedAssignment[], userId: string, now: string): Array<Record<string, unknown>> {
+  return resolved.map((row) => ({ service_id: service.id, member_id: row.memberId, role_id: row.roleId, instrument_id: row.instrumentId, is_leader: row.isLeader, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }));
+}
+
+export function assignmentRows(service: Service, generated: GeneratedService, userId: string) {
+  return assignmentRowsFor(service, resolveAssignments(generated), userId, new Date().toISOString());
 }

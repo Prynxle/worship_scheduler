@@ -1,4 +1,5 @@
 import { getWeeksInMonth } from '../utils/date-utils';
+import { isBackupRoleName } from './role-classifier';
 
 export type PlannedUnavailability = {
   member_id: string;
@@ -7,17 +8,14 @@ export type PlannedUnavailability = {
   week_number: number;
 };
 
-// Mirrors the engine's BACKUP_NAMES (src/lib/scheduling/engine.ts): only these
-// role names qualify a member for a backup slot.
-const BACKUP_NAMES = new Set(['singer', 'singers', 'vocalist', 'vocal', 'backup', 'backup singer', 'backup singers']);
-
 /**
  * Returns the member ids that are the ONLY active holder of a slot modeled by
  * the scheduling engine's `buildSlots` (src/lib/scheduling/engine.ts):
  *
  * - Worship Leader: slot always exists; holders of the active `Worship Leader`
  *   role.
- * - Backup: slots always exist; holders of any role name in BACKUP_NAMES.
+ * - Backup: slots always exist; holders of any role name accepted by the
+ *   shared backup-role classifier.
  * - Devotion: slot exists only when at least one active holder of the active
  *   `Devotion` role exists; zero holders means no slot and no exclusion.
  * - Required instruments: unique instrument ids (by id) referenced by an
@@ -44,24 +42,24 @@ export function soleQualifiedMemberIds(input: {
   const activeMemberIds = new Set(input.memberIds);
   const excluded = new Set<string>();
 
-  const holdersOf = (roleNames: Set<string>): Set<string> => {
+  const holdersOf = (matches: (name: string) => boolean): Set<string> => {
     const holders = new Set<string>();
     for (const entry of input.roles) {
       if (!activeMemberIds.has(entry.member_id)) continue;
       if (entry.role?.is_active === false) continue;
       const name = entry.role?.name?.toLowerCase();
-      if (name && roleNames.has(name)) holders.add(entry.member_id);
+      if (name && matches(name)) holders.add(entry.member_id);
     }
     return holders;
   };
 
-  const leaderHolders = holdersOf(new Set(['worship leader']));
+  const leaderHolders = holdersOf((name) => name === 'worship leader');
   if (leaderHolders.size === 1) excluded.add([...leaderHolders][0]);
 
-  const backupHolders = holdersOf(BACKUP_NAMES);
+  const backupHolders = holdersOf(isBackupRoleName);
   if (backupHolders.size === 1) excluded.add([...backupHolders][0]);
 
-  const devotionHolders = holdersOf(new Set(['devotion']));
+  const devotionHolders = holdersOf((name) => name === 'devotion');
   if (devotionHolders.size === 1) excluded.add([...devotionHolders][0]);
 
   const instrumentHolders = new Map<string, Set<string>>();
