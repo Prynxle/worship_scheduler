@@ -1,107 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireStaff } from '@/lib/auth/server';
+import { getAdminClient, requireStaff } from '@/lib/auth/server';
+import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
-import { ScheduleContext } from '@/lib/types/scheduling';
-import { Member, ScheduleAssignment } from '@/lib/types/database';
-
-const mockMembers: Member[] = [
-  {
-    id: '1',
-    church_id: 'church-1',
-    full_name: 'Heidi',
-    status: 'active',
-    max_monthly_assignments: 3,
-    priority_score: 85,
-    total_assignments: 2,
-    created_at: '2026-01-01',
-    updated_at: '2026-08-01',
-    roles: [
-      { id: '1', member_id: '1', role_id: 'r1', skill_level: 'expert', is_preferred: true, created_at: '2026-01-01', role: { id: 'r1', ministry_id: 'm1', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '2026-01-01' } },
-    ],
-    skills: [],
-    availability: [],
-  },
-  {
-    id: '2',
-    church_id: 'church-1',
-    full_name: 'Shael',
-    status: 'active',
-    max_monthly_assignments: 3,
-    priority_score: 80,
-    total_assignments: 1,
-    created_at: '2026-01-01',
-    updated_at: '2026-08-01',
-    roles: [
-      { id: '2', member_id: '2', role_id: 'r1', skill_level: 'advanced', is_preferred: true, created_at: '2026-01-01', role: { id: 'r1', ministry_id: 'm1', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '2026-01-01' } },
-    ],
-    skills: [],
-    availability: [
-      { id: '1', member_id: '2', church_id: 'church-1', type: 'weekly', week_number: 1, status: 'approved', created_at: '2026-08-01' },
-    ],
-  },
-];
+import { Service } from '@/lib/types/database';
 
 export async function POST(request: NextRequest) {
   const auth = await requireStaff(request);
   if (auth instanceof Response) return auth;
-  const body = await request.json();
-  const { service_id, assignments } = body;
-  const churchMembers = mockMembers.filter((member) => member.church_id === auth.churchId);
-  const churchMemberIds = new Set(churchMembers.map((member) => member.id));
-  const scopedAssignments = Array.isArray(assignments)
-    ? assignments.filter((assignment): assignment is ScheduleAssignment =>
-      assignment
-      && typeof assignment === 'object'
-      && typeof assignment.member_id === 'string'
-      && churchMemberIds.has(assignment.member_id),
-    )
-    : [];
-
-  const context: ScheduleContext = {
-    service: {
-      id: service_id || 'temp',
-      church_id: auth.churchId,
-      date: new Date().toISOString(),
-      week_number: 1,
-      month: new Date().getMonth(),
-      year: new Date().getFullYear(),
-      service_type: 'sunday',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    church_id: auth.churchId,
-    month: new Date().getMonth(),
-    year: new Date().getFullYear(),
-    week_number: 1,
-    existing_assignments: scopedAssignments,
-    available_members: churchMembers,
-    all_members: churchMembers,
-    rules: [
-      { rule_type: 'backup_count', rule_config: { min_required: 3, max_allowed: 5 }, severity: 'critical' },
-      { rule_type: 'leader_count', rule_config: {}, severity: 'critical' },
-      { rule_type: 'availability_check', rule_config: {}, severity: 'critical' },
-      { rule_type: 'assignment_limit', rule_config: { default_max: 3 }, severity: 'critical' },
-      { rule_type: 'cooldown', rule_config: { weeks: 1 }, severity: 'warning' },
-      { rule_type: 'fairness', rule_config: {}, severity: 'suggestion' },
-    ],
-  };
-
-  const validator = new ScheduleValidator(context);
-  const results = await validator.validate();
-
-  const critical = results.filter((r) => r.severity === 'critical');
-  const warnings = results.filter((r) => r.severity === 'warning');
-  const suggestions = results.filter((r) => r.severity === 'suggestion');
-
-  return NextResponse.json({
-    valid: critical.length === 0,
-    results,
-    summary: {
-      total: results.length,
-      critical: critical.length,
-      warnings: warnings.length,
-      suggestions: suggestions.length,
-    },
-  });
+  try {
+    const body = await request.json() as { service_id?: unknown };
+    if (typeof body.service_id !== 'string' || !body.service_id) return NextResponse.json({ error: 'service_id is required.' }, { status: 400 });
+    const admin = getAdminClient();
+    const { data: service, error: serviceError } = await admin.from('services').select('*').eq('id', body.service_id).eq('church_id', auth.churchId).maybeSingle<Service>();
+    if (serviceError) return NextResponse.json({ error: 'Could not load service.' }, { status: 500 });
+    if (!service) return NextResponse.json({ error: 'Service not found.' }, { status: 404 });
+    const data = await loadScheduleData(auth.churchId, service.month, service.year);
+    const assignments = data.assignments.filter((assignment) => assignment.service_id === service.id);
+    const results = await new ScheduleValidator({ service, church_id: auth.churchId, month: service.month, year: service.year, week_number: service.week_number, existing_assignments: assignments, available_members: data.members, all_members: data.members, rules: data.rules, config: data.config }).validate();
+    const critical = results.filter((result) => result.severity === 'critical');
+    const warnings = results.filter((result) => result.severity === 'warning');
+    const suggestions = results.filter((result) => result.severity === 'suggestion');
+    return NextResponse.json({ valid: critical.length === 0, results, summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } });
+  } catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not validate service.' }, { status: 400 });
+  }
 }
