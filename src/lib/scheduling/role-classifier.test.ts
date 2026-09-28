@@ -6,7 +6,7 @@ import {
   matchesInstrumentName,
 } from './role-classifier';
 import { ScheduleValidator } from './validator';
-import { assignmentRows } from '@/app/api/schedule/route';
+import { assignmentRows } from './persistence';
 import type { ScheduleContext } from '../types/scheduling';
 import type { Instrument, Member, MemberRole, Role, ScheduleAssignment, Service } from '../types/database';
 
@@ -68,7 +68,8 @@ async function validatorCountsAsBackup(roleName: string): Promise<boolean> {
 describe('role classifier', () => {
   it('classifies the seeded role names identically across reader, writer, and validator', async () => {
     for (const roleName of REAL_ROLE_NAMES) {
-      // Reader predicate is isBackupRoleName (src/app/api/schedule/route.ts:21).
+      // Reader predicate is isBackupRoleName (role-classifier.ts), imported at
+      // src/app/api/schedule/route.ts:10 and used by the GET reader at :39.
       const reader = isBackupRoleName(roleName);
       const writer = writerAcceptsBackup(roleName);
       const validator = await validatorCountsAsBackup(roleName);
