@@ -8,14 +8,13 @@ import { Availability, Instrument, Member, Role, ScheduleAssignment } from '../t
 import { formatLocalDate, getWeekDate } from '../utils/date-utils';
 import { FairnessScorer, TemporaryMemberState } from './scorer';
 import { isWeeklyUnavailable } from './availability';
+import { isBackupRoleName } from './role-classifier';
 
 type SlotKind = 'leader' | 'backup' | 'devotion' | 'instrument';
 interface AssignmentSlot { id: string; weekNumber: number; date: string; kind: SlotKind; roleName: string; role?: Role; instrument?: Instrument; isLeader: boolean; }
 interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number; previousState?: TemporaryMemberState; }
 interface Rejection { member: Member; reason: string; }
 interface ServiceState { choices: AssignmentChoice[]; usedMemberIds: Set<string>; }
-
-const BACKUP_NAMES = new Set(['singer', 'singers', 'vocalist', 'vocal', 'backup', 'backup singer', 'backup singers']);
 
 export class SchedulingEngine {
   private readonly context: ScheduleContext;
@@ -160,7 +159,7 @@ export class SchedulingEngine {
     if (state.currentMonthAssignments >= (member.max_monthly_assignments || this.getRuleNumber('assignment_limit', 'default_max', 3))) return 'monthly limit reached';
     if (!this.context.config?.allows_dual_role && service.usedMemberIds.has(member.id)) return 'already assigned in this service';
     if (slot.kind === 'leader' && !this.hasRole(member, 'Worship Leader')) return 'not qualified for Worship Leader';
-    if (slot.kind === 'backup' && !this.hasAnyRole(member, BACKUP_NAMES)) return 'not qualified for Backup';
+    if (slot.kind === 'backup' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isBackupRoleName(role.role.name))) return 'not qualified for Backup';
     if (slot.kind === 'devotion' && !this.hasRole(member, 'Devotion')) return 'not qualified for Devotion';
     if (slot.kind === 'instrument' && !member.skills?.some((skill) => skill.instrument_id === slot.instrument?.id)) return `not qualified for ${slot.instrument?.name ?? 'instrument'}`;
     return null;
@@ -170,7 +169,7 @@ export class SchedulingEngine {
     const date = formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year));
     const slots: AssignmentSlot[] = [{ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRole('Worship Leader') }];
     for (let index = 1; index <= this.getRuleNumber('backup_count', 'min_required', 3); index += 1) {
-      slots.push({ id: `${weekNumber}:backup:${index}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByNames(BACKUP_NAMES), isLeader: false });
+      slots.push({ id: `${weekNumber}:backup:${index}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false });
     }
     if (this.context.all_members.some((member) => this.hasRole(member, 'Devotion'))) {
       slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRole('Devotion'), isLeader: false });
@@ -260,9 +259,8 @@ export class SchedulingEngine {
 
   private sameDate(left: string, right: string): boolean { return new Date(left).toISOString().slice(0, 10) === right; }
   private hasRole(member: Member, roleName: string): boolean { return member.roles?.some((role) => role.role?.is_active !== false && role.role?.name.toLowerCase() === roleName.toLowerCase()) ?? false; }
-  private hasAnyRole(member: Member, roleNames: Set<string>): boolean { return member.roles?.some((role) => role.role?.is_active !== false && roleNames.has(role.role?.name.toLowerCase() ?? '')) ?? false; }
   private findRole(roleName: string): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role?.name.toLowerCase() === roleName.toLowerCase()); }
-  private findRoleByNames(names: Set<string>): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role !== undefined && names.has(role.name.toLowerCase())); }
+  private findRoleByPredicate(predicate: (name: string) => boolean): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role !== undefined && predicate(role.name)); }
   private getInstruments(): Instrument[] { return this.context.all_members.flatMap((member) => member.skills?.map((skill) => skill.instrument) ?? []).filter((instrument): instrument is Instrument => Boolean(instrument)).filter((instrument, index, all) => all.findIndex((candidate) => candidate.id === instrument.id) === index).sort((a, b) => a.id.localeCompare(b.id)); }
   private getRuleNumber(ruleType: string, key: string, fallback: number): number { const value = this.context.rules.find((rule) => rule.rule_type === ruleType)?.rule_config[key]; return typeof value === 'number' ? value : fallback; }
   private assignmentRoleName(assignment: ScheduleAssignment): string { if (assignment.is_leader) return 'Worship Leader'; return assignment.role?.name ?? assignment.instrument?.name ?? 'Assignment'; }
