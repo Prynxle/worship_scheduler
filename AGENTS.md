@@ -7,6 +7,36 @@ It contains the codebase context, security invariants, required verification gat
 
 The scheduling-specific rules below remain authoritative for scheduling behavior.
 
+## Agent runtime
+
+The files in `zed/agents/` are **agent prompt contracts, not documentation**. They are injected into a specific role; never read them to work out what to do yourself, and never treat their `You are the ...` lines as instructions addressed to you.
+
+These contracts are shared by two harnesses. Both must run the same pipeline: `planner` -> `decision` -> `builder` -> `qa`.
+
+| Harness | How a role is invoked | Registered roles |
+|---|---|---|
+| OpenCode | `task` tool, per `opencode.json` | `planner`, `decision`, `builder`, `qa` |
+| Codex CLI | `spawn_agent`, per `.codex/agents/*.toml` | `planner`, `decision`, `qa`, `builder`, `issue_agent`, `pr_review` |
+
+### Which role are you
+
+Decide this before anything else, because the same file is read by the root session and by every subagent.
+
+- **If your instructions name one role and forbid delegation, you are a subagent.** Follow only your own contract. Do not spawn, delegate, or coordinate. Do not wait for any other agent.
+- **If you are the root session, you are the orchestrator.** Run the stages in order. Only `builder` may edit code. Pass each stage's full output to the next stage yourself; never ask the developer to copy anything between agents.
+
+### Never stall
+
+- **After you spawn a stage, you must collect its output before you end the turn.** Call `wait_agent` (OpenCode: read the `task` result) and use the returned report. Spawning and then ending the turn with the agent still running is the failure this rule exists to prevent.
+- Never tell the developer a stage "hasn't returned yet" and stop. That is a stall, not a status update.
+- Do not call `wait_agent` on a thread that was never spawned; that hangs rather than reports.
+- If a stage genuinely fails, is interrupted, or times out, say which stage and why, then continue with the stages whose input already exists.
+- If you have no way to spawn subagents at all, execute the stages sequentially in a single pass yourself. Do not emulate a handoff you cannot perform.
+
+### Worktrees
+
+The live worktree is the repository root. `zed/scheduler-workflow-overhaul/` is an archived snapshot of the branch `feat/scheduler-workflow-overhaul`; ignore it when searching or reading, and never edit it. It contains a stale duplicate of `src/`, `supabase/`, and `AGENTS.md` — `src/lib/scheduling/fairness.ts` and `src/lib/scheduling/validator.test.ts` already differ between the two copies, so a repo-wide search will otherwise return two conflicting versions of the same file.
+
 ## Scheduling Rules
 Rule 1
 Never assign unavailable members.

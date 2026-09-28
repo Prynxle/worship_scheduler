@@ -90,6 +90,15 @@ export function validateAvailabilityInput(
     return { ok: true, value: { type: availabilityType, date, end_date, reason: stringOrUndefined(body.reason) } };
   }
 
-  // recurring
-  return { ok: true, value: { type: availabilityType, reason: stringOrUndefined(body.reason) } };
+  // Recurring availability is represented as a week within an explicit month,
+  // matching the scheduler's current recurring-week constraint model.
+  const recurringWeek = toInteger(week_number);
+  const recurringMonth = toInteger(month);
+  const recurringYear = toInteger(year);
+  if (recurringWeek === undefined || recurringWeek < 1 || recurringWeek > 5
+    || recurringMonth === undefined || recurringMonth < 0 || recurringMonth > 11
+    || recurringYear === undefined || recurringYear < 2000 || recurringYear > 2100) {
+    return { ok: false, error: 'Recurring availability requires a valid week, month, and year.' };
+  }
+  return { ok: true, value: { type: availabilityType, week_number: recurringWeek, month: recurringMonth, year: recurringYear, reason: stringOrUndefined(body.reason) } };
 }

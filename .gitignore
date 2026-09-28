@@ -47,3 +47,5 @@ supabase/.temp/
 next-env.d.ts
 zed/
 opencode.json
+
+.codex/

@@ -363,7 +363,7 @@ export class ScheduleValidator {
   private getMonthAssignmentCounts(): Map<string, number> {
     const counts = new Map<string, number>();
 
-    for (const assignment of this.context.existing_assignments) {
+    for (const assignment of this.context.monthly_assignments ?? this.context.existing_assignments) {
       const current = counts.get(assignment.member_id) || 0;
       counts.set(assignment.member_id, current + 1);
     }

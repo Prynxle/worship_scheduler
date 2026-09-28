@@ -5,11 +5,16 @@ import { AvailabilityCalendar } from '@/components/members/availability-calendar
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Filter } from 'lucide-react';
-import { Availability } from '@/lib/types/database';
+import { Label } from '@/components/ui/label';
+import { Check, Clock3, Users } from 'lucide-react';
+import { Availability, AvailabilitySubmission } from '@/lib/types/database';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 
 type StaffMember = { id: string; full_name: string };
+type ReadinessMember = StaffMember & { status: 'missing' | 'submitted' | 'approved' | 'revision_required'; submission_id?: string; revision_note?: string | null };
+type ReadinessData = { required_members: number; submitted_count: number; approved_count: number; outstanding_count: number; ready: boolean; ministry_id: string; ministry_name: string; ministries: Array<{ id: string; name: string }>; members: ReadinessMember[] };
 
 async function getAuthHeaders() {
   const session = (await getSupabaseClient().auth.getSession()).data.session;
@@ -20,6 +25,12 @@ export default function AvailabilityPage() {
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [selectedMember, setSelectedMember] = useState('');
   const [availabilities, setAvailabilities] = useState<Availability[]>([]);
+  const [submission, setSubmission] = useState<(AvailabilitySubmission & { reviewer_name?: string }) | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessData | null>(null);
+  const [ministryId, setMinistryId] = useState('');
+  const [revisionTarget, setRevisionTarget] = useState<ReadinessMember | null>(null);
+  const [revisionNote, setRevisionNote] = useState('');
+  const [reviewing, setReviewing] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [error, setError] = useState('');
@@ -52,14 +63,25 @@ export default function AvailabilityPage() {
       setError('Your session has expired. Please sign in again.');
       return;
     }
-    const response = await fetch(`/api/availability?member_id=${encodeURIComponent(selectedMember)}`, { headers });
+    const response = await fetch(`/api/availability/submission?member_id=${encodeURIComponent(selectedMember)}&month=${currentMonth}&year=${currentYear}`, { headers });
     if (!response.ok) {
       setError('Could not load availability for this member.');
       return;
     }
-    const result = await response.json() as { availabilities: Availability[] };
+    const result = await response.json() as { submission: (AvailabilitySubmission & { reviewer_name?: string }) | null; availabilities: Availability[] };
     setAvailabilities(result.availabilities);
-  }, [selectedMember]);
+    setSubmission(result.submission);
+  }, [selectedMember, currentMonth, currentYear]);
+
+  const loadReadiness = useCallback(async () => {
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+    const response = await fetch(`/api/schedule/readiness?month=${currentMonth}&year=${currentYear}${ministryId ? `&ministry_id=${encodeURIComponent(ministryId)}` : ''}`, { headers });
+    if (!response.ok) return;
+    const result = await response.json() as ReadinessData;
+    setReadiness(result);
+    if (!ministryId) setMinistryId(result.ministry_id);
+  }, [currentMonth, currentYear, ministryId]);
 
   useEffect(() => {
     const refresh = async () => {
@@ -67,6 +89,10 @@ export default function AvailabilityPage() {
     };
     void refresh();
   }, [loadAvailability]);
+
+  // The request synchronizes this view with the selected month/ministry.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadReadiness(); }, [loadReadiness]);
 
   useEffect(() => {
     if (!selectedMember) {
@@ -116,6 +142,29 @@ export default function AvailabilityPage() {
     []
   );
 
+  const reviewSubmission = useCallback(async (member: ReadinessMember, action: 'approved' | 'revision_required', note = '') => {
+    if (!member.submission_id) return;
+    setReviewing(true);
+    setError('');
+    const headers = await getAuthHeaders();
+    if (!headers) { setError('Your session has expired. Please sign in again.'); setReviewing(false); return; }
+    const response = await fetch('/api/availability/submission', {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: member.submission_id, action, note }),
+    });
+    if (response.ok) {
+      if (selectedMember === member.id) await loadAvailability();
+      await loadReadiness();
+      setRevisionTarget(null);
+      setRevisionNote('');
+    } else {
+      const payload = await response.json() as { error?: string };
+      setError(payload.error ?? 'Could not review this monthly submission.');
+    }
+    setReviewing(false);
+  }, [selectedMember, loadAvailability, loadReadiness]);
+
   const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
 
   const handlePreviousMonth = () => {
@@ -147,6 +196,38 @@ export default function AvailabilityPage() {
 
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
+      <Card className="overflow-hidden border-primary/15">
+        <CardHeader className="border-b border-border pb-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Coordinator review · {new Date(currentYear, currentMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p><CardTitle className="mt-1 font-display text-2xl">Monthly readiness</CardTitle></div>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-muted-foreground">{readiness?.approved_count ?? 0} approved · {readiness?.outstanding_count ?? 0} outstanding</p>
+              <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}><SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48"><SelectValue placeholder="Choose ministry" /></SelectTrigger><SelectContent>{(readiness?.ministries ?? []).map((ministry) => <SelectItem key={ministry.id} value={ministry.id}>{ministry.name}</SelectItem>)}</SelectContent></Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 sm:p-6">
+          {!readiness?.members.length ? <p className="text-sm text-muted-foreground">No active members with roles in this ministry are required for this month.</p> : (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {readiness.members.map((person) => (
+                <div key={person.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-border p-3">
+                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${person.status === 'approved' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                    {person.status === 'approved' ? <Check className="h-4 w-4" /> : person.status === 'submitted' ? <Clock3 className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                  </div>
+                  <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelectedMember(person.id)}>
+                    <span className="block truncate text-sm font-medium">{person.full_name}</span>
+                    <span className={`text-xs ${person.status === 'approved' ? 'text-primary' : person.status === 'revision_required' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {person.status === 'missing' ? 'Not submitted' : person.status === 'revision_required' ? 'Revision requested' : person.status === 'submitted' ? 'Awaiting review' : 'Approved'}
+                    </span>
+                  </button>
+                  {person.status === 'submitted' && person.submission_id ? <div className="flex shrink-0 gap-1"><Button size="sm" onClick={() => void reviewSubmission(person, 'approved')} disabled={reviewing}>Approve</Button><Button size="sm" variant="outline" onClick={() => { setRevisionTarget(person); setRevisionNote(''); }} disabled={reviewing}>Revise</Button></div> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex items-center gap-3">
         <Select value={selectedMember} onValueChange={(value) => value && setSelectedMember(value)}>
           <SelectTrigger className="w-[200px]">
@@ -162,10 +243,6 @@ export default function AvailabilityPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button variant="outline">
-          <Filter className="h-4 w-4 mr-1" />
-          Filter
-        </Button>
       </div>
 
       <AvailabilityCalendar
@@ -177,14 +254,26 @@ export default function AvailabilityPage() {
         onNextMonth={handleNextMonth}
       />
 
+      <Card>
+        <CardHeader><CardTitle>Monthly submission</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-medium">{submission ? submission.status.replace('_', ' ') : 'Not submitted'}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{submission?.reviewed_at ? `Reviewed ${new Date(submission.reviewed_at).toLocaleString()}${submission.reviewer_name ? ` by ${submission.reviewer_name}` : ''}` : submission ? 'Waiting for coordinator review.' : 'Legacy absence requests do not count as a complete monthly response.'}</p>
+            {submission?.revision_note ? <p className="mt-2 rounded-lg bg-destructive/5 p-3 text-sm text-destructive">Revision requested: {submission.revision_note}</p> : null}
+          </div>
+          {submission ? <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${submission.status === 'approved' ? 'bg-primary/10 text-primary' : submission.status === 'revision_required' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>{submission.status.replace('_', ' ')}</span> : null}
+        </CardContent>
+      </Card>
+
       <Card className="card-glow">
         <CardHeader>
-          <CardTitle>Recent Unavailability Requests</CardTitle>
+          <CardTitle>Unavailability details</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
             {availabilities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No unavailability requests yet.</p>
+              <p className="text-sm text-muted-foreground">No unavailability was submitted. An approved monthly submission with no entries means the member is available throughout the month.</p>
             ) : (
               availabilities.map((availability) => {
                 return (
@@ -243,6 +332,14 @@ export default function AvailabilityPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(revisionTarget)} onOpenChange={(open) => { if (!open) setRevisionTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Request a revision</DialogTitle><DialogDescription>Tell {revisionTarget?.full_name ?? 'the member'} what needs clarification. They must submit the month again before generation can proceed.</DialogDescription></DialogHeader>
+          <div className="space-y-2"><Label htmlFor="revision-note">Revision note</Label><Textarea id="revision-note" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="For example: Please confirm whether you are available in week three." /></div>
+          <DialogFooter><Button variant="outline" onClick={() => setRevisionTarget(null)}>Cancel</Button><Button disabled={!revisionNote.trim() || reviewing || !revisionTarget} onClick={() => revisionTarget && void reviewSubmission(revisionTarget, 'revision_required', revisionNote.trim())}>Send revision request</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

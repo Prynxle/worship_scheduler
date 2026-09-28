@@ -1409,3 +1409,20 @@ Repeat
 ```
 
 This gives the scheduler **long-term fairness, constraint safety, role awareness, and adaptability** while keeping the generation logic separate from the validation authority.
+
+---
+
+# Implemented workflow (September 2026)
+
+The application implements the safeguards below around the existing `SchedulingEngine`:
+
+1. Members submit one complete response per month through `/api/availability/submission`. An empty entry list explicitly means available for the full month. A response is immutable after submission or approval; only a coordinator's revision request permits a new version.
+2. Coordinators review each response. Generation readiness is scoped to active members with active roles in the selected ministry. The server reports missing, submitted, approved, and revision-required states. The database generation function repeats this check under a transaction lock.
+3. The schedule dashboard selects month and ministry, shows the readiness summary and saved services, and makes past schedules read-only. New schedules retain ministry, generator, timestamp, algorithm metadata, and version.
+4. Generation uses the current engine and validator. A month cannot be generated before all required submissions are approved. Existing services are preserved unless an explicit regeneration is requested; only draft services may be regenerated. Unscoped historical schedules are preserved and block ambiguous regeneration.
+5. Draft assignment changes run through the validator and an optimistic version check. The database function independently enforces active membership, role eligibility, availability, one assignment per member per service, exactly one leader, backup bounds, and monthly limits. Warning overrides require a reason and are recorded in the change log.
+6. Validation records a coordinator and the version approved. Publication requires the same current version and a fresh server-side validation. Published changes use a draft amendment linked to the original; publishing the amendment archives the prior service and retains both records.
+
+The migration `supabase/migrations/20260928084433_scheduler_workflow_hardening.sql` adds submission versions and review history, schedule lifecycle metadata, ministry scoping for new schedules, change logs, and service-role-only transactional functions. Historical services receive a ministry only when all assigned roles unambiguously identify one; unresolved records remain read-only. The migration must be applied to the target Supabase database before these API workflows can operate. Local lint, unit tests, and build do not verify PostgreSQL execution or deployed RLS behavior.
+
+The readiness rule is intentionally based on ministry participants, while a submission is stored once per member/church/month and shared across ministries. If a ministry has no active participant roles, the existing readiness query still requires an active ministry to exist; that empty-roster operational case should be reviewed before generation.
