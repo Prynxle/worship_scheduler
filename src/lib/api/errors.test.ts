@@ -35,6 +35,7 @@ describe('toErrorResponse SQLSTATE mapping', () => {
     ['23503', 500, 'foreign_key_violation'],
     ['23514', 500, 'check_violation'],
     ['40001', 503, 'serialization_failure'],
+    ['40P01', 503, 'deadlock_detected'],
   ])('maps %s to %i %s', async (sqlstate, status, code) => {
     const response = toErrorResponse(pgError(sqlstate, 'raw driver text'), context);
 
