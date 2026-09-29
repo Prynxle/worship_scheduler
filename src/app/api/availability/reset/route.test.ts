@@ -376,6 +376,13 @@ describe('POST /api/availability/reset — success shape', () => {
  * "CONTINUE WHEN v_submission.status = 'revision_required'", which asserted a
  * spelling and passed straight over the F-01 hole underneath it. Each mutation
  * below has been confirmed to fail the suite.
+ *
+ * The last four pins cover statements that live outside the function body or
+ * outside the row loop but are nevertheless load-bearing for the route: the
+ * REVOKE/GRANT pair is the DB boundary deciding who may call the function at
+ * all (M-I, M-J), the blank-note RAISE is the DB-side enforcement of the note
+ * the route requires (M-K), and the role narrowing inside the 42501 re-check is
+ * the privilege boundary behind the coordinator gate (M-P).
  */
 describe('reset_month_availability migration — submission integrity invariant', () => {
   const migrationPath = fileURLToPath(new URL('../../../../../supabase/migrations/20260929120000_reset_month_availability.sql', import.meta.url));
@@ -572,5 +579,64 @@ describe('reset_month_availability migration — submission integrity invariant'
     // After the sweep, so a submission already at revision_required still has
     // its availability rows released even though it is not re-stamped.
     expect(guardAt).toBeGreaterThan(sweepAt);
+  });
+
+  it('denies execution to PUBLIC, anon and authenticated at the DB boundary (M-I)', () => {
+    // A freshly created function defaults to EXECUTE granted to PUBLIC, from
+    // which both anon and authenticated inherit, so this single REVOKE is the
+    // whole DB-boundary denial. Without it the only gate between a member and
+    // a destructive month reset is the route's requireStaff check; the RPC's
+    // own actor re-verification can be satisfied by the caller asserting
+    // admin/coordinator, so the denial has to exist in SQL, not only in JS.
+    // The statement and its full role list are pinned so a deleted REVOKE or a
+    // weakened `FROM PUBLIC` (which still leaves anon/authenticated inheriting
+    // the PUBLIC grant) both fail the suite.
+    expect(sql).toContain('REVOKE ALL ON FUNCTION public.reset_month_availability(UUID, INTEGER, INTEGER, UUID, TEXT) FROM PUBLIC, anon, authenticated;');
+    // A GRANT back to any of the revoked roles after the REVOKE would restore
+    // the very access it removes, so the boundary must stay exclusive.
+    expect(sql).not.toMatch(/GRANT (?:ALL|EXECUTE) ON FUNCTION public\.reset_month_availability\([^;]*\)\s+TO\s+(?:PUBLIC|anon|authenticated)[,;\s]/);
+  });
+
+  it('keeps the function callable by exactly the service role (M-J)', () => {
+    // The route calls the RPC through the service-role client, and this GRANT
+    // is its whole reachability contract: M-I revokes the PUBLIC default, so a
+    // deleted statement leaves the function unexecutable by anyone and the
+    // feature is dead on arrival.
+    const grant = sql.match(/GRANT EXECUTE ON FUNCTION public\.reset_month_availability\(([^;]*)\)\s+TO\s+([^;]+);/);
+    expect(grant).not.toBeNull();
+    // The signature is part of the pin: granting a renamed overload would
+    // leave the revoked function unexecutable and a fresh overload granted.
+    expect(grant?.[1]).toBe('UUID, INTEGER, INTEGER, UUID, TEXT');
+    // Exactly service_role. A widened grantee list -- even one that keeps the
+    // REVOKE line above -- is a privilege boundary regression.
+    expect((grant?.[2] ?? '').trim()).toBe('service_role');
+  });
+
+  it('raises 22023 for a blank reset note at the DB boundary (M-K)', () => {
+    // The route also requires the note, but a caller who reaches the RPC
+    // directly must still be refused: revision_note is stored on the
+    // submission and rendered to the member as "Revision requested:
+    // {revision_note}", so an empty note is both a dangling label and an
+    // action with no rationale on record. The note conjunct, the message, and
+    // the SQLSTATE are pinned as one statement, so a dropped conjunct, a
+    // demotion to a notice, or a renamed errcode all fail the suite.
+    const blankNoteGuard = sql.match(
+      /IF\s+p_month < 0 OR p_month > 11[\s\S]*?pg_catalog\.btrim\(COALESCE\(p_note, ''\)\) = '' THEN\s+RAISE EXCEPTION 'A month between 0 and 11, a year between 2000 and 2100, and a non-empty reset note are required' USING ERRCODE = '22023';/
+    );
+    expect(blankNoteGuard).not.toBeNull();
+  });
+
+  it('narrows the 42501 actor re-verification to admin and coordinator (M-P)', () => {
+    // The caller supplies p_actor_id himself, so this read of public.users is
+    // the only place the coordinator boundary is enforced. Dropping the role
+    // narrowing while keeping the user-exists check intact would let ANY
+    // active member of the church drive a destructive reset through the RPC,
+    // so the narrowing is asserted INSIDE the captured exception block, not as
+    // a free-floating keyword elsewhere in the file.
+    const actorCheck = sql.match(
+      /IF NOT EXISTS \(\s*SELECT 1 FROM public\.users u\s*WHERE u\.id = p_actor_id[\s\S]*?RAISE EXCEPTION 'Coordinator authorization could not be verified' USING ERRCODE = '42501';/
+    );
+    expect(actorCheck).not.toBeNull();
+    expect(actorCheck?.[0]).toContain("u.role IN ('admin', 'coordinator')");
   });
 });
