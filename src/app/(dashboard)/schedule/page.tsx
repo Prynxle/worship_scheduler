@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { AlertTriangle, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
 
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
@@ -43,9 +44,34 @@ function parseMonth(value: string) {
   return { year: Number(value.slice(0, 4)), month: Number(value.slice(5, 7)) - 1 };
 }
 
+/**
+ * First month, starting at the current one, that still has a Sunday ahead.
+ *
+ * The route refuses to generate a month whose service dates have passed, so a
+ * picker that opens on the current month is dead on arrival once that month's
+ * last Sunday is behind us -- the primary "Generate schedule" button can never
+ * do anything. Sunday-anchored exactly like the route's own `futureWeeks`: week
+ * 1 is `getFirstSunday(month, year)` and week n is that plus n-1 weeks, so the
+ * LAST Sunday is the only date that decides whether anything is left. Derived
+ * from the same helpers the gate uses, so the default view and the gate can
+ * never disagree.
+ */
+function firstGeneratableMonth(today: Date): string {
+  const todayString = formatLocalDate(today);
+  // Every calendar month contains at least one Sunday, so this always resolves
+  // on the first iteration. The bound exists only to give the loop a total.
+  for (let offset = 0; offset < 24; offset += 1) {
+    const month = (today.getMonth() + offset) % 12;
+    const year = today.getFullYear() + Math.floor((today.getMonth() + offset) / 12);
+    const lastSunday = formatLocalDate(getWeekDate(getWeeksInMonth(month, year), month, year));
+    if (lastSunday >= todayString) return monthString(year, month);
+  }
+  return monthString(today.getFullYear(), today.getMonth());
+}
+
 export default function SchedulePage() {
   const today = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(() => monthString(today.getFullYear(), today.getMonth()));
+  const [selectedMonth, setSelectedMonth] = useState(() => firstGeneratableMonth(today));
   const { year, month } = parseMonth(selectedMonth);
   const [readiness, setReadiness] = useState<AvailabilityReadiness | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);

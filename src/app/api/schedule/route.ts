@@ -4,7 +4,7 @@ import { SchedulingEngine } from '@/lib/scheduling/engine';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { buildMonthSchedulePayload, type MonthSchedulePayload } from '@/lib/scheduling/persistence';
 import { ApiError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
-import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
+import { formatLocalDate, getMonthName, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { ScheduleContext } from '@/lib/types/scheduling';
 import { ScheduleAssignment, Service } from '@/lib/types/database';
 import { isBackupRoleName, isDevotionRoleName } from '@/lib/scheduling/role-classifier';
@@ -128,15 +128,24 @@ export async function POST(request: NextRequest) {
       throw new ApiError(400, 'Schedules can only be generated for the current or a future month.', 'past_month');
     }
 
+    const count = getWeeksInMonth(month, year);
+    const futureWeeks = Array.from({ length: count }, (_, index) => index + 1)
+      .filter((week) => formatLocalDate(getWeekDate(week, month, year)) >= todayString);
+    // Checked BEFORE readiness, and deliberately: a month whose Sundays have all
+    // passed can never be generated whatever the availability state is, so
+    // reporting it first is the only message that tells the coordinator what to
+    // do. Without this the empty `futureWeeks` fell through to the generic
+    // `week_numbers` complaint, which reads as a malformed client payload.
+    if (futureWeeks.length === 0) {
+      throw new ApiError(400, `${getMonthName(month)} ${year} has no upcoming Sundays left. Choose a future month.`, 'no_upcoming_sundays');
+    }
+
     const requestedMinistryId = typeof body?.ministry_id === 'string' ? body.ministry_id : undefined;
     const readiness = await loadAvailabilityReadiness(auth.churchId, month, year, requestedMinistryId);
     if (!readiness.ready) {
       throw new ApiError(409, 'Monthly availability is not approved for every required member.', 'availability_not_ready', { readiness });
     }
 
-    const count = getWeeksInMonth(month, year);
-    const futureWeeks = Array.from({ length: count }, (_, index) => index + 1)
-      .filter((week) => formatLocalDate(getWeekDate(week, month, year)) >= todayString);
     const requested = body?.week_numbers;
     const weekNumbers = requested === undefined ? futureWeeks : requested;
     if (!Array.isArray(weekNumbers) || weekNumbers.length === 0 || weekNumbers.some((week) => typeof week !== 'number' || !Number.isInteger(week) || week < 1 || week > count)) {

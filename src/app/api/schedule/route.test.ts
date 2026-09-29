@@ -297,13 +297,69 @@ describe('POST /api/schedule — month and week validation', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('rejects a week whose Sunday has already passed', async () => {
+  it('names the month when the current month has no Sunday left', async () => {
+    // 29 September 2026: September's Sundays (6, 13, 20, 27) are all behind us,
+    // so the month can never be generated -- whatever the availability state is.
+    // This used to fall through to the generic `week_numbers` complaint, which
+    // reads as a malformed client payload and tells the coordinator nothing.
     vi.setSystemTime(new Date(2026, 8, 29, 10, 0, 0));
+
+    const response = await POST(post({ month: 8, year: 2026 }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe('no_upcoming_sundays');
+    expect(body.error).toBe('September 2026 has no upcoming Sundays left. Choose a future month.');
+    // Reported before the readiness gate: a month with no dates left is not an
+    // availability problem, and telling the coordinator to chase approvals for an
+    // ungeneratable month is the same dead end in a different costume.
+    expect(loadAvailabilityReadiness).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('still names the month when the caller supplies week_numbers for a spent month', async () => {
+    vi.setSystemTime(new Date(2026, 8, 29, 10, 0, 0));
+
+    const response = await POST(post({ month: 8, year: 2026, week_numbers: [4] }) as never);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: 'no_upcoming_sundays', error: 'September 2026 has no upcoming Sundays left. Choose a future month.' });
+  });
+
+  it('rejects a week whose Sunday has already passed', async () => {
+    // Mid-month, so the month still has Sundays left (weeks 3 and 4) and this
+    // isolates the per-week check from the whole-month one above.
+    vi.setSystemTime(new Date(2026, 8, 15, 10, 0, 0));
 
     const response = await POST(post({ month: 8, year: 2026, week_numbers: [1] }) as never);
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ code: 'past_service_date' });
+  });
+
+  it('generates the remaining weeks of a partly-spent month', async () => {
+    vi.setSystemTime(new Date(2026, 8, 15, 10, 0, 0));
+    // Weeks 1 and 2 (6 and 13 September) are behind us, so the engine is asked
+    // for weeks 3 and 4 only and the RPC returns exactly those two service ids.
+    generateSchedule.mockResolvedValue([generated(3, '2026-09-20'), generated(4, '2026-09-27')]);
+    rpcReturns(['service-uuid-3', 'service-uuid-4']);
+
+    const response = await POST(post({ month: 8, year: 2026 }) as never);
+
+    // The default request is the future weeks only, which is also what the RPC
+    // insists on -- it refuses any service dated in the past.
+    expect(response.status).toBe(201);
+    // The engine is told the surviving weeks, so it never proposes a service on
+    // a Sunday that has already gone by.
+    expect(engineContexts.at(-1)).toMatchObject({ month: 8, year: 2026, week_numbers: [3, 4] });
+    expect(rpc).toHaveBeenCalledWith('persist_month_schedule', expect.objectContaining({
+      p_month: 8,
+      p_year: 2026,
+      p_services: [
+        expect.objectContaining({ week_number: 3, date: '2026-09-20' }),
+        expect.objectContaining({ week_number: 4, date: '2026-09-27' }),
+      ],
+    }));
   });
 
   it('rejects a duplicated service week', async () => {
