@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { MemberCard } from '@/components/members/member-card';
-import { AddMemberDialog } from '@/components/members/add-member-dialog';
+import { MemberDialog } from '@/components/members/member-dialog';
+import { MemberFilters, type MemberFilterOption } from '@/components/members/member-filters';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Search, Filter, Users } from 'lucide-react';
+import { Plus, Search, Users } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { filterMembers, isFiltering } from '@/lib/members/filter';
 import { Member } from '@/lib/types/database';
 
 async function getAuthHeaders() {
@@ -22,6 +24,14 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [addOpen, setAddOpen] = useState(false);
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [roleOptions, setRoleOptions] = useState<MemberFilterOption[]>([]);
+  const [instrumentOptions, setInstrumentOptions] = useState<MemberFilterOption[]>([]);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const [selectedInstrumentIds, setSelectedInstrumentIds] = useState<string[]>([]);
+
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -44,13 +54,37 @@ export default function MembersPage() {
     }
   }, []);
 
+  // The filter labels come from the same tenant-scoped endpoint the dialog uses,
+  // so the filter can never offer a role this church does not have. A failure
+  // here is not fatal: the roster still renders, the filters just stay empty.
+  const fetchFilterOptions = useCallback(async () => {
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) return;
+      const response = await fetch('/api/members/options', { headers });
+      if (!response.ok) return;
+      const result = (await response.json()) as {
+        roles?: MemberFilterOption[];
+        instruments?: MemberFilterOption[];
+      };
+      setRoleOptions(result.roles ?? []);
+      setInstrumentOptions(result.instruments ?? []);
+    } catch {
+      // Leave the filter lists empty rather than replacing the page error, which
+      // is reserved for the roster itself.
+    }
+  }, []);
+
   // Defer past the effect body so the initial load is not a synchronous setState
   // cascade. The cleanup cancels the first call under StrictMode's double effect
   // so the roster is fetched once.
   useEffect(() => {
-    const timer = setTimeout(() => { void fetchMembers(); }, 0);
+    const timer = setTimeout(() => {
+      void fetchMembers();
+      void fetchFilterOptions();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [fetchMembers]);
+  }, [fetchMembers, fetchFilterOptions]);
 
   function retry() {
     setLoading(true);
@@ -58,17 +92,29 @@ export default function MembersPage() {
     void fetchMembers();
   }
 
-  const filteredMembers = members.filter((member) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      member.full_name.toLowerCase().includes(query) ||
-      member.nickname?.toLowerCase().includes(query) ||
-      member.roles?.some((r) => r.role?.name.toLowerCase().includes(query));
+  const filters = {
+    searchQuery,
+    status: activeTab,
+    roleIds: selectedRoleIds,
+    instrumentIds: selectedInstrumentIds,
+  };
+  const filteredMembers = filterMembers(members, filters);
+  const hasNarrowing = isFiltering(filters);
 
-    if (activeTab === 'all') return matchesSearch;
-    return matchesSearch && member.status === activeTab;
-  });
+  function handleSaved(saved: Member) {
+    if (editingMember) {
+      // Replace in place so the card keeps its position and the freshly saved
+      // roles render immediately, rather than re-fetching the whole roster.
+      setMembers((current) =>
+        current
+          .map((member) => (member.id === saved.id ? saved : member))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name)),
+      );
+      setEditingMember(null);
+      return;
+    }
+    setMembers((current) => [...current, saved].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+  }
 
   return (
     <div className="space-y-6">
@@ -94,10 +140,18 @@ export default function MembersPage() {
             className="pl-10 bg-secondary/50"
           />
         </div>
-        <Button variant="outline" disabled title="Filtering is not available yet.">
-          <Filter className="h-4 w-4 mr-1" />
-          Filter
-        </Button>
+        <MemberFilters
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          roles={roleOptions}
+          instruments={instrumentOptions}
+          selectedRoleIds={selectedRoleIds}
+          selectedInstrumentIds={selectedInstrumentIds}
+          onSelectedRoleIdsChange={setSelectedRoleIds}
+          onSelectedInstrumentIdsChange={setSelectedInstrumentIds}
+          matchCount={filteredMembers.length}
+          totalCount={members.length}
+        />
         <Button variant="outline">
           <Users className="h-4 w-4 mr-1" />
           {members.length} Members
@@ -129,7 +183,9 @@ export default function MembersPage() {
             <p className="text-sm text-muted-foreground">
               {members.length === 0
                 ? 'No members yet. Use “Add Member” to put someone on the roster.'
-                : 'No members match this search.'}
+                : hasNarrowing
+                  ? 'No members match these filters.'
+                  : 'No members match this search.'}
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -138,8 +194,7 @@ export default function MembersPage() {
                   key={member.id}
                   member={member}
                   index={i}
-                  onEdit={() => console.log('Edit', member.id)}
-                  onView={() => console.log('View', member.id)}
+                  onEdit={() => setEditingMember(member)}
                 />
               ))}
             </div>
@@ -147,10 +202,19 @@ export default function MembersPage() {
         </TabsContent>
       </Tabs>
 
-      <AddMemberDialog
+      <MemberDialog
         open={addOpen}
         onOpenChange={setAddOpen}
-        onCreated={(member) => setMembers((current) => [...current, member].sort((a, b) => a.full_name.localeCompare(b.full_name)))}
+        onSaved={handleSaved}
+      />
+
+      <MemberDialog
+        open={editingMember !== null}
+        member={editingMember}
+        onOpenChange={(next) => {
+          if (!next) setEditingMember(null);
+        }}
+        onSaved={handleSaved}
       />
     </div>
   );

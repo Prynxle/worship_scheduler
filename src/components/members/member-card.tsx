@@ -16,12 +16,12 @@ import { Member } from '@/lib/types/database';
 
 interface MemberCardProps {
   member: Member;
+  /** Opens the edit dialog for this member. */
   onEdit?: () => void;
-  onView?: () => void;
   index?: number;
 }
 
-export function MemberCard({ member, onEdit, onView, index = 0 }: MemberCardProps) {
+export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
   const getStatusColor = (status: string) => {
     return status === 'active' 
       ? 'bg-primary/15 text-primary border-primary/20'
@@ -82,14 +82,20 @@ export function MemberCard({ member, onEdit, onView, index = 0 }: MemberCardProp
                 <MoreVertical className="h-4 w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onView}>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  View Profile
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onEdit}>
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
                 </DropdownMenuItem>
+                {/* There is no member profile route yet. The item is kept, but
+                    disabled with a visible reason rather than left as a button
+                    that logs to the console and appears to do nothing. */}
+                <DropdownMenuItem disabled>
+                  <Calendar className="mr-2 h-4 w-4" />
+                  View Profile
+                </DropdownMenuItem>
+                <p className="px-1.5 py-1 text-xs text-muted-foreground">
+                  Member profiles are not built yet.
+                </p>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
