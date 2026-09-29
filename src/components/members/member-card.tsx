@@ -53,7 +53,7 @@ export function MemberCard({ member, onEdit, onView, index = 0 }: MemberCardProp
               <div className="relative rounded-full bg-gradient-to-br from-primary via-accent to-[oklch(0.55_0.040_50)] p-[2px] transition-transform duration-200 group-hover/member:scale-105">
                 <div className="rounded-full bg-card">
                   <Avatar className="h-14 w-14 rounded-full">
-                    <AvatarImage src={member.avatar_url} />
+                    <AvatarImage src={member.avatar_url ?? undefined} />
                     <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold rounded-full">
                       {member.full_name.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
