@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { planMockUnavailability, soleQualifiedMemberIds } from './mock-unavailability';
-import { getWeeksInMonth } from '../utils/date-utils';
+import { getCurrentMonth, getMonthName, getWeeksInMonth } from '../utils/date-utils';
 
 const roster = [
   { id: 'm-3', full_name: 'C' },
@@ -77,6 +77,96 @@ describe('planMockUnavailability with excludedMemberIds', () => {
     const plan = planMockUnavailability(roster, 9, 2026, new Set(['missing']));
     expect(plan).toHaveLength(roster.length);
     expect(plan).toEqual(planMockUnavailability(roster, 9, 2026));
+  });
+});
+
+describe('planMockUnavailability for the current month', () => {
+  // The mock-unavailability route no longer hardcodes a month; it passes
+  // getCurrentMonth() through to the planner. These cases pin the clock to
+  // calendar edge cases and assert the month/year with literals written here,
+  // so a 0-indexed/1-indexed slip or a leap-year miscount fails outright
+  // instead of quietly agreeing with the implementation.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    { at: [2026, 1, 15] as const, month: 1, year: 2026, label: 'February 2026 (28 days, 4 weeks)' },
+    { at: [2024, 1, 15] as const, month: 1, year: 2024, label: 'February 2024 leap year (29 days, 5 weeks)' },
+    { at: [2027, 0, 31] as const, month: 0, year: 2027, label: 'January 2027 (5 weeks)' },
+    { at: [2026, 5, 30] as const, month: 5, year: 2026, label: 'June 2026 (30 days, 4 weeks)' },
+    { at: [2026, 11, 31] as const, month: 11, year: 2026, label: 'December 2026 (0-indexed 11)' },
+  ])('plans a valid month for $label', ({ at, month, year }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(at[0], at[1], at[2], 12, 0, 0));
+
+    const current = getCurrentMonth();
+    expect(current).toEqual({ month, year });
+
+    const weeks = getWeeksInMonth(month, year);
+    // 5-week months are the ones where an off-by-one in the rotation would
+    // otherwise hide inside a member count that never reaches `weeks`.
+    expect(weeks).toBeGreaterThanOrEqual(4);
+
+    const plan = planMockUnavailability(rosterOf(weeks), month, year);
+
+    expect(plan).toHaveLength(weeks);
+    // Full rotation across every week of the resolved month.
+    expect(plan.map((row) => row.week_number)).toEqual(
+      Array.from({ length: weeks }, (_, index) => index + 1),
+    );
+    for (const row of plan) {
+      expect(row.month).toBe(month);
+      expect(row.year).toBe(year);
+    }
+  });
+
+  it('keeps the rotation in range for the current month on every month of a year', () => {
+    // Sweeping all twelve months of 2026 through the real default proves the
+    // route can be called at any time of year without producing a week number
+    // the availability table would reject.
+    for (let month = 0; month < 12; month += 1) {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, month, 15, 12, 0, 0));
+
+      expect(getCurrentMonth().month).toBe(month);
+
+      const weeks = getWeeksInMonth(month, 2026);
+      const plan = planMockUnavailability(rosterOf(9), month, 2026);
+
+      expect(plan).toHaveLength(9);
+      for (const row of plan) {
+        expect(row.week_number).toBeGreaterThanOrEqual(1);
+        expect(row.week_number).toBeLessThanOrEqual(weeks);
+      }
+    }
+  });
+
+  it('names the current month without an off-by-one for the reason text the route writes', () => {
+    // The route persists `Mock unavailability (${getMonthName(month)} ${year} test)`,
+    // so a 1-indexed month would mislabel every mock row it writes.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 2, 18, 12, 0, 0));
+
+    const current = getCurrentMonth();
+    expect(getMonthName(current.month)).toBe('March');
+    expect(getMonthName(0)).toBe('January');
+    expect(getMonthName(11)).toBe('December');
+  });
+
+  it('leaves the planner caller-agnostic: it never reads the clock itself', () => {
+    // The default lives in the route, so the planner must stay pure. If it ever
+    // started calling getCurrentMonth() internally, these two would diverge.
+    const january = new Date(2026, 0, 15, 12, 0, 0);
+    const july = new Date(2026, 6, 15, 12, 0, 0);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(january);
+    const fromJanuary = planMockUnavailability(roster, 9, 2026);
+    vi.setSystemTime(july);
+    const fromJuly = planMockUnavailability(roster, 9, 2026);
+
+    expect(fromJuly).toEqual(fromJanuary);
   });
 });
 

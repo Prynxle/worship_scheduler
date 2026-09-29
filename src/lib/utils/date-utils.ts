@@ -103,9 +103,21 @@ export function getCurrentWeekNumber(now: Date = new Date()): number {
   return Math.floor(daysBetween / 7) + 1;
 }
 
+/**
+ * The 0-based month index stored in `services.month`.
+ *
+ * A NAMED mirror of the inline `date.getMonth()` the schedule writer and
+ * mock-unavailability route used to duplicate. Both are 0-based, matching the
+ * `get_month`/`set_service_month` SQL contract; the single named export makes
+ * the indexing convention greppable instead of implicit.
+ */
+export function getMonthIndex(date: Date): number {
+  return date.getMonth();
+}
+
 export function getCurrentMonth(): { month: number; year: number } {
   const now = new Date();
-  return { month: now.getMonth(), year: now.getFullYear() };
+  return { month: getMonthIndex(now), year: now.getFullYear() };
 }
 
 export function getUpcomingWeeks(count: number = 4): { weekNumber: number; date: Date }[] {

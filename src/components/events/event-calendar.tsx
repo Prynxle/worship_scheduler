@@ -76,7 +76,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [events, setEvents] = useState<ChurchEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState(toIso(today));
   const [search, setSearch] = useState('');
-  const [kind, setKind] = useState<'All' | EventKind>('All');
   const [month, setMonth] = useState(today.getMonth());
   const [year, setYear] = useState(today.getFullYear());
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -122,9 +121,9 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const visibleEvents = useMemo(
     () =>
       events.filter(
-        (event) => (kind === 'All' || event.kind === kind) && event.title.toLowerCase().includes(search.toLowerCase())
+        (event) => event.title.toLowerCase().includes(search.toLowerCase())
       ),
-    [events, kind, search]
+    [events, search]
   );
 
   const fcEvents = useMemo(
@@ -222,18 +221,9 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
 
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {(['All', 'Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
-            <Button key={option} size="sm" variant={kind === option ? 'secondary' : 'ghost'} className={cn('rounded-full', kind === option && 'bg-primary/15 text-primary')} onClick={() => setKind(option)}>
-              {option}
-            </Button>
-          ))}
-        </div>
+      <div className="relative w-full sm:max-w-xs">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
@@ -351,10 +341,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <div className="rounded-xl border border-dashed border-border p-6 text-center">
                 <CalendarDays className="mx-auto size-7 text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">Nothing scheduled yet</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add a gathering to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>
-                {canManage ? (
-                  <Button size="sm" className="mt-4" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
-                ) : null}
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add an event to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>
               </div>
             )}
           </CardContent>
@@ -369,38 +356,38 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <DialogDescription>Create an event for {formatDate(selectedDate, { month: 'long', day: 'numeric' })}.</DialogDescription>
             </DialogHeader>
             <Input autoFocus placeholder="Event name" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addEvent(); }} />
-<Select value={newKind} onValueChange={(value) => setNewKind((value || 'Gathering') as EventKind)}>
+            <Select value={newKind} onValueChange={(value) => setNewKind((value || 'Gathering') as EventKind)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Event type" />
+              </SelectTrigger>
+              <SelectContent>
+                {(['Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
+                  <SelectItem key={option} value={option}>{option}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2">
+              <Select value={timeValue} onValueChange={(value) => setTimeValue(value ?? '')}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Event type" />
+                  <SelectValue placeholder="Time" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
+                  <SelectItem value="">No time (T.B.A.)</SelectItem>
+                  {timeNumbers.map((option) => (
                     <SelectItem key={option} value={option}>{option}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <div className="flex gap-2">
-                <Select value={timeValue} onValueChange={(value) => setTimeValue(value ?? '')}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Time" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">No time (T.B.A.)</SelectItem>
-                    {timeNumbers.map((option) => (
-                      <SelectItem key={option} value={option}>{option}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={meridiem} onValueChange={(value) => setMeridiem((value === 'AM' ? 'AM' : 'PM'))} disabled={!timeValue}>
-                  <SelectTrigger className="w-24">
-                    <SelectValue placeholder="AM/PM" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="AM">AM</SelectItem>
-                    <SelectItem value="PM">PM</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={meridiem} onValueChange={(value) => setMeridiem((value === 'AM' ? 'AM' : 'PM'))} disabled={!timeValue}>
+                <SelectTrigger className="w-24">
+                  <SelectValue placeholder="AM/PM" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AM">AM</SelectItem>
+                  <SelectItem value="PM">PM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button onClick={() => void addEvent()} disabled={!newTitle.trim()}>Create event</Button>

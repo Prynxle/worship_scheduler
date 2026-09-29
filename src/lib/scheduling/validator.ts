@@ -4,6 +4,7 @@ import {
 } from '../types/scheduling';
 import { Instrument, Member } from '../types/database';
 import { isWeeklyUnavailable } from './availability';
+import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
 
 export class ScheduleValidator {
   private context: ScheduleContext;
@@ -170,7 +171,7 @@ export class ScheduleValidator {
     const backups = this.context.existing_assignments.filter((a) => {
       if (a.is_leader) return false;
       if (a.instrument_id) return false;
-      return !a.role || ['singer', 'backup', 'backup singer', 'backup singers'].includes(a.role.name.toLowerCase());
+      return !a.role || isBackupRoleName(a.role.name);
     });
 
     const minRequired = this.context.rules.find(
@@ -235,7 +236,7 @@ export class ScheduleValidator {
       if (!member) continue;
 
       if (assignment.is_leader) {
-        const hasLeaderRole = member.roles?.some((r) => r.role?.name.toLowerCase() === 'worship leader');
+        const hasLeaderRole = member.roles?.some((r) => r.role && isWorshipLeaderRoleName(r.role.name));
         if (!hasLeaderRole) {
           results.push({
             rule_type: 'role_validation',
@@ -246,7 +247,7 @@ export class ScheduleValidator {
             recommendation: 'Assign a qualified worship leader',
           });
         }
-      } else if (assignment.role && ['singer', 'backup', 'backup singer', 'backup singers', 'devotion'].includes(assignment.role.name.toLowerCase())) {
+      } else if (assignment.role && (isBackupRoleName(assignment.role.name) || isDevotionRoleName(assignment.role.name))) {
         const roleName = assignment.role.name.toLowerCase();
         const qualified = member.roles?.some((role) => role.role_id === assignment.role_id || role.role?.name.toLowerCase() === roleName);
         if (!qualified) {
