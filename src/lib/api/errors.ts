@@ -67,6 +67,13 @@ const SQLSTATE_TO_HTTP: Record<string, { status: number; code: string; message: 
   '23503': { status: 500, code: 'foreign_key_violation', message: 'The schedule could not be saved because of a data integrity conflict.' },
   '23514': { status: 500, code: 'check_violation', message: 'The schedule could not be saved because of a data integrity conflict.' },
   '40001': { status: 503, code: 'serialization_failure', message: 'The schedule is busy. Please retry in a moment.' },
+  // 40P01 (deadlock_detected) is the sibling of 40001 and is equally retryable:
+  // the schedule and availability transactions lock submission rows in id order
+  // and can collide with each other. It was missing here, so a deadlock reached
+  // the caller as an opaque 500 that invited a retry storm instead of a 503.
+  // Note the copy names the schedule; the availability reset route carries its
+  // own SQLSTATE table precisely because of that, and must keep doing so.
+  '40P01': { status: 503, code: 'deadlock_detected', message: 'The schedule is busy. Please retry in a moment.' },
 };
 
 export function jsonError(

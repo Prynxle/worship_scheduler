@@ -31,9 +31,30 @@ export default function AvailabilityPage() {
   const [revisionTarget, setRevisionTarget] = useState<ReadinessMember | null>(null);
   const [revisionNote, setRevisionNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [isStaff, setIsStaff] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetNote, setResetNote] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [error, setError] = useState('');
+
+  // Client-side gate only, so the destructive control is not offered to a
+  // member. The authority is the route: POST /api/availability/reset is
+  // requireStaff and the RPC re-verifies role IN ('admin','coordinator') AND
+  // is_active AND church_id inside the transaction.
+  useEffect(() => {
+    void (async () => {
+      const headers = await getAuthHeaders();
+      if (!headers) return;
+      const response = await fetch('/api/auth/me', { headers });
+      if (!response.ok) return;
+      const result = await response.json() as { user?: { role?: string } };
+      setIsStaff(result.user?.role === 'admin' || result.user?.role === 'coordinator');
+    })();
+  }, []);
 
   useEffect(() => {
     async function loadMembers() {
@@ -167,6 +188,52 @@ export default function AvailabilityPage() {
 
   const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
 
+  const monthLabel = new Date(currentYear, currentMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const resetMonthAvailability = useCallback(async () => {
+    setResetting(true);
+    setError('');
+    setResetMessage('');
+    const headers = await getAuthHeaders();
+    if (!headers) {
+      setError('Your session has expired. Please sign in again.');
+      setResetting(false);
+      return;
+    }
+    // `month` and `year` are the ONLY month scoping sent. No ministry is sent
+    // and the ministry Select in the readiness header is not consulted: the
+    // action is church-wide, which the confirmation dialog states explicitly.
+    const response = await fetch('/api/availability/reset', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month: currentMonth, year: currentYear, note: resetNote.trim() }),
+    });
+    const payload = await response.json() as {
+      error?: string;
+      reset?: boolean;
+      submissions_reset?: number;
+      availability_reset?: number;
+      legacy_availability_reset?: number;
+    };
+    if (response.ok) {
+      setResetConfirmOpen(false);
+      setResetOpen(false);
+      setResetNote('');
+      // The counts are always reported. A repeat click returns `reset: false`
+      // with zeros and must not read as "done".
+      setResetMessage(
+        payload.reset
+          ? `${monthLabel}: ${payload.submissions_reset ?? 0} monthly submission(s) returned for revision, ${payload.availability_reset ?? 0} submitted unavailability entr(ies) cleared, ${payload.legacy_availability_reset ?? 0} legacy absence request(s) cleared. Every affected member must submit the month again and be re-approved before it can be scheduled.`
+          : `Nothing was recorded for ${monthLabel}, so there was nothing to reset.`
+      );
+      await loadReadiness();
+      await loadAvailability();
+    } else {
+      setError(payload.error ?? 'Could not reset this month\'s availability.');
+    }
+    setResetting(false);
+  }, [currentMonth, currentYear, resetNote, monthLabel, loadReadiness, loadAvailability]);
+
   const handlePreviousMonth = () => {
     if (currentMonth === 0) {
       setCurrentMonth(11);
@@ -199,10 +266,17 @@ export default function AvailabilityPage() {
       <Card className="overflow-hidden border-primary/15">
         <CardHeader className="border-b border-border pb-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Coordinator review · {new Date(currentYear, currentMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p><CardTitle className="mt-1 font-display text-2xl">Monthly readiness</CardTitle></div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Coordinator review · {monthLabel}</p><CardTitle className="mt-1 font-display text-2xl">Monthly readiness</CardTitle>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-muted-foreground">{readiness?.approved_count ?? 0} approved · {readiness?.outstanding_count ?? 0} outstanding</p>
               <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}><SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48"><SelectValue placeholder="Choose ministry" /></SelectTrigger><SelectContent>{(readiness?.ministries ?? []).map((ministry) => <SelectItem key={ministry.id} value={ministry.id}>{ministry.name}</SelectItem>)}</SelectContent></Select>
+              {isStaff ? (
+                <Button variant="destructive" size="lg" onClick={() => { setResetMessage(''); setResetOpen(true); }} disabled={resetting}>
+                  Reset {monthLabel} availability
+                </Button>
+              ) : null}
             </div>
           </div>
         </CardHeader>
@@ -338,6 +412,56 @@ export default function AvailabilityPage() {
           <DialogHeader><DialogTitle>Request a revision</DialogTitle><DialogDescription>Tell {revisionTarget?.full_name ?? 'the member'} what needs clarification. They must submit the month again before generation can proceed.</DialogDescription></DialogHeader>
           <div className="space-y-2"><Label htmlFor="revision-note">Revision note</Label><Textarea id="revision-note" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="For example: Please confirm whether you are available in week three." /></div>
           <DialogFooter><Button variant="outline" onClick={() => setRevisionTarget(null)}>Cancel</Button><Button disabled={!revisionNote.trim() || reviewing || !revisionTarget} onClick={() => revisionTarget && void reviewSubmission(revisionTarget, 'revision_required', revisionNote.trim())}>Send revision request</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {resetMessage ? <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">{resetMessage}</p> : null}
+
+      {/* Step 1: disclosure + required note. Nothing is sent until step 2. */}
+      <Dialog open={resetOpen} onOpenChange={(open) => { if (!open) { setResetOpen(false); setResetConfirmOpen(false); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset unavailability for {monthLabel}</DialogTitle>
+            <DialogDescription>
+              This clears the unavailability recorded for {monthLabel} so the roster can declare it again. Read every point below before continuing.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+            <li><span className="font-medium text-foreground">Church-wide, not ministry-scoped.</span> The ministry selected above is ignored for this action. Every member in this church is affected, not only the members of one ministry.</li>
+            <li>It applies to <span className="font-medium text-foreground">{monthLabel}</span> only, and it affects the whole month rather than the weeks shown for the selected member.</li>
+            <li><span className="font-medium text-foreground">Recorded unavailability stops blocking scheduling</span> for the month. No record is deleted, and the reset itself is written to the review history.</li>
+            <li><span className="font-medium text-foreground">Every affected member must submit the month again and be re-approved</span> by a coordinator. Until then the month is not ready to generate.</li>
+            <li>A member who never submitted is <span className="font-medium text-foreground">not</span> unblocked by this action. They still owe a submission.</li>
+            <li>Any existing draft schedule for the month may need to be regenerated, because it was built from the unavailability this action clears.</li>
+            <li>A month that already has a <span className="font-medium text-foreground">validated or published</span> schedule is refused. Draft and archived services do not block the reset.</li>
+          </ul>
+          <div className="space-y-2">
+            <Label htmlFor="reset-note">Why is this month being reset?</Label>
+            <Textarea id="reset-note" value={resetNote} onChange={(event) => setResetNote(event.target.value)} placeholder="For example: The retreat moved to April; please declare unavailability for March again." />
+            <p className="text-xs text-muted-foreground">This note is attached to every submission and shown to each member, so it must explain what changed.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setResetOpen(false); setResetConfirmOpen(false); }}>Cancel</Button>
+            <Button disabled={!resetNote.trim()} onClick={() => { setResetOpen(false); setResetConfirmOpen(true); }}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step 2: the actual confirmation. */}
+      <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!open) setResetConfirmOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset unavailability for all members in {monthLabel}?</DialogTitle>
+            <DialogDescription>
+              This affects every member in this church, across every ministry. It cannot be undone from this screen; it is recorded in the availability review history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setResetConfirmOpen(false); setResetOpen(true); }}>Back</Button>
+            <Button variant="destructive" disabled={resetting} onClick={() => void resetMonthAvailability()}>
+              {resetting ? `Resetting…` : `Reset ${monthLabel}`}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
