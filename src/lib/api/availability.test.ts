@@ -66,7 +66,8 @@ describe('validateAvailabilityInput', () => {
     ).toBe(false);
   });
 
-  it('accepts recurring without extra fields', () => {
-    expect(validateAvailabilityInput({ type: 'recurring' }).ok).toBe(true);
+  it('requires recurring availability to be scoped to a week and month', () => {
+    expect(validateAvailabilityInput({ type: 'recurring' }).ok).toBe(false);
+    expect(validateAvailabilityInput({ type: 'recurring', week_number: 3, month: 8, year: 2026 }).ok).toBe(true);
   });
 });

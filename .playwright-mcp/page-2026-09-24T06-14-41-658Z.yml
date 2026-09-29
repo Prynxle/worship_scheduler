@@ -1,0 +1,20 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: JOHIA
+        - paragraph [ref=e13]: Welcome in
+        - generic [ref=e14]: What should we call you?
+        - generic [ref=e15]: Use the name on the active member list.
+        - tablist "Sign-in type" [ref=e16]:
+          - tab "Member" [selected] [ref=e17]
+          - tab "Coordinator" [ref=e18]
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - tabpanel "Member" [ref=e21]:
+            - generic [ref=e22]: Your name
+            - textbox "Your name" [active] [ref=e23]:
+              - /placeholder: e.g. Zedrick
+          - button "Enter workspace" [disabled]
+        - paragraph [ref=e24]: Names are matched without regard to capitalization.
+  - button "Open Next.js Dev Tools" [ref=e30] [cursor=pointer]

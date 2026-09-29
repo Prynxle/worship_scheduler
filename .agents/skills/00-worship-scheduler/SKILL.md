@@ -69,7 +69,8 @@ src/lib/supabase/                  Supabase client factories
 src/lib/types/                    Database and scheduling domain types
 supabase/migrations/               Ordered schema, policies, triggers, and seed migrations
 docs/                              Architecture and MCP setup documentation
-zed/agents/                        Repository-specific planning/QA/orchestration prompts
+zed/agents/                        Repository-specific planning/QA/orchestration prompts for opencode
+zed/codexcli/
 ```
 
 Use `src/lib/scheduling` for domain decisions. Do not duplicate assignment eligibility or validation logic in a page or route handler when the scheduling library can own it.

@@ -1,0 +1,50 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - link "Sign In" [ref=e13] [cursor=pointer]:
+      - /url: /login
+    - generic:
+      - generic:
+        - generic:
+          - heading "G R A C E" [level=1]:
+            - generic: G
+            - generic: R
+            - generic: A
+            - generic: C
+            - generic: E
+          - generic:
+            - paragraph: Where faith meets purpose,
+            - paragraph: we discover the life God has called us to live.
+          - link "Romans 8:28":
+            - /url: /dashboard
+      - generic:
+        - generic:
+          - heading "H O P E" [level=1]:
+            - generic: H
+            - generic: O
+            - generic: P
+            - generic: E
+          - generic:
+            - paragraph: Beyond the boundaries of what we can see,
+            - paragraph: lies a future held in God's promises.
+          - link "Romans 8:28":
+            - /url: /dashboard
+      - generic:
+        - generic:
+          - heading "P U R P O S E" [level=1]:
+            - generic: P
+            - generic: U
+            - generic: R
+            - generic: P
+            - generic: O
+            - generic: S
+            - generic: E
+          - generic:
+            - paragraph: In the space between prayer and action,
+            - paragraph: we find the calling God has placed within us.
+          - link "Romans 8:28":
+            - /url: /dashboard
+    - generic [ref=e14]:
+      - generic [ref=e15]: SCROLL
+      - generic [ref=e17]: 00 / 02
