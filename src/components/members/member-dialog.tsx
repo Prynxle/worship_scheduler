@@ -245,7 +245,6 @@ function MemberForm({ member, onSaved, onDone }: { member: Member | null; onSave
             onChange={(event) => update('nickname', event.target.value)}
             maxLength={100}
             autoComplete="off"
-            placeholder="Zed"
           />
         </div>
 

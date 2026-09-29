@@ -4,20 +4,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Edit, MoreVertical, Music, Calendar } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Edit, Music } from 'lucide-react';
 import { TiltCard } from '@/components/ui/tilt-card';
 import { Member } from '@/lib/types/database';
 
 interface MemberCardProps {
   member: Member;
-  /** Opens the edit dialog for this member. */
-  onEdit?: () => void;
+  /**
+   * Opens the edit dialog for this member. Required rather than optional: this
+   * button is the route into editing, and an optional callback would let a
+   * caller render an Edit control that silently does nothing, which is exactly
+   * the dead control this replaced.
+   */
+  onEdit: () => void;
   index?: number;
 }
 
@@ -43,8 +42,19 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
     }
   };
 
+  // interactive={false}: this card's header owns the Edit control, and the hover
+  // tilt moves the surface out from under the pointer mid-press. A press that
+  // starts on the button and ends on the background fires `click` on the card
+  // rather than the button, so the dialog never opened -- the button only ever
+  // showed its pressed state. The entrance stagger still runs; only the hover
+  // transform is dropped.
   return (
-    <TiltCard tilt={6} glare={true} delay={Math.min(index, 8) * 0.06}>
+    <TiltCard
+      tilt={6}
+      glare={true}
+      interactive={false}
+      delay={Math.min(index, 8) * 0.06}
+    >
       <Card className="card-glow group/member cursor-default w-full">
         <CardContent className="p-4">
           <div className="flex items-start justify-between">
@@ -77,27 +87,24 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
                 </div>
               </div>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-                <MoreVertical className="h-4 w-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onEdit}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                {/* There is no member profile route yet. The item is kept, but
-                    disabled with a visible reason rather than left as a button
-                    that logs to the console and appears to do nothing. */}
-                <DropdownMenuItem disabled>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  View Profile
-                </DropdownMenuItem>
-                <p className="px-1.5 py-1 text-xs text-muted-foreground">
-                  Member profiles are not built yet.
-                </p>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/*
+              A labelled button rather than an icon-only or overflow-menu control.
+              The menu this replaced held a single action, and the card is dense
+              enough that a bare icon asked a coordinator to guess what it did --
+              an explicit "Edit" states the action and needs no hover to discover.
+            */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onEdit}
+              aria-label={`Edit ${member.full_name}`}
+              // Sits above TiltCard's z-10 glare overlay so the control never
+              // shares its hit area with a decorative layer.
+              className="relative z-20 shrink-0"
+            >
+              <Edit className="mr-1.5 h-3.5 w-3.5" />
+              Edit
+            </Button>
           </div>
 
           <div className="mt-4 space-y-3">

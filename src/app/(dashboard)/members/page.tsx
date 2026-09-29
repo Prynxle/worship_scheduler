@@ -202,16 +202,20 @@ export default function MembersPage() {
         </TabsContent>
       </Tabs>
 
+      {/*
+        One dialog serves both create and edit, selected by which state is set.
+        Rendering two <MemberDialog> instances meant two base-ui Dialog roots
+        mounted at once, and only the first of those roots got the modal
+        registration -- so opening the second one left the edit dialog's open
+        state set but never rendered a popup. Editing was therefore the one
+        action that appeared to do nothing. One root also drops the duplicated
+        state and the duplicated onSaved wiring.
+      */}
       <MemberDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        onSaved={handleSaved}
-      />
-
-      <MemberDialog
-        open={editingMember !== null}
+        open={addOpen || editingMember !== null}
         member={editingMember}
         onOpenChange={(next) => {
+          setAddOpen(next);
           if (!next) setEditingMember(null);
         }}
         onSaved={handleSaved}
