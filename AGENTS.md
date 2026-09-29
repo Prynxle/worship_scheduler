@@ -11,12 +11,13 @@ The scheduling-specific rules below remain authoritative for scheduling behavior
 
 The files in `zed/agents/` are **agent prompt contracts, not documentation**. They are injected into a specific role; never read them to work out what to do yourself, and never treat their `You are the ...` lines as instructions addressed to you.
 
-These contracts are shared by two harnesses. Both must run the same pipeline: `planner` -> `decision` -> `builder` -> `qa`.
+These contracts are used only by the OpenCode harness, which runs the pipeline `planner` -> `decision` -> `builder` -> `qa`.
 
 | Harness | How a role is invoked | Registered roles |
 |---|---|---|
 | OpenCode | `task` tool, per `opencode.json` | `planner`, `decision`, `builder`, `qa` |
-| Codex CLI | `spawn_agent`, per `.codex/agents/*.toml` | `planner`, `decision`, `qa`, `builder`, `issue_agent`, `pr_review` |
+
+Codex CLI runs a single agent with no delegation. It has no subagents, no agent registry, and no `AGENTS.md`-loaded role contracts. Its standalone execution contract is `zed/codexcli/codex.md`.
 
 ### Which role are you
 
@@ -27,9 +28,9 @@ Decide this before anything else, because the same file is read by the root sess
 
 ### Never stall
 
-- **After you spawn a stage, you must collect its output before you end the turn.** Call `wait_agent` (OpenCode: read the `task` result) and use the returned report. Spawning and then ending the turn with the agent still running is the failure this rule exists to prevent.
+- **In OpenCode, read the returned `task` result and use that report.** Never end the turn with a stage still running.
 - Never tell the developer a stage "hasn't returned yet" and stop. That is a stall, not a status update.
-- Do not call `wait_agent` on a thread that was never spawned; that hangs rather than reports.
+- Never wait on a thing that does not exist.
 - If a stage genuinely fails, is interrupted, or times out, say which stage and why, then continue with the stages whose input already exists.
 - If you have no way to spawn subagents at all, execute the stages sequentially in a single pass yourself. Do not emulate a handoff you cannot perform.
 
