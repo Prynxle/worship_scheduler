@@ -37,6 +37,11 @@ export default function AvailabilityPage() {
   const [resetNote, setResetNote] = useState('');
   const [resetting, setResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  // Separate from the page-level `error`: the reset dialog renders in a portal,
+  // so a page-level banner sits behind the modal overlay and the coordinator
+  // would see a dead button and no reason for it. Sharing one state would also
+  // surface an unrelated review error inside the reset dialog.
+  const [resetError, setResetError] = useState('');
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [error, setError] = useState('');
@@ -194,44 +199,60 @@ export default function AvailabilityPage() {
     setResetting(true);
     setError('');
     setResetMessage('');
-    const headers = await getAuthHeaders();
-    if (!headers) {
-      setError('Your session has expired. Please sign in again.');
+    setResetError('');
+    // try/finally, not a trailing setResetting(false): the destructive button is
+    // disabled while `resetting`, so a thrown fetch (dead network, aborted
+    // request, non-JSON body) would otherwise leave the coordinator looking at
+    // a permanently dead button with no feedback at all.
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) {
+        setResetError('Your session has expired. Please sign in again.');
+        return;
+      }
+      // `month` and `year` are the ONLY month scoping sent. No ministry is sent
+      // and the ministry Select in the readiness header is not consulted: the
+      // action is church-wide, which the confirmation dialog states explicitly.
+      const response = await fetch('/api/availability/reset', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: currentMonth, year: currentYear, note: resetNote.trim() }),
+      });
+      const payload = await response.json() as {
+        error?: string;
+        reset?: boolean;
+        submissions_reset?: number;
+        availability_reset?: number;
+        unscoped_availability_reset?: number;
+        remaining_blocking_dates?: number;
+      };
+      if (response.ok) {
+        setResetConfirmOpen(false);
+        setResetOpen(false);
+        setResetNote('');
+        const remaining = payload.remaining_blocking_dates ?? 0;
+        // The counts are always reported. A repeat click returns `reset: false`
+        // with zeros and must not read as "done".
+        setResetMessage(
+          payload.reset
+            ? `${monthLabel}: ${payload.submissions_reset ?? 0} monthly submission(s) returned for revision, ${payload.availability_reset ?? 0} submitted unavailability entr(ies) cleared, ${payload.unscoped_availability_reset ?? 0} unscoped absence request(s) cleared. Every affected member must submit the month again and be re-approved before it can be scheduled.${remaining > 0 ? ` ${remaining} unavailability entr(ies) are not tied to this month and can still block it.` : ''}`
+            : remaining > 0
+              // Never the bare "nothing to reset" line while a blocker survives:
+              // that would be false, and the coordinator has no other screen
+              // that shows the offending rows.
+              ? `Nothing was recorded for ${monthLabel}, so there was nothing to reset. ${remaining} unavailability entr(ies) are not tied to this month and can still block it.`
+              : `Nothing was recorded for ${monthLabel}, so there was nothing to reset.`
+        );
+        await loadReadiness();
+        await loadAvailability();
+      } else {
+        setResetError(payload.error ?? 'Could not reset this month\'s availability.');
+      }
+    } catch {
+      setResetError('Could not reach the server to reset this month. Check your connection and try again.');
+    } finally {
       setResetting(false);
-      return;
     }
-    // `month` and `year` are the ONLY month scoping sent. No ministry is sent
-    // and the ministry Select in the readiness header is not consulted: the
-    // action is church-wide, which the confirmation dialog states explicitly.
-    const response = await fetch('/api/availability/reset', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ month: currentMonth, year: currentYear, note: resetNote.trim() }),
-    });
-    const payload = await response.json() as {
-      error?: string;
-      reset?: boolean;
-      submissions_reset?: number;
-      availability_reset?: number;
-      legacy_availability_reset?: number;
-    };
-    if (response.ok) {
-      setResetConfirmOpen(false);
-      setResetOpen(false);
-      setResetNote('');
-      // The counts are always reported. A repeat click returns `reset: false`
-      // with zeros and must not read as "done".
-      setResetMessage(
-        payload.reset
-          ? `${monthLabel}: ${payload.submissions_reset ?? 0} monthly submission(s) returned for revision, ${payload.availability_reset ?? 0} submitted unavailability entr(ies) cleared, ${payload.legacy_availability_reset ?? 0} legacy absence request(s) cleared. Every affected member must submit the month again and be re-approved before it can be scheduled.`
-          : `Nothing was recorded for ${monthLabel}, so there was nothing to reset.`
-      );
-      await loadReadiness();
-      await loadAvailability();
-    } else {
-      setError(payload.error ?? 'Could not reset this month\'s availability.');
-    }
-    setResetting(false);
   }, [currentMonth, currentYear, resetNote, monthLabel, loadReadiness, loadAvailability]);
 
   const handlePreviousMonth = () => {
@@ -273,7 +294,7 @@ export default function AvailabilityPage() {
               <p className="text-sm text-muted-foreground">{readiness?.approved_count ?? 0} approved · {readiness?.outstanding_count ?? 0} outstanding</p>
               <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}><SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48"><SelectValue placeholder="Choose ministry" /></SelectTrigger><SelectContent>{(readiness?.ministries ?? []).map((ministry) => <SelectItem key={ministry.id} value={ministry.id}>{ministry.name}</SelectItem>)}</SelectContent></Select>
               {isStaff ? (
-                <Button variant="destructive" size="lg" onClick={() => { setResetMessage(''); setResetOpen(true); }} disabled={resetting}>
+                <Button variant="destructive" size="lg" onClick={() => { setResetMessage(''); setResetError(''); setResetOpen(true); }} disabled={resetting}>
                   Reset {monthLabel} availability
                 </Button>
               ) : null}
@@ -434,6 +455,10 @@ export default function AvailabilityPage() {
             <li>A member who never submitted is <span className="font-medium text-foreground">not</span> unblocked by this action. They still owe a submission.</li>
             <li>Any existing draft schedule for the month may need to be regenerated, because it was built from the unavailability this action clears.</li>
             <li>A month that already has a <span className="font-medium text-foreground">validated or published</span> schedule is refused. Draft and archived services do not block the reset.</li>
+            {/* A limitation, not a claim that this dialog handled them. The
+                availability page reads a month-FILTERED endpoint, so no screen
+                in the app lists these rows and none is named here. */}
+            <li>Some unavailability entries are not tied to a month. This reset does not clear them and they are not listed on this screen; they can still block this month.</li>
           </ul>
           <div className="space-y-2">
             <Label htmlFor="reset-note">Why is this month being reset?</Label>
@@ -456,6 +481,9 @@ export default function AvailabilityPage() {
               This affects every member in this church, across every ministry. It cannot be undone from this screen; it is recorded in the availability review history.
             </DialogDescription>
           </DialogHeader>
+          {/* Inside the dialog, next to the button that failed. The page-level
+              banner is behind this modal overlay. */}
+          {resetError ? <p role="alert" className="text-sm text-destructive">{resetError}</p> : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setResetConfirmOpen(false); setResetOpen(true); }}>Back</Button>
             <Button variant="destructive" disabled={resetting} onClick={() => void resetMonthAvailability()}>

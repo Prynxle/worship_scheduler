@@ -30,7 +30,7 @@ const auth = {
 };
 
 /** What the RPC resolves to on success. */
-const counts = { submissions_reset: 2, availability_reset: 5, legacy_availability_reset: 19 };
+const counts = { submissions_reset: 2, availability_reset: 5, unscoped_availability_reset: 19, remaining_blocking_dates: 3 };
 
 type RpcResult = { data?: unknown; error?: unknown };
 
@@ -294,7 +294,7 @@ describe('POST /api/availability/reset — SQLSTATE mapping', () => {
 });
 
 describe('POST /api/availability/reset — success shape', () => {
-  it('reports the three per-category counts with the caller month and church', async () => {
+  it('reports the per-category counts and the disclosure with the caller month and church', async () => {
     const response = await POST(post({ month: 2, year: 2026, note: 'Retreat moved.' }) as never);
     const body = await response.json();
 
@@ -303,7 +303,11 @@ describe('POST /api/availability/reset — success shape', () => {
       reset: true,
       submissions_reset: 2,
       availability_reset: 5,
-      legacy_availability_reset: 19,
+      unscoped_availability_reset: 19,
+      // A disclosure about blockers the reset did NOT touch. It is reported
+      // separately so a caller can disclose the limitation, and it is not part
+      // of the `reset` sum.
+      remaining_blocking_dates: 3,
       month: 2,
       year: 2026,
       church_id: 'church-1',
@@ -311,7 +315,7 @@ describe('POST /api/availability/reset — success shape', () => {
   });
 
   it('reports reset: false on a repeat click so zero affected never reads as success', async () => {
-    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, legacy_availability_reset: 0 }] });
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 0 }] });
 
     const response = await POST(post({ month: 2, year: 2026, note: 'Retreat moved.' }) as never);
     const body = await response.json() as Record<string, unknown>;
@@ -320,15 +324,31 @@ describe('POST /api/availability/reset — success shape', () => {
     // The boolean is the honest signal: a completed RPC over a month with
     // nothing recorded is NOT "a reset happened".
     expect(body.reset).toBe(false);
-    expect(body).toMatchObject({ submissions_reset: 0, availability_reset: 0, legacy_availability_reset: 0 });
+    expect(body).toMatchObject({ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0 });
   });
 
-  it('reports reset: true when only legacy rows were cleared', async () => {
-    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, legacy_availability_reset: 19 }] });
+  it('reports reset: true when only unscoped rows were cleared', async () => {
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 19, remaining_blocking_dates: 0 }] });
 
     const body = await (await POST(post({ month: 2, year: 2026, note: 'x' }) as never)).json() as Record<string, unknown>;
 
     expect(body.reset).toBe(true);
+  });
+
+  it('never reports reset: true for a disclosure alone', async () => {
+    // F-02: remaining_blocking_dates counts rows the reset deliberately does
+    // NOT clear. If it were summed into `reset`, a call that changed nothing
+    // would answer `reset: true` and the coordinator would read it as "a reset
+    // happened" while a blocker survives.
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 7 }] });
+
+    const response = await POST(post({ month: 2, year: 2026, note: 'x' }) as never);
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.reset).toBe(false);
+    // The count is still disclosed, so the UI can qualify "nothing to reset".
+    expect(body.remaining_blocking_dates).toBe(7);
   });
 
   it('never reports a success it cannot account for when the RPC returns no row', async () => {
@@ -345,13 +365,17 @@ describe('POST /api/availability/reset — success shape', () => {
 });
 
 /**
- * The reset's load-bearing integrity invariant lives in the SQL function body,
- * which no unit test in this suite can execute. It is therefore pinned here at
- * the source level and, separately, exercised against the live database inside
- * BEGIN/ROLLBACK. This is the one describe block that reads the migration text,
- * and it reads it to assert an ABSENCE: `is_current` and `version` must never be
- * written, and the one `UPDATE public.availability_submissions` in the function
- * must not mention either column.
+ * The reset's load-bearing integrity invariants live in the SQL function body,
+ * which no unit test in this suite can execute. They are therefore pinned here
+ * at the source level and, separately, exercised against the live database
+ * inside BEGIN/ROLLBACK. This is the one describe block that reads the
+ * migration text.
+ *
+ * Where a regression is a deleted clause or a boolean operator, the assertion
+ * is on the PROPERTY and not on a substring: an earlier assertion pinned
+ * "CONTINUE WHEN v_submission.status = 'revision_required'", which asserted a
+ * spelling and passed straight over the F-01 hole underneath it. Each mutation
+ * below has been confirmed to fail the suite.
  */
 describe('reset_month_availability migration — submission integrity invariant', () => {
   const migrationPath = fileURLToPath(new URL('../../../../../supabase/migrations/20260929120000_reset_month_availability.sql', import.meta.url));
@@ -404,15 +428,134 @@ describe('reset_month_availability migration — submission integrity invariant'
     expect(guard?.[1]).toContain("s.status IN ('validated', 'published')");
   });
 
-  it('is idempotent: skips re-stamping and re-logging an already reset submission', () => {
-    // Found by the live BEGIN/ROLLBACK run, not by review: because `is_current`
-    // must stay true it cannot mark a submission as already reset, so a second
-    // call re-selected the same rows, overwrote reviewed_by/reviewed_at/
-    // revision_note, appended a duplicate 'reset' audit row, and reported 2/0/0
-    // again. A double-clicked button or client retry must be a no-op.
-    expect(functionBody).toContain(
-      "CONTINUE WHEN v_submission.status = 'revision_required'"
+  it('is idempotent without hiding a real change: the guard is an AND of both conditions', () => {
+    // Property, not token. The earlier assertion pinned the bare string
+    // "CONTINUE WHEN v_submission.status = 'revision_required'", which asserted a
+    // spelling rather than a behaviour and would have passed over the F-01 hole.
+    //
+    // F-01: review_month_availability sets 'revision_required' and never touches
+    // availability rows, so such a submission can still own live rows. The sweep
+    // above has already flipped them to 'rejected' by the time the guard runs, so
+    // a bare status test skipped the stamp and the log for a call that DID change
+    // data, and reported `reset: false`. The empty-snapshot conjunct is what makes
+    // "nothing left to change" mean "nothing left to change".
+    const guard = functionBody.match(/CONTINUE WHEN([\s\S]*?);/);
+    expect(guard).not.toBeNull();
+
+    const condition = (guard?.[1] ?? '').replace(/\s+/g, ' ');
+    expect(condition).toContain("v_submission.status = 'revision_required'");
+    expect(condition).toMatch(/AND\s+pg_catalog\.jsonb_array_length\(v_affected\) = 0/);
+
+    // A regression to a bare status test is the exact F-01 defect, so it is
+    // asserted negatively as well as positively.
+    expect(condition).not.toMatch(/^v_submission\.status = 'revision_required'$/);
+    // Guard must remain AFTER the sweep: the snapshot must be taken while the
+    // rows are still live, and the guard must see the post-sweep state.
+    const loop = functionBody.slice(functionBody.indexOf('FOR v_submission IN'));
+    expect(loop.indexOf('CONTINUE WHEN')).toBeGreaterThan(loop.indexOf("SET status = 'rejected'"));
+  });
+
+  it('scopes the unscoped sweep to exactly this month and year (M-01)', () => {
+    // M-01. This UPDATE is the only place rows are cleared without a submission
+    // behind them, so its predicate is the whole scoping of the action. Widening
+    // it -- dropping `a.year = p_year AND a.month = p_month`, or replacing it
+    // with an `a.month IS NULL` clause -- would silently destroy rows that were
+    // never scoped to this month, under a button whose label names one month.
+    const sweep = functionBody.match(/UPDATE public\.availability a\s+SET status = 'rejected'([\s\S]*?);/);
+    expect(sweep).not.toBeNull();
+
+    const where = sweep?.[1] ?? '';
+    expect(where).toContain('a.year = p_year');
+    expect(where).toContain('a.month = p_month');
+    expect(where).toContain("a.status IN ('pending', 'approved')");
+    // The defensive "still pending on a superseded submission" case, and the
+    // guarantee that a row behind a current submission is not double counted.
+    expect(where).toContain('NOT EXISTS');
+    expect(where).toContain('s.is_current');
+    // Explicitly NOT widened to an unscoped sweep.
+    expect(where).not.toContain('IS NULL');
+  });
+
+  it('discloses date rows that can still block without clearing them (F-02)', () => {
+    // F-02. The premise that a `month IS NULL` row blocks scheduling was FALSE
+    // and is deliberately not implemented: isWeeklyUnavailable gates on
+    // `record.month === undefined`, a SQL NULL arrives as JSON null, and
+    // `null === undefined` is false. Instead of clearing such rows, the function
+    // counts the date/range rows that really can still block and returns the
+    // number, so the UI can disclose the limitation.
+    const disclosure = functionBody.match(/SELECT count\(\*\)::int\s+INTO v_remaining_blocking_dates([\s\S]*?);/);
+    expect(disclosure).not.toBeNull();
+
+    const where = disclosure?.[1] ?? '';
+    // IS DISTINCT FROM, never NOT (... = ...). Three-valued logic returns NULL
+    // for a NULL month, and `WHERE NULL` is not true, so the `NOT` form would
+    // silently drop exactly the rows this count exists to surface.
+    expect(where).toContain('IS DISTINCT FROM');
+    expect(where).not.toContain('NOT (');
+    // Catches a date span stamped with its start month's scope that crosses a
+    // month boundary, which a narrower `a.month IS NULL` test would miss.
+    expect(where).toContain('a.month IS DISTINCT FROM p_month');
+    expect(where).toContain('a.year IS DISTINCT FROM p_year');
+    // Weekly rows are excluded: they can never match a month, so counting or
+    // clearing them would be a false signal or a real deletion for a non-problem.
+    expect(where).not.toContain("'weekly'");
+    expect(where).toContain("'recurring'");
+    // `recurring` is in the type list ONLY because of this guard.
+    expect(where).toContain('a.date IS NOT NULL');
+    // Still counted while live, and gone once the sweep rejected it.
+    expect(where).toContain("a.status IN ('pending','approved')");
+    // December must not overflow: p_month = 11 rolls into p_year + 1.
+    expect(where).toContain('pg_catalog.make_date(p_year, p_month + 1, 1)');
+  });
+
+  it('returns the disclosure as a fourth column and never folds it into the cleared counts', () => {
+    expect(functionBody).toContain('remaining_blocking_dates INTEGER');
+    expect(functionBody).toContain('v_remaining_blocking_dates INTEGER := 0');
+    expect(functionBody).toMatch(
+      /RETURN QUERY SELECT v_submissions_reset, v_availability_reset, v_unscoped_availability_reset, v_remaining_blocking_dates;/
     );
+  });
+
+  it('stamps, logs and counts a revision_required submission that still owns live rows (F-01)', () => {
+    // F-01, the three cases the guard decides. Evaluated as a model of the
+    // guard's AND, because plpgsql cannot run from here; the live
+    // BEGIN/ROLLBACK run exercises the same three cases for real.
+    const guard = functionBody.match(/CONTINUE WHEN([\s\S]*?);/)?.[1]?.replace(/\s+/g, ' ') ?? '';
+    const skips = (status: string, affected: string[]) =>
+      guard.includes("v_submission.status = 'revision_required'")
+        && guard.includes('pg_catalog.jsonb_array_length(v_affected) = 0')
+        && status === 'revision_required'
+        && affected.length === 0;
+
+    // A repeat: already reset, its rows already released. Nothing changed, so
+    // it must be a 0/0/0 no-op that adds nothing to the audit trail.
+    expect(skips('revision_required', [])).toBe(true);
+    // F-01: a revision-requested submission reached through the ordinary review
+    // path still owns live rows. The sweep already rejected them, so skipping
+    // here would change real data with no stamp, no log row, and a reported
+    // `reset: false`.
+    expect(skips('revision_required', ['a-1', 'a-2'])).toBe(false);
+    // A first reset of a live submission is never skipped.
+    expect(skips('approved', ['a-1'])).toBe(false);
+    expect(skips('submitted', [])).toBe(false);
+
+    // The stamp and the audit row must both sit after the guard, or a
+    // revision_required submission would be counted without being recorded.
+    const loop = functionBody.slice(functionBody.indexOf('FOR v_submission IN'));
+    const guardAt = loop.indexOf('CONTINUE WHEN');
+    expect(loop.indexOf("SET status = 'revision_required'")).toBeGreaterThan(guardAt);
+    expect(loop.indexOf('INSERT INTO public.availability_submission_review_log')).toBeGreaterThan(guardAt);
+    // And the count is incremented on the same path, so a stamped reset is
+    // reported as one.
+    expect(loop.indexOf('v_submissions_reset := v_submissions_reset + 1')).toBeGreaterThan(guardAt);
+  });
+
+  it('names the no-submission sweep unscoped, not legacy (L-01)', () => {
+    // The predicate is literally `a.year = p_year AND a.month = p_month`: the
+    // rows are stamped with this month and have no current submission behind
+    // them and no submission at all. "legacy" described an era, not a predicate.
+    expect(functionBody).toContain('v_unscoped_availability_reset');
+    expect(functionBody).not.toContain('legacy_availability_reset');
   });
 
   it('snapshots prior availability state BEFORE rejecting it, and guards AFTER', () => {

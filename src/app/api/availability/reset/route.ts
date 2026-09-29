@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
-import { isPostgrestError, jsonError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
+import { isPostgrestError, jsonError, type ErrorContext } from '@/lib/api/errors';
 
 /**
  * POST /api/availability/reset -- coordinator-gated, church-wide, month-scoped
@@ -30,7 +30,21 @@ import { isPostgrestError, jsonError, toErrorResponse, type ErrorContext } from 
 type ResetCounts = {
   submissions_reset: number;
   availability_reset: number;
-  legacy_availability_reset: number;
+  /**
+   * Rows stamped with this month that had no current submission behind them and
+   * no submission at all. Renamed from `legacy_availability_reset`: the SQL
+   * predicate is `a.year = p_year AND a.month = p_month`, so the name described
+   * the predicate, not a "legacy" era of data.
+   */
+  unscoped_availability_reset: number;
+  /**
+   * Read-only disclosure, NOT a cleared count. Date/range rows scoped outside
+   * this month are deliberately not swept, and the engine matches them purely on
+   * the service date, so they can still block the month after the reset. It is
+   * reported so the caller can disclose the limitation instead of claiming
+   * nothing was left to clear while a blocker remains.
+   */
+  remaining_blocking_dates: number;
 };
 
 /**
@@ -173,20 +187,26 @@ export async function POST(request: NextRequest) {
 
     const submissionsReset = toCount(row.submissions_reset);
     const availabilityReset = toCount(row.availability_reset);
-    const legacyAvailabilityReset = toCount(row.legacy_availability_reset);
+    const unscopedAvailabilityReset = toCount(row.unscoped_availability_reset);
+    const remainingBlockingDates = toCount(row.remaining_blocking_dates);
 
     return NextResponse.json({
       // Explicit, so a repeat click reads honestly as "0 affected" instead of a
       // silent success: this is false when the month had nothing left to clear.
-      reset: submissionsReset + availabilityReset + legacyAvailabilityReset > 0,
+      // `remaining_blocking_dates` is deliberately NOT part of this sum. It is a
+      // disclosure about blockers the reset did not and will not touch, not
+      // evidence that this call changed anything; folding it in would report
+      // `reset: true` for a call that cleared nothing.
+      reset: submissionsReset + availabilityReset + unscopedAvailabilityReset > 0,
       submissions_reset: submissionsReset,
       availability_reset: availabilityReset,
-      legacy_availability_reset: legacyAvailabilityReset,
+      unscoped_availability_reset: unscopedAvailabilityReset,
+      remaining_blocking_dates: remainingBlockingDates,
       month,
       year,
       church_id: auth.churchId,
     });
   } catch (error) {
-    return toErrorResponse(error, context);
+    return resetErrorResponse(error, context);
   }
 }

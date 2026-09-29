@@ -9,10 +9,17 @@
 -- submission history is untouched and a reset stays reversible from the review
 -- log.
 --
--- The action is idempotent. A submission already at 'revision_required' is
--- swept but not re-stamped and not re-logged, so a double-clicked button, a
--- client retry, or a second coordinator running the reset again is a no-op that
--- reports 0 and adds nothing to the audit trail.
+-- The action is idempotent. A submission already at 'revision_required' that
+-- has no live absence rows left is swept but not re-stamped and not re-logged,
+-- so a double-clicked button, a client retry, or a second coordinator running
+-- the reset again is a no-op that reports 0 and adds nothing to the audit
+-- trail. A submission at 'revision_required' that still owns live rows is
+-- stamped, logged and counted, because the sweep genuinely changes it.
+--
+-- The fourth returned count, remaining_blocking_dates, is a read-only
+-- disclosure: date/range rows scoped outside this month are not cleared but can
+-- still block it, and a caller that reported "nothing to reset" while one
+-- remains would be telling the coordinator something false.
 
 -- 'reset' is a third review action. The existing CHECK admits only the two
 -- review_month_availability outcomes, and it is a named table constraint (not an
@@ -37,7 +44,8 @@ CREATE OR REPLACE FUNCTION public.reset_month_availability(
 RETURNS TABLE (
   submissions_reset INTEGER,
   availability_reset INTEGER,
-  legacy_availability_reset INTEGER
+  unscoped_availability_reset INTEGER,
+  remaining_blocking_dates INTEGER
 )
 LANGUAGE plpgsql
 SECURITY INVOKER
@@ -48,7 +56,8 @@ DECLARE
   v_affected JSONB;
   v_submissions_reset INTEGER := 0;
   v_availability_reset INTEGER := 0;
-  v_legacy_availability_reset INTEGER := 0;
+  v_unscoped_availability_reset INTEGER := 0;
+  v_remaining_blocking_dates INTEGER := 0;
 BEGIN
   -- 22023. The blank-note check matches review_month_availability: a null
   -- revision_note would leave the member-facing "Revision requested: ..." label
@@ -143,7 +152,22 @@ BEGIN
     -- reviewed_by/reviewed_at/revision_note and append a SECOND 'reset' row for
     -- the same submission, corrupting the very audit trail the log exists to
     -- provide, while still reporting the submission as reset a second time.
-    CONTINUE WHEN v_submission.status = 'revision_required';
+    --
+    -- The `jsonb_array_length(v_affected) = 0` conjunct is load-bearing, not
+    -- belt-and-braces. review_month_availability sets 'revision_required' and
+    -- never touches availability rows, so a submission that reached
+    -- revision_required through the ordinary review path can still own live
+    -- 'pending'/'approved' rows. Under the bare status test this step would
+    -- skip the stamp AND the log, while the sweep above had already flipped
+    -- those rows to 'rejected': real data changed with no audit record of the
+    -- prior statuses, and the call reported `reset: false` as if nothing had
+    -- happened. Requiring an empty snapshot means a repeat that really did clear
+    -- something is always stamped, logged, and counted; a genuine repeat still
+    -- finds '[]' and stays a 0/0/0 no-op.
+    --
+    -- `pg_catalog.` is required: search_path is ''.
+    CONTINUE WHEN v_submission.status = 'revision_required'
+             AND pg_catalog.jsonb_array_length(v_affected) = 0;
 
     -- `is_current` and `version` are deliberately absent from this SET list.
     -- Unsetting `is_current` would break the partial unique index
@@ -188,6 +212,11 @@ BEGIN
   -- These rows have no submission to log against (the review log's submission_id
   -- is NOT NULL), so they are reported as their own count rather than being
   -- folded into the per-submission log.
+  --
+  -- The name is `unscoped_`, not `legacy_`, because the predicate is literally
+  -- `a.year = p_year AND a.month = p_month`: the rows it counts are precisely
+  -- those stamped with this month that have no current submission behind them
+  -- and no submission at all.
   UPDATE public.availability a
   SET status = 'rejected'
   WHERE a.church_id = p_church_id AND a.year = p_year AND a.month = p_month
@@ -196,9 +225,35 @@ BEGIN
       SELECT 1 FROM public.availability_submissions s
       WHERE s.id = a.submission_id AND s.is_current
     );
-  GET DIAGNOSTICS v_legacy_availability_reset = ROW_COUNT;
+  GET DIAGNOSTICS v_unscoped_availability_reset = ROW_COUNT;
 
-  RETURN QUERY SELECT v_submissions_reset, v_availability_reset, v_legacy_availability_reset;
+  -- Read-only disclosure. Date/range rows are matched by the engine purely on
+  -- the service date (engine.ts isUnavailable, validator.ts checkAvailability),
+  -- so they can still block this month after the reset. They are deliberately
+  -- NOT cleared: a month-scoped reset must not silently destroy a date range
+  -- that was never scoped to this month. Counted so the UI can disclose the
+  -- limitation instead of reporting "nothing to reset" while a blocker remains.
+  --
+  -- Weekly rows are excluded on purpose: isWeeklyUnavailable gates on
+  -- `record.month === undefined || record.month === month`, and a SQL NULL
+  -- arrives as JSON null, so `null === undefined` is false and such a row can
+  -- never match any month. Clearing one would erase a real declaration to fix
+  -- a non-problem.
+  --
+  -- IS DISTINCT FROM, never NOT (... = ...): three-valued logic returns NULL
+  -- for a NULL month and would silently drop exactly the rows counted here.
+  SELECT count(*)::int
+  INTO v_remaining_blocking_dates
+  FROM public.availability a
+  WHERE a.church_id = p_church_id
+    AND a.status IN ('pending','approved')
+    AND (a.month IS DISTINCT FROM p_month OR a.year IS DISTINCT FROM p_year)
+    AND a.type IN ('date','vacation','temporary_leave','emergency_leave','recurring')
+    AND a.date IS NOT NULL
+    AND a.date < (pg_catalog.make_date(p_year, p_month + 1, 1) + interval '1 month')::date
+    AND COALESCE(a.end_date, a.date) >= pg_catalog.make_date(p_year, p_month + 1, 1);
+
+  RETURN QUERY SELECT v_submissions_reset, v_availability_reset, v_unscoped_availability_reset, v_remaining_blocking_dates;
 END;
 $$;
 
