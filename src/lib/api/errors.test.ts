@@ -29,15 +29,47 @@ describe('toErrorResponse SQLSTATE mapping', () => {
     ['W0002', 403, 'tenant_mismatch'],
     ['W0003', 422, 'rule_violation'],
     ['23P01', 422, 'exclusion_violation'],
+    ['55000', 409, 'object_not_in_prerequisite_state'],
+    ['42501', 403, 'insufficient_privilege'],
     ['23505', 500, 'unique_violation'],
     ['23503', 500, 'foreign_key_violation'],
     ['23514', 500, 'check_violation'],
     ['40001', 503, 'serialization_failure'],
+    ['40P01', 503, 'deadlock_detected'],
   ])('maps %s to %i %s', async (sqlstate, status, code) => {
     const response = toErrorResponse(pgError(sqlstate, 'raw driver text'), context);
 
     expect(response.status).toBe(status);
     expect(await bodyOf(response)).toMatchObject({ code });
+  });
+
+  // 55000 and 42501 are the SQLSTATEs `persist_month_schedule` raises for its own
+  // domain rejections: readiness not met, a past month, draft protection, legacy
+  // ministry ownership, ministry-not-found and coordinator authorization. Both
+  // are expected outcomes of calling the endpoint, so before they were listed
+  // they fell through to the generic 500 -- an actionable 409 or 403 reported as
+  // a server fault, which is the exact class of opaque failure this module exists
+  // to remove.
+  it('maps a persist_month_schedule readiness rejection to 409 without disclosing the counts', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const leak = 'Availability is not ready: 18 of 19 required submissions approved';
+    const response = toErrorResponse(pgError('55000', leak), context);
+    const body = await bodyOf(response);
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({ code: 'object_not_in_prerequisite_state' });
+    expect(JSON.stringify(body)).not.toContain('18 of 19');
+  });
+
+  it('maps a persist_month_schedule authorization failure to 403 without echoing it', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const leak = 'Coordinator authorization could not be verified';
+    const response = toErrorResponse(pgError('42501', leak), context);
+    const body = await bodyOf(response);
+
+    expect(response.status).toBe(403);
+    expect(body).toMatchObject({ code: 'insufficient_privilege' });
+    expect(JSON.stringify(body)).not.toContain('Coordinator authorization');
   });
 
   it('maps an unknown SQLSTATE to 500', async () => {

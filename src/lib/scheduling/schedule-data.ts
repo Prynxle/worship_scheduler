@@ -32,27 +32,34 @@ export interface ScheduleData {
   config: NonNullable<ScheduleContext['config']>;
   services: Service[];
   assignments: ScheduleAssignment[];
+  monthlyAssignments: ScheduleAssignment[];
 }
 
 export async function loadScheduleData(churchId: string, month: number, year: number, ministryId?: string): Promise<ScheduleData> {
   const admin = getAdminClient();
   let ministryQuery = admin.from('ministries').select('id, config').eq('church_id', churchId).eq('is_active', true).order('priority', { ascending: true }).limit(1);
   if (ministryId) ministryQuery = ministryQuery.eq('id', ministryId);
-  const [{ data: ministryRows, error: ministryError }, { data: church, error: churchError }, { data: memberRows, error: membersError }, { data: serviceRows, error: servicesError }] = await Promise.all([
+  const [{ data: ministryRows, error: ministryError }, { data: church, error: churchError }, { data: memberRows, error: membersError }] = await Promise.all([
     ministryQuery,
     admin.from('churches').select('settings').eq('id', churchId).maybeSingle(),
     admin.from('members').select('*').eq('church_id', churchId),
-    admin.from('services').select('*').eq('church_id', churchId).eq('month', month).eq('year', year).order('date', { ascending: true }),
   ]);
-  if (ministryError || churchError || membersError || servicesError) throw new Error('Could not load schedule data.');
+  if (ministryError || churchError || membersError) throw new Error('Could not load schedule data.');
   const ministry = rows(ministryRows)[0];
   if (!ministry) throw new Error('No active ministry is configured for this church.');
   const ministryUuid = text(ministry.id);
   if (!ministryUuid) throw new Error('The active ministry is invalid.');
 
+  const [{ data: serviceRows, error: servicesError }, { data: monthServiceRows, error: monthServicesError }] = await Promise.all([
+    admin.from('services').select('*').eq('church_id', churchId).eq('month', month).eq('year', year)
+      .or(`ministry_id.eq.${ministryUuid},ministry_id.is.null`).order('date', { ascending: true }).order('created_at', { ascending: false }),
+    admin.from('services').select('id, status').eq('church_id', churchId).eq('month', month).eq('year', year),
+  ]);
+  if (servicesError || monthServicesError) throw new Error('Could not load schedule data.');
+
   const memberIds = rows(memberRows).map((row) => text(row.id)).filter((id): id is string => Boolean(id));
   const [{ data: roleRows, error: rolesError }, { data: skillRows, error: skillsError }, { data: availabilityRows, error: availabilityError }, { data: rulesRows, error: rulesError }, { data: instrumentRows, error: instrumentsError }] = await Promise.all([
-    admin.from('member_roles').select('*, role:roles(*)').in('member_id', memberIds),
+    admin.from('member_roles').select('*, role:roles!inner(*)').in('member_id', memberIds).eq('role.ministry_id', ministryUuid).eq('role.is_active', true),
     admin.from('member_skills').select('*, instrument:instruments(*)').in('member_id', memberIds),
     admin.from('availability').select('*').eq('church_id', churchId).in('status', ['pending', 'approved']),
     admin.from('ministry_rules').select('*').eq('ministry_id', ministryUuid),
@@ -76,12 +83,16 @@ export async function loadScheduleData(churchId: string, month: number, year: nu
   if (!ruleConfigs.some((rule) => rule.rule_type === 'backup_count')) ruleConfigs.push({ rule_type: 'backup_count', rule_config: { min_required: defaults.min_backup, max_allowed: defaults.max_backup }, severity: 'critical' });
   if (!ruleConfigs.some((rule) => rule.rule_type === 'assignment_limit')) ruleConfigs.push({ rule_type: 'assignment_limit', rule_config: { default_max: defaults.max_monthly }, severity: 'critical' });
   const serviceIds = rows(serviceRows).map((row) => text(row.id)).filter((id): id is string => Boolean(id));
-  const { data: assignmentRows, error: assignmentsError } = serviceIds.length
-    ? await admin.from('schedule_assignments').select('*, member:members(*), role:roles(*), instrument:instruments(*)').in('service_id', serviceIds)
+  const allServiceIds = rows(monthServiceRows).map((row) => text(row.id)).filter((id): id is string => Boolean(id));
+  const activeServiceIds = rows(monthServiceRows).filter((row) => text(row.status) !== 'archived').map((row) => text(row.id)).filter((id): id is string => Boolean(id));
+  const { data: assignmentRows, error: assignmentsError } = allServiceIds.length
+    ? await admin.from('schedule_assignments').select('*, member:members(*), role:roles(*), instrument:instruments(*)').in('service_id', allServiceIds)
     : { data: [], error: null };
   if (assignmentsError) throw new Error('Could not load schedule assignments.');
   const services = rows(serviceRows) as unknown as Service[];
-  const assignments = rows(assignmentRows) as unknown as ScheduleAssignment[];
+  const allAssignments = rows(assignmentRows) as unknown as ScheduleAssignment[];
+  const monthlyAssignments = allAssignments.filter((assignment) => activeServiceIds.includes(assignment.service_id));
+  const assignments = allAssignments.filter((assignment) => serviceIds.includes(assignment.service_id));
   return {
     members,
     roles: rows(roleRows).map((row) => row.role).filter(Boolean) as unknown as Role[],
@@ -94,5 +105,6 @@ export async function loadScheduleData(churchId: string, month: number, year: nu
     },
     services,
     assignments,
+    monthlyAssignments,
   };
 }

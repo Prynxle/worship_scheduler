@@ -7,6 +7,8 @@ export interface ScheduleContext {
   year: number;
   week_number: number;
   existing_assignments: ScheduleAssignment[];
+  /** Full month assignments for monthly limits and fairness when validating one service. */
+  monthly_assignments?: ScheduleAssignment[];
   available_members: Member[];
   all_members: Member[];
   rules: SchedulingRuleConfig[];

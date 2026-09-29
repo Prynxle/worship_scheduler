@@ -141,12 +141,47 @@ export interface Availability {
   end_date?: string;
   reason?: string;
   status: 'pending' | 'approved' | 'rejected';
+  submission_id?: string | null;
+  created_at: string;
+}
+
+export type AvailabilitySubmissionStatus = 'submitted' | 'approved' | 'revision_required';
+
+export interface AvailabilitySubmission {
+  id: string;
+  church_id: string;
+  member_id: string;
+  month: number;
+  year: number;
+  status: AvailabilitySubmissionStatus;
+  version: number;
+  is_current: boolean;
+  submitted_at: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  revision_note?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleChangeLog {
+  id: string;
+  church_id: string;
+  service_id?: string | null;
+  actor_id?: string | null;
+  action: string;
+  from_version?: number | null;
+  to_version?: number | null;
+  reason?: string | null;
+  before_state?: Record<string, unknown> | null;
+  after_state?: Record<string, unknown> | null;
   created_at: string;
 }
 
 export interface Service {
   id: string;
   church_id: string;
+  ministry_id?: string | null;
   date: string;
   week_number: number;
   month: number;
@@ -156,6 +191,14 @@ export interface Service {
   notes?: string;
   published_at?: string;
   generated_by?: string;
+  generated_at?: string | null;
+  generation_metadata?: Record<string, unknown>;
+  schedule_version?: number;
+  validated_version?: number | null;
+  validated_by?: string | null;
+  validated_at?: string | null;
+  published_by?: string | null;
+  revision_of?: string | null;
   created_at: string;
   updated_at: string;
   assignments?: ScheduleAssignment[];

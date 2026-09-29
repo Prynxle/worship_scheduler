@@ -22,13 +22,15 @@ interface ScheduleCardProps {
   backup_singers: { name: string; avatar?: string }[];
   instrumentalists: { instrument: string; name: string }[];
   devotion_name?: string;
-  status: 'draft' | 'validated' | 'published';
+  status: 'draft' | 'validated' | 'published' | 'archived';
   conflict_count: number;
   index?: number;
   onEdit?: () => void;
   onView?: () => void;
   onValidate?: () => void;
   onPublish?: () => void;
+  onAmend?: () => void;
+  legacy_unscoped?: boolean;
 }
 
 export function ScheduleCard({
@@ -46,6 +48,8 @@ export function ScheduleCard({
   onView,
   onValidate,
   onPublish,
+  onAmend,
+  legacy_unscoped = false,
 }: ScheduleCardProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -53,6 +57,8 @@ export function ScheduleCard({
         return 'bg-primary/15 text-primary border-primary/20';
       case 'validated':
         return 'bg-accent/15 text-accent border-accent/20';
+      case 'archived':
+        return 'bg-muted text-muted-foreground border-border';
       default:
         return 'bg-muted text-muted-foreground border-border';
     }
@@ -79,9 +85,9 @@ export function ScheduleCard({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge className={getStatusColor(status)}>{status}</Badge>
+              <Badge className={getStatusColor(status)}>{legacy_unscoped ? 'legacy' : status}</Badge>
               <DropdownMenu>
-                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={`Actions for week ${week_number}`} />}>
                   <MoreVertical className="h-4 w-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -89,20 +95,26 @@ export function ScheduleCard({
                     <Eye className="mr-2 h-4 w-4" />
                     View
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onEdit}>
+                    <DropdownMenuItem onClick={onEdit} disabled={!onEdit}>
                     <Edit className="mr-2 h-4 w-4" />
                     Edit
                   </DropdownMenuItem>
                   {status === 'draft' && (
-                    <DropdownMenuItem onClick={onValidate}>
+                    <DropdownMenuItem onClick={onValidate} disabled={!onValidate}>
                       <Calendar className="mr-2 h-4 w-4" />
                       Validate
                     </DropdownMenuItem>
                   )}
                   {status === 'validated' && (
-                    <DropdownMenuItem onClick={onPublish}>
+                    <DropdownMenuItem onClick={onPublish} disabled={!onPublish}>
                       <Calendar className="mr-2 h-4 w-4" />
                       Publish
+                    </DropdownMenuItem>
+                  )}
+                  {status === 'published' && (
+                    <DropdownMenuItem onClick={onAmend} disabled={!onAmend}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Create amendment
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -165,6 +177,7 @@ export function ScheduleCard({
                 <span className="text-sm">{conflict_count} conflict(s) found</span>
               </div>
             )}
+            {legacy_unscoped ? <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">Historical schedule · ministry ownership is unknown</p> : null}
           </div>
         </CardContent>
       </Card>

@@ -1,237 +1,161 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { Availability } from '@/lib/types/database';
 import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
+import { CalendarCheck, Clock3, X } from 'lucide-react';
 
 type MemberInfo = { id: string; full_name: string; role: string; phone?: string | null };
+type MonthlySubmission = { status: 'submitted' | 'approved' | 'revision_required'; revision_note?: string | null; reviewer_name?: string; reviewed_at?: string | null; version: number };
 
-const getStatusClass = (status: string) => {
-  switch (status) {
-    case 'approved':
-      return 'bg-primary/15 text-primary';
-    case 'rejected':
-      return 'bg-destructive/15 text-destructive';
-    default:
-      return 'bg-[oklch(0.70_0.08_80)]/15 text-[oklch(0.70_0.08_80)]';
-  }
-};
+const monthName = (month: number) => new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' });
 
-const getMonthName = (month: number) =>
-  new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' });
-
-const formatWeekSunday = (weekNumber: number, month: number, year: number) => {
-  const start = getWeekDateRange(weekNumber, month, year).start;
-  return start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-};
-
-const getRequestLabel = (request: Availability) => {
-  if (request.type !== 'weekly') return request.type;
-  if (request.month === undefined || request.year === undefined) return `Week ${request.week_number} - weekly`;
-  return `Week ${request.week_number} · ${getMonthName(request.month)} ${request.year} - weekly`;
-};
+function formatWeek(weekNumber: number, month: number, year: number) {
+  return getWeekDateRange(weekNumber, month, year).start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export default function MemberPage() {
   const router = useRouter();
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
   const [member, setMember] = useState<MemberInfo | null>(null);
-  const [currentMonth] = useState(() => new Date().getMonth());
-  const [year] = useState(() => new Date().getFullYear());
-  const monthOptions = Array.from({ length: 12 - currentMonth }, (_, i) => currentMonth + i);
-  const [month, setMonth] = useState(() => String(currentMonth));
-  const availableWeeks = getAvailableWeeks(Number(month), year);
-  const [week, setWeek] = useState(() => String(getAvailableWeeks(currentMonth, year)[0] ?? 1));
+  const [selectedMonth, setSelectedMonth] = useState(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`);
+  const year = Number(selectedMonth.slice(0, 4));
+  const month = Number(selectedMonth.slice(5, 7)) - 1;
+  const monthOptions = useMemo(() => Array.from({ length: 18 }, (_, index) => {
+    const value = new Date(currentYear, currentMonth + index, 1);
+    return { value: `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`, label: `${monthName(value.getMonth())} ${value.getFullYear()}` };
+  }), [currentYear, currentMonth]);
+  const availableWeeks = getAvailableWeeks(month, year);
+  const [unavailableWeeks, setUnavailableWeeks] = useState<number[]>([]);
+  const [requests, setRequests] = useState<Availability[]>([]);
+  const [submission, setSubmission] = useState<MonthlySubmission | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [requests, setRequests] = useState<Availability[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const token = getSupabaseClient().auth.getSession().then(async ({ data }) => {
-      if (!data.session) return router.replace('/login');
+    let active = true;
+    void getSupabaseClient().auth.getSession().then(async ({ data }) => {
+      if (!data.session) { router.replace('/login'); return; }
       const response = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${data.session.access_token}` } });
-      if (!response.ok) return router.replace('/dashboard');
+      if (!response.ok) { router.replace('/dashboard'); return; }
       const result = await response.json() as { user: { member_id: string | null; role: string; member_name?: string | null; phone?: string | null } };
-      if (result.user.role !== 'member' || !result.user.member_id) return router.replace('/dashboard');
+      if (!active) return;
+      if (result.user.role !== 'member' || !result.user.member_id) { router.replace('/dashboard'); return; }
       setMember({ id: result.user.member_id, full_name: result.user.member_name ?? 'Your profile', role: result.user.role, phone: result.user.phone });
     });
-    return () => { void token; };
+    return () => { active = false; };
   }, [router]);
 
-  const loadRequests = useCallback(async () => {
+  const loadSubmission = useCallback(async () => {
+    if (!member) return;
     const session = (await getSupabaseClient().auth.getSession()).data.session;
     if (!session) return;
-    const response = await fetch('/api/availability', {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    if (!response.ok) {
-      setError('Could not load your availability requests.');
-      return;
-    }
-    const result = await response.json() as { availabilities: Availability[] };
+    const response = await fetch(`/api/availability/submission?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    if (!response.ok) { setError('Could not load your monthly availability.'); return; }
+    const result = await response.json() as { submission: MonthlySubmission | null; availabilities: Availability[] };
+    setSubmission(result.submission);
     setRequests(result.availabilities);
-  }, []);
+    setUnavailableWeeks(result.availabilities.filter((item) => item.type === 'weekly' && item.status !== 'rejected').map((item) => item.week_number ?? 0).filter(Boolean));
+  }, [member, month, year]);
 
-  useEffect(() => {
-    if (!member) return;
-    const refresh = async () => {
-      await loadRequests();
-    };
-    void refresh();
-  }, [member, loadRequests]);
+  // Refresh server state when the member or selected month changes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadSubmission(); }, [loadSubmission]);
 
   useEffect(() => {
     if (!member) return;
     const supabase = getSupabaseClient();
-    const channel = supabase
-      .channel(`member-availability-changes-${member.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'availability',
-          filter: `member_id=eq.${member.id}`,
-        },
-        () => {
-          void loadRequests();
-        }
-      )
+    const channel = supabase.channel(`monthly-availability-${member.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'availability', filter: `member_id=eq.${member.id}` }, () => { void loadSubmission(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'availability_submissions', filter: `member_id=eq.${member.id}` }, () => { void loadSubmission(); })
       .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [member, loadRequests]);
+    return () => { void supabase.removeChannel(channel); };
+  }, [member, loadSubmission]);
 
-  function handleMonthChange(value: string | null) {
-    if (!value) return;
-    setMonth(value);
-    setWeek(String(getAvailableWeeks(Number(value), year)[0] ?? 1));
-    setMessage('');
-    setError('');
+  async function submitMonth() {
+    setError(''); setMessage(''); setSubmitting(true);
+    try {
+      const session = (await getSupabaseClient().auth.getSession()).data.session;
+      if (!session) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch('/api/availability/submission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ month, year, entries: unavailableWeeks.map((week_number) => ({ type: 'weekly', week_number })) }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? 'Could not submit this month.');
+      setMessage(unavailableWeeks.length ? 'Monthly availability sent for coordinator review.' : 'You are marked available for the full month. Your response is waiting for coordinator review.');
+      await loadSubmission();
+    } catch (submitError) { setError(submitError instanceof Error ? submitError.message : 'Could not submit this month.'); }
+    finally { setSubmitting(false); }
   }
 
-  async function submitAvailability() {
-    setError('');
-    setMessage('');
-    const session = (await getSupabaseClient().auth.getSession()).data.session;
-    if (!session || !member) return;
-    const response = await fetch('/api/availability', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ type: 'weekly', week_number: Number(week), month: Number(month), year }),
-    });
-    if (response.ok) {
-      setMessage('Availability request submitted.');
-      void loadRequests();
-    } else {
-      const result = await response.json().catch(() => null) as { error?: string } | null;
-      setError(result?.error ?? 'We could not save that request.');
-    }
-  }
-
-  async function cancelRequest(id: string) {
+  async function cancelLegacyRequest(id: string) {
     setError('');
     const session = (await getSupabaseClient().auth.getSession()).data.session;
     if (!session) return;
-    const response = await fetch(`/api/availability?id=${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    if (response.ok) {
-      setRequests((current) => current.filter((request) => request.id !== id));
-    } else {
-      setError('Could not cancel that request.');
-    }
+    const response = await fetch(`/api/availability?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+    if (response.ok) await loadSubmission();
+    else setError('Could not cancel that request.');
   }
 
   if (!member) return null;
+  const canSubmit = !submission || submission.status === 'revision_required';
   return (
-    <div className="max-w-3xl space-y-6">
-      <div><h1 className="text-2xl font-semibold">My workspace</h1><p className="text-muted-foreground">Only your profile and availability are visible here.</p></div>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <header><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Member workspace</p><h1 className="mt-1 font-display text-3xl font-semibold">Your monthly availability</h1><p className="mt-2 text-sm text-muted-foreground">Tell the coordinator which service weeks you cannot attend. Leave every week clear to confirm you are available all month.</p></header>
       <Card><CardHeader><CardTitle>My profile</CardTitle></CardHeader><CardContent><p className="font-medium">{member.full_name}</p><p className="text-sm text-muted-foreground">Worship team member</p></CardContent></Card>
-      <Card className="relative">
-        <span className="absolute right-6 top-6 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-          Year {year}
-        </span>
-        <CardHeader><CardTitle>New unavailability request</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="month">Month</Label>
-              <Select value={month} onValueChange={handleMonthChange}>
-                <SelectTrigger id="month" className="w-full">
-                  <SelectValue placeholder="Select month">{getMonthName(Number(month))}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map((monthNumber) => (
-                    <SelectItem key={monthNumber} value={String(monthNumber)}>
-                      {getMonthName(monthNumber)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="week">Unavailable week</Label>
-              {availableWeeks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  All weeks in this month have already passed.
-                </p>
-              ) : (
-                <Select value={week} onValueChange={(value) => value && setWeek(value)}>
-                  <SelectTrigger id="week" className="w-full">
-                    <SelectValue placeholder="Select week">
-                      {`WEEK ${week} ${formatWeekSunday(Number(week), Number(month), year)}`}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableWeeks.map((weekNumber) => (
-                      <SelectItem key={weekNumber} value={String(weekNumber)}>
-                        {`WEEK ${weekNumber} ${formatWeekSunday(weekNumber, Number(month), year)}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          </div>
-          <Button onClick={submitAvailability} disabled={availableWeeks.length === 0}>Submit request</Button>
-          {message ? <p role="status" className="text-sm text-muted-foreground">{message}</p> : null}
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-border bg-primary/[0.035] px-5 py-5 sm:px-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Availability response</p>
+          <h2 className="mt-1 font-display text-2xl font-semibold">{monthName(month)} {year}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Choose unavailable weeks, then send one complete monthly response.</p>
+        </div>
+        <CardContent className="space-y-5 p-5 sm:p-6">
+          <div className="max-w-xs space-y-2"><Label htmlFor="member-month">Month</Label><Select value={selectedMonth} onValueChange={(value) => { if (value) { setSelectedMonth(value); setUnavailableWeeks([]); setMessage(''); setError(''); } }}><SelectTrigger id="member-month" className="h-10 w-full"><SelectValue placeholder="Choose month">{monthName(month)} {year}</SelectValue></SelectTrigger><SelectContent>{monthOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+          <fieldset disabled={!canSubmit || submitting} className="space-y-3 disabled:opacity-70">
+            <legend className="text-sm font-medium">Which service weeks are you unavailable?</legend>
+            {availableWeeks.length ? <div className="grid gap-2 sm:grid-cols-2">
+              {availableWeeks.map((weekNumber) => (
+                <label key={weekNumber} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm transition-colors hover:bg-muted/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5">
+                  <input type="checkbox" className="h-4 w-4 accent-primary" checked={unavailableWeeks.includes(weekNumber)} onChange={(event) => setUnavailableWeeks((current) => event.target.checked ? [...current, weekNumber].sort((a, b) => a - b) : current.filter((week) => week !== weekNumber))} />
+                  <span>Week {weekNumber}<span className="ml-2 text-muted-foreground">{formatWeek(weekNumber, month, year)}</span></span>
+                </label>
+              ))}
+            </div> : <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">All service weeks in this month have passed.</p>}
+            <p className="text-xs text-muted-foreground">{unavailableWeeks.length ? `Unavailable: week${unavailableWeeks.length === 1 ? '' : 's'} ${unavailableWeeks.join(', ')}.` : 'No weeks selected · available all month.'}</p>
+          </fieldset>
+
+          {submission ? <div className={`rounded-xl border p-4 ${submission.status === 'approved' ? 'border-primary/20 bg-primary/5' : submission.status === 'revision_required' ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/35'}`}>
+            <div className="flex items-center gap-2 text-sm font-semibold capitalize">{submission.status === 'approved' ? <CalendarCheck className="h-4 w-4 text-primary" /> : submission.status === 'submitted' ? <Clock3 className="h-4 w-4 text-muted-foreground" /> : <X className="h-4 w-4 text-destructive" />}{submission.status.replace('_', ' ')}</div>
+            {submission.revision_note ? <p className="mt-2 text-sm">Coordinator request: {submission.revision_note}</p> : null}
+            {submission.reviewed_at && submission.reviewer_name ? <p className="mt-2 text-xs text-muted-foreground">Reviewed by {submission.reviewer_name} on {new Date(submission.reviewed_at).toLocaleDateString()}.</p> : null}
+            {submission.status === 'approved' || submission.status === 'submitted' ? <p className="mt-2 text-xs text-muted-foreground">This response is locked while it is submitted or approved. Contact the coordinator if it needs to change.</p> : null}
+          </div> : null}
+          <Button onClick={() => void submitMonth()} disabled={!canSubmit || submitting || availableWeeks.length === 0}>{submitting ? 'Submitting…' : submission?.status === 'revision_required' ? 'Resubmit month' : 'Submit month'}</Button>
+          {message ? <p role="status" className="text-sm text-primary">{message}</p> : null}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
+
       <Card>
-        <CardHeader><CardTitle>My requests</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Availability details</CardTitle></CardHeader>
         <CardContent>
-          {requests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">You have not submitted any unavailability requests.</p>
-          ) : (
-            <div className="space-y-2">
-              {requests.map((request) => (
-                <div key={request.id} className="flex items-center justify-between rounded-lg border border-border p-4">
-                  <div>
-                    <div className="font-medium text-foreground">{getRequestLabel(request)}</div>
-                    <div className="text-sm text-muted-foreground">{new Date(request.created_at).toLocaleDateString()}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusClass(request.status)}`}>{request.status}</span>
-                    {request.status === 'pending' ? (
-                      <Button variant="ghost" size="sm" onClick={() => cancelRequest(request.id)}>
-                        <X className="h-4 w-4 mr-1" />
-                        Cancel
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {!requests.length ? <p className="text-sm text-muted-foreground">{submission ? 'No unavailability details were submitted for this month.' : 'Submit the month above, even if you are available every week.'}</p> : <div className="space-y-2">
+            {requests.map((request) => <div key={request.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-4">
+              <div><p className="font-medium">{request.type === 'weekly' ? `Week ${request.week_number} · ${monthName(request.month ?? month)} ${request.year ?? year}` : request.type}</p><p className="text-xs text-muted-foreground">{request.reason || 'No reason provided'} · {new Date(request.created_at).toLocaleDateString()}</p></div>
+              <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-muted-foreground">{request.status}</span>{request.status === 'pending' && !request.submission_id ? <Button variant="ghost" size="sm" onClick={() => void cancelLegacyRequest(request.id)}><X className="mr-1 h-4 w-4" />Cancel</Button> : null}</div>
+            </div>)}
+          </div>}
         </CardContent>
       </Card>
     </div>

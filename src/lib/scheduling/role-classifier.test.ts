@@ -59,7 +59,7 @@ async function validatorCountsAsBackup(roleName: string): Promise<boolean> {
   const context: ScheduleContext = {
     service, church_id: 'church', month: 8, year: 2026, week_number: 1,
     existing_assignments: [assignment], available_members: [member], all_members: [member],
-    rules: [{ id: 'r1', ministry_id: 'ministry', rule_type: 'backup_count', rule_config: { min_required: 1, max_allowed: 1 }, severity: 'critical', is_active: true, created_at: '', updated_at: '' }],
+    rules: [{ rule_type: 'backup_count', rule_config: { min_required: 1, max_allowed: 1 }, severity: 'critical' }],
   };
   const results = await new ScheduleValidator(context).validate();
   return !results.some((result) => result.rule_type === 'backup_count' && result.severity === 'critical');

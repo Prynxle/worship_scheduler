@@ -1,0 +1,28 @@
+- generic [ref=f6e1]:
+  - button "Open Next.js Dev Tools" [ref=f6e30] [cursor=pointer]
+  - alert [ref=f6e34]
+  - main [ref=f6e35]:
+    - generic [ref=f6e37]:
+      - generic [ref=f6e38]:
+        - generic [ref=f6e39]: JOHIA
+        - paragraph [ref=f6e46]: Welcome in
+        - generic [ref=f6e47]: Coordinator sign-in
+        - generic [ref=f6e48]: Use your coordinator username and password.
+        - tablist "Sign-in type" [ref=f6e49]:
+          - tab "Member" [ref=f6e50]
+          - tab "Coordinator" [selected] [ref=f6e51]
+      - generic [ref=f6e52]:
+        - generic [ref=f6e53]:
+          - tabpanel "Coordinator" [ref=f6e58]:
+            - generic [ref=f6e59]:
+              - generic [ref=f6e60]: Username
+              - textbox "Username" [active] [ref=f6e61]:
+                - /placeholder: e.g. coordzed
+                - text: coordzed
+            - generic [ref=f6e62]:
+              - generic [ref=f6e63]: Password
+              - textbox "Password" [ref=f6e64]:
+                - /placeholder: Your password
+                - text: coord2026
+          - button "Sign in" [ref=f6e65]
+        - paragraph [ref=f6e57]: Coordinator access is limited to the church leadership team.
