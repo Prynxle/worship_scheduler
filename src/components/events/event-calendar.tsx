@@ -1,6 +1,21 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import FullCalendar, {
+  type CalendarRef,
+  type DateClickInfo,
+  type DayCellInfo,
+  type DayHeaderInfo,
+  type EventClickInfo,
+  type EventDisplayInfo,
+  type MoreLinkInfo,
+} from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/react/daygrid';
+import interactionPlugin from '@fullcalendar/react/interaction';
+import classicThemePlugin from '@fullcalendar/react/themes/classic';
+import '@fullcalendar/react/skeleton.css';
+import '@fullcalendar/react/themes/classic/theme.css';
+import '@fullcalendar/react/themes/classic/palette.css';
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,8 +35,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { MAX_EVENTS_PER_DAY } from '@/lib/api/events';
 import type { ChurchEvent, EventColor, EventKind } from '@/lib/types/database';
-import { getCalendarGrid } from '@/lib/utils/calendar-grid';
 
 const colorClasses: Record<EventColor, string> = {
   primary: 'bg-primary',
@@ -38,6 +53,16 @@ const timeNumbers = ['12:00', '12:30', '1:00', '1:30', '2:00', '2:30', '3:00', '
 const toIso = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+function timeTo24h(time: string): string {
+  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(time);
+  if (!match) return '';
+  let hours = Number(match[1]);
+  const minutes = match[2];
+  if (match[3].toUpperCase() === 'PM' && hours !== 12) hours += 12;
+  if (match[3].toUpperCase() === 'AM' && hours === 12) hours = 0;
+  return `${String(hours).padStart(2, '0')}:${minutes}`;
+}
+
 const formatDate = (date: string, options: Intl.DateTimeFormatOptions) =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', ...options }).format(new Date(`${date}T00:00:00Z`));
 
@@ -51,7 +76,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [events, setEvents] = useState<ChurchEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState(toIso(today));
   const [search, setSearch] = useState('');
-  const [kind, setKind] = useState<'All' | EventKind>('All');
   const [month, setMonth] = useState(today.getMonth());
   const [year, setYear] = useState(today.getFullYear());
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -60,6 +84,8 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [timeValue, setTimeValue] = useState('6:00');
   const [meridiem, setMeridiem] = useState<'AM' | 'PM'>('PM');
   const [error, setError] = useState<string | null>(null);
+  const calendarRef = useRef<CalendarRef>(null);
+  const cellKeydowns = useRef(new Map<HTMLElement, (event: KeyboardEvent) => void>());
 
   const loadEvents = useCallback(async () => {
     const headers = await getAuthHeaders();
@@ -95,13 +121,37 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const visibleEvents = useMemo(
     () =>
       events.filter(
-        (event) => (kind === 'All' || event.kind === kind) && event.title.toLowerCase().includes(search.toLowerCase())
+        (event) => event.title.toLowerCase().includes(search.toLowerCase())
       ),
-    [events, kind, search]
+    [events, search]
   );
 
+  const fcEvents = useMemo(
+    () =>
+      visibleEvents.map((event) => ({
+        id: event.id,
+        title: event.title,
+        start: event.time ? `${event.date}T${timeTo24h(event.time)}` : event.date,
+        allDay: !event.time,
+        extendedProps: {
+          date: event.date,
+          time: event.time,
+          location: event.location,
+          kind: event.kind,
+          color: event.color,
+          attendees: event.attendees,
+        },
+      })),
+    [visibleEvents]
+  );
+
+  useEffect(() => {
+    calendarRef.current?.getApi().gotoDate(new Date(year, month, 1));
+  }, [year, month]);
+
   const selectedEvents = visibleEvents.filter((event) => event.date === selectedDate);
-  const grid = getCalendarGrid(month, year, today);
+  const dayEventCount = events.filter((event) => event.date === selectedDate).length;
+  const atDayLimit = dayEventCount >= MAX_EVENTS_PER_DAY;
   const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1));
 
   function changeMonth(delta: number) {
@@ -118,7 +168,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
 
   async function addEvent() {
     const title = newTitle.trim();
-    if (!title || !canManage) return;
+    if (!title || !canManage || atDayLimit) return;
     const headers = await getAuthHeaders();
     if (!headers) return;
     const response = await fetch('/api/events', {
@@ -133,6 +183,9 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
       setMeridiem('PM');
       setDialogOpen(false);
       await loadEvents();
+    } else {
+      const result = (await response.json().catch(() => null)) as { error?: string } | null;
+      setError(result?.error ?? 'Could not add the event.');
     }
   }
 
@@ -144,20 +197,33 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
     if (response.ok) await loadEvents();
   }
 
+  function selectDate(date: Date) {
+    setSelectedDate(toIso(date));
+  }
+
+  function handleDayCellMount(info: DayCellInfo & { el: HTMLElement }) {
+    info.el.tabIndex = 0;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectDate(info.date);
+      }
+    };
+    info.el.addEventListener('keydown', handler);
+    cellKeydowns.current.set(info.el, handler);
+  }
+
+  function handleDayCellUnmount(info: DayCellInfo & { el: HTMLElement }) {
+    const handler = cellKeydowns.current.get(info.el);
+    if (handler) info.el.removeEventListener('keydown', handler);
+    cellKeydowns.current.delete(info.el);
+  }
+
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {(['All', 'Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
-            <Button key={option} size="sm" variant={kind === option ? 'secondary' : 'ghost'} className={cn('rounded-full', kind === option && 'bg-primary/15 text-primary')} onClick={() => setKind(option)}>
-              {option}
-            </Button>
-          ))}
-        </div>
+      <div className="relative w-full sm:max-w-xs">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
@@ -176,39 +242,50 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="grid grid-cols-7 border-b border-border/60 px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground sm:px-5">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}
-            </div>
-            <div className="grid grid-cols-7 p-3 sm:p-5">
-              {grid.map((cell) => {
-                const dayEvents = visibleEvents.filter((event) => event.date === cell.iso);
-                const isSelected = selectedDate === cell.iso;
-                return (
-                  <button
-                    type="button"
-                    key={cell.iso}
-                    onClick={() => setSelectedDate(cell.iso)}
-                    className={cn(
-                      'group min-h-24 border-b border-r border-border/50 p-2 text-left transition-colors hover:bg-secondary/50 sm:min-h-28 sm:p-3',
-                      isSelected && 'bg-primary/[0.07] ring-1 ring-inset ring-primary/50',
-                      !cell.inMonth && 'opacity-40'
-                    )}
-                  >
-                    <span className={cn('flex size-7 items-center justify-center rounded-full text-xs font-medium', cell.isToday && 'bg-foreground text-background', isSelected && 'bg-primary text-primary-foreground')}>
-                      {formatDate(cell.iso, { day: 'numeric' })}
+            <div className="event-calendar-fc p-3 sm:p-5">
+              <FullCalendar
+                ref={calendarRef}
+                plugins={[dayGridPlugin, interactionPlugin, classicThemePlugin]}
+                initialView="dayGridMonth"
+                initialDate={new Date(year, month, 1)}
+                headerToolbar={false}
+                height="auto"
+                timeZone="local"
+                dayMaxEvents={2}
+                events={fcEvents}
+                dayCellClass={(info) =>
+                  cn('evc-cell', info.isOther && 'evc-out', toIso(info.date) === selectedDate && 'evc-selected')
+                }
+                dayCellTopClass={() => 'evc-top'}
+                dayCellTopInnerClass={() => 'evc-num-wrap'}
+                dayCellTopContent={(info: DayCellInfo) => (
+                  <span className={cn('evc-daynum', info.isToday && 'evc-today', toIso(info.date) === selectedDate && 'evc-num-selected')}>
+                    {info.dayNumberText}
+                  </span>
+                )}
+                dayHeaderContent={(info: DayHeaderInfo) => <span className="evc-dow">{info.weekdayText}</span>}
+                eventClass={() => 'evc-event-slot'}
+                eventContent={(info: EventDisplayInfo) => {
+                  const color = info.event.extendedProps.color as EventColor | undefined;
+                  return (
+                    <span className="evc-event">
+                      <span className={cn('evc-dot', color ? colorClasses[color] : colorClasses.primary)} />
+                      <span className="evc-event-title">{info.event.title}</span>
                     </span>
-                    <span className="mt-2 flex flex-col gap-1">
-                      {dayEvents.slice(0, 2).map((event) => (
-                        <span key={event.id} className="flex items-center gap-1 truncate text-[10px] font-medium text-foreground sm:text-xs">
-                          <span className={cn('size-1.5 shrink-0 rounded-full', colorClasses[event.color])} />
-                          {event.title}
-                        </span>
-                      ))}
-                      {dayEvents.length > 2 && <span className="text-[10px] text-muted-foreground">+{dayEvents.length - 2} more</span>}
-                    </span>
-                  </button>
-                );
-              })}
+                  );
+                }}
+                moreLinkClass={() => 'evc-more-static'}
+                moreLinkDidMount={(info) => {
+                  info.el.tabIndex = -1;
+                }}
+                moreLinkContent={(info: MoreLinkInfo) => <span className="evc-more">+{info.num} more</span>}
+                dateClick={(info: DateClickInfo) => selectDate(info.date)}
+                eventClick={(info: EventClickInfo) =>
+                  info.event.start ? selectDate(info.event.start) : setSelectedDate(info.event.startStr.slice(0, 10))
+                }
+                dayCellDidMount={handleDayCellMount}
+                dayCellWillUnmount={handleDayCellUnmount}
+              />
             </div>
           </CardContent>
         </Card>
@@ -221,11 +298,20 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                 <CardTitle className="mt-1 text-xl">{formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })}</CardTitle>
               </div>
               {canManage ? (
-                <Button size="sm" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
+                atDayLimit ? (
+                  <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Full · max {MAX_EVENTS_PER_DAY}/day</span>
+                ) : (
+                  <Button size="sm" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
+                )
               ) : null}
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 pt-5">
+            {canManage && atDayLimit ? (
+              <p className="rounded-lg border border-border/70 bg-secondary/25 px-3 py-2 text-xs text-muted-foreground">
+                This day has reached its {MAX_EVENTS_PER_DAY}-event limit.
+              </p>
+            ) : null}
             {selectedEvents.length ? (
               selectedEvents.map((event) => (
                 <div key={event.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
@@ -255,10 +341,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <div className="rounded-xl border border-dashed border-border p-6 text-center">
                 <CalendarDays className="mx-auto size-7 text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">Nothing scheduled yet</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add a gathering to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>
-                {canManage ? (
-                  <Button size="sm" className="mt-4" onClick={() => setDialogOpen(true)}><Plus data-icon="inline-start" /> Add event</Button>
-                ) : null}
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add an event to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>
               </div>
             )}
           </CardContent>
@@ -273,38 +356,38 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <DialogDescription>Create an event for {formatDate(selectedDate, { month: 'long', day: 'numeric' })}.</DialogDescription>
             </DialogHeader>
             <Input autoFocus placeholder="Event name" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addEvent(); }} />
-<Select value={newKind} onValueChange={(value) => setNewKind((value || 'Gathering') as EventKind)}>
+            <Select value={newKind} onValueChange={(value) => setNewKind((value || 'Gathering') as EventKind)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Event type" />
+              </SelectTrigger>
+              <SelectContent>
+                {(['Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
+                  <SelectItem key={option} value={option}>{option}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2">
+              <Select value={timeValue} onValueChange={(value) => setTimeValue(value ?? '')}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Event type" />
+                  <SelectValue placeholder="Time" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
+                  <SelectItem value="">No time (T.B.A.)</SelectItem>
+                  {timeNumbers.map((option) => (
                     <SelectItem key={option} value={option}>{option}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <div className="flex gap-2">
-                <Select value={timeValue} onValueChange={(value) => setTimeValue(value ?? '')}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Time" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">No time (T.B.A.)</SelectItem>
-                    {timeNumbers.map((option) => (
-                      <SelectItem key={option} value={option}>{option}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={meridiem} onValueChange={(value) => setMeridiem((value === 'AM' ? 'AM' : 'PM'))} disabled={!timeValue}>
-                  <SelectTrigger className="w-24">
-                    <SelectValue placeholder="AM/PM" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="AM">AM</SelectItem>
-                    <SelectItem value="PM">PM</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={meridiem} onValueChange={(value) => setMeridiem((value === 'AM' ? 'AM' : 'PM'))} disabled={!timeValue}>
+                <SelectTrigger className="w-24">
+                  <SelectValue placeholder="AM/PM" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AM">AM</SelectItem>
+                  <SelectItem value="PM">PM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button onClick={() => void addEvent()} disabled={!newTitle.trim()}>Create event</Button>

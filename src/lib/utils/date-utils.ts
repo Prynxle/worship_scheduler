@@ -67,6 +67,18 @@ export function formatWeekDate(weekNumber: number, month: number, year: number):
   return format(weekDate, 'MMM dd');
 }
 
+/**
+ * Local (not UTC) calendar date string `yyyy-MM-dd` for the given Date, derived
+ * from local date components. Unlike `.toISOString().slice(0, 10)` this never
+ * drifts to the previous day on machines with a positive UTC offset — e.g. a
+ * Sunday at local midnight in October 2026 on UTC+8 is still 2026-10-04, not
+ * 2026-10-03. Used for persisted service dates so `set_week_number` computes
+ * the correct week 1..4.
+ */
+export function formatLocalDate(date: Date): string {
+  return format(date, 'yyyy-MM-dd');
+}
+
 export function isDateInRange(date: Date, startDate: Date, endDate: Date): boolean {
   return isWithinInterval(date, { start: startDate, end: endDate });
 }
@@ -91,9 +103,21 @@ export function getCurrentWeekNumber(now: Date = new Date()): number {
   return Math.floor(daysBetween / 7) + 1;
 }
 
+/**
+ * The 0-based month index stored in `services.month`.
+ *
+ * A NAMED mirror of the inline `date.getMonth()` the schedule writer and
+ * mock-unavailability route used to duplicate. Both are 0-based, matching the
+ * `get_month`/`set_service_month` SQL contract; the single named export makes
+ * the indexing convention greppable instead of implicit.
+ */
+export function getMonthIndex(date: Date): number {
+  return date.getMonth();
+}
+
 export function getCurrentMonth(): { month: number; year: number } {
   const now = new Date();
-  return { month: now.getMonth(), year: now.getFullYear() };
+  return { month: getMonthIndex(now), year: now.getFullYear() };
 }
 
 export function getUpcomingWeeks(count: number = 4): { weekNumber: number; date: Date }[] {

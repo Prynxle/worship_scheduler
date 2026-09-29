@@ -25,6 +25,26 @@ export async function POST(request: NextRequest) {
   }
   const { type, week_number, month, year, date, end_date, reason } = validated.value;
 
+  if (type === 'recurring' && (month === undefined || year === undefined || week_number === undefined)) {
+    return NextResponse.json({ error: 'Recurring unavailability must include its month, year, and week. Use monthly availability to submit it for review.' }, { status: 400 });
+  }
+
+  const submissionDate = date ? new Date(`${date.slice(0, 10)}T00:00:00Z`) : undefined;
+  const submissionMonth = month ?? submissionDate?.getUTCMonth();
+  const submissionYear = year ?? submissionDate?.getUTCFullYear();
+  if (submissionMonth !== undefined && submissionYear !== undefined) {
+    const { data: currentSubmission, error: submissionError } = await getAdminClient().from('availability_submissions')
+      .select('status')
+      .eq('church_id', context.churchId)
+      .eq('member_id', context.memberId)
+      .eq('month', submissionMonth)
+      .eq('year', submissionYear)
+      .eq('is_current', true)
+      .maybeSingle();
+    if (submissionError) return NextResponse.json({ error: 'Could not verify the monthly submission state.' }, { status: 500 });
+    if (currentSubmission) return NextResponse.json({ error: 'This month already has a complete response. Use the monthly resubmission workflow after a coordinator requests revision.' }, { status: 409 });
+  }
+
   if (type === 'weekly') {
     const weekRange =
       week_number !== undefined && month !== undefined && year !== undefined
@@ -78,6 +98,7 @@ export async function PUT(request: NextRequest) {
     .update({ status })
     .eq('id', id)
     .eq('church_id', context.churchId)
+    .is('submission_id', null)
     .select('*')
     .maybeSingle();
   if (error) return NextResponse.json({ error: 'Could not update availability.' }, { status: 500 });
@@ -103,6 +124,7 @@ export async function DELETE(request: NextRequest) {
     .delete()
     .eq('id', id)
     .eq('church_id', context.churchId)
+    .is('submission_id', null)
     .select('id');
   const query = isStaff(context.role)
     ? base
