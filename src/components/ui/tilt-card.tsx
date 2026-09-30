@@ -26,6 +26,16 @@ interface TiltCardProps {
   glare?: boolean;
   /** Stagger delay in seconds for entrance animation */
   delay?: number;
+  /**
+   * Set false for cards that contain their own controls. The hover transform
+   * makes the surface move under the pointer, and a browser only fires `click`
+   * when mousedown and mouseup land on the same element -- otherwise it fires on
+   * their common ancestor. A press that lands on a moving card therefore never
+   * reaches the button's onClick, even though the button animates its pressed
+   * state on mousedown. Passing false keeps the entrance animation and stops the
+   * surface from moving once it is interactive.
+   */
+  interactive?: boolean;
 }
 
 /**
@@ -48,6 +58,7 @@ export function TiltCard({
   tilt = 5,
   glare = true,
   delay = 0,
+  interactive = true,
 }: TiltCardProps) {
   const prefersReducedMotion = useReducedMotion();
   const reducedMotion = prefersReducedMotion ?? false;
@@ -158,9 +169,9 @@ export function TiltCard({
         ref={containerRef}
         className="relative flex w-full"
         style={{ perspective: 1000, transformStyle: 'preserve-3d' }}
-        onPointerMove={handlePointerMove}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
+        onPointerMove={interactive ? handlePointerMove : undefined}
+        onPointerEnter={interactive ? handlePointerEnter : undefined}
+        onPointerLeave={interactive ? handlePointerLeave : undefined}
       >
         {/* Glow backdrop at -32px (sibling, outside Card overflow) */}
         <div
@@ -174,16 +185,22 @@ export function TiltCard({
           }}
         />
 
-        {/* Tilt surface: rotateX/Y + translateZ lift */}
+        {/* Tilt surface: rotateX/Y + translateZ lift. Left untransformed when the
+            card owns controls, so the press target does not move under the
+            pointer between mousedown and mouseup. */}
         <motion.div
           className="relative flex w-full"
-          style={{
-            rotateX: springRotateX,
-            rotateY: springRotateY,
-            translateZ: liftZ,
-            transformStyle: 'preserve-3d',
-            willChange: 'transform',
-          }}
+          style={
+            interactive
+              ? {
+                  rotateX: springRotateX,
+                  rotateY: springRotateY,
+                  translateZ: liftZ,
+                  transformStyle: 'preserve-3d',
+                  willChange: 'transform',
+                }
+              : undefined
+          }
         >
           {children}
 
