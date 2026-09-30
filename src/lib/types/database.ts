@@ -80,6 +80,12 @@ export interface Member {
   church_id: string;
   department_id?: string;
   full_name: string;
+  /**
+   * Lowercase canonical login identifier. The name-login flow in
+   * `/api/auth/name` lowercases its input and then matches with `.eq()`, so a
+   * stored value that is not already lowercase can never sign in.
+   */
+  login_name?: string | null;
   nickname?: string;
   gender?: 'male' | 'female' | 'other';
   phone?: string;
