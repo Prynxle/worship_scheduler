@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
+import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { Service } from '@/lib/types/database';
 
 export async function POST(request: NextRequest, context: { params: Promise<{ serviceId: string }> }) {
@@ -22,7 +23,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
     if (service.schedule_version !== body.expected_version) return NextResponse.json({ error: 'The schedule changed. Refresh before publishing.' }, { status: 409 });
     const data = await loadScheduleData(auth.churchId, service.month, service.year, service.ministry_id);
     const assignments = data.assignments.filter((assignment) => assignment.service_id === service.id);
-    const results = await new ScheduleValidator({
+    // FINAL stage, and explicitly so: publishing is the second re-assertion point
+    // for every rule a draft was allowed to defer.
+    const proposed = await new ScheduleValidator({
       service,
       church_id: auth.churchId,
       month: service.month,
@@ -34,9 +37,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
       all_members: data.members,
       rules: data.rules,
       config: data.config,
+      instruments: data.instruments,
+      validation_stage: 'final',
     }).validate();
+    const { results, overridden_checks } = applyOverrides(proposed, service.active_overrides);
+    const unfilledPositions = unfilledFrom({ service, church_id: auth.churchId, month: service.month, year: service.year, week_number: service.week_number, existing_assignments: assignments, available_members: data.members, all_members: data.members, rules: data.rules, config: data.config, instruments: data.instruments }, assignments);
     const critical = results.filter((item) => item.severity === 'critical');
-    if (critical.length) return NextResponse.json({ error: 'The schedule now has hard constraint conflicts and must be revised and validated again.', results }, { status: 422 });
+    if (critical.length) return NextResponse.json({ error: 'The schedule now has hard constraint conflicts and must be revised and validated again.', results, overridden_checks, unfilled_positions: unfilledPositions }, { status: 422 });
     const { error } = await admin.rpc('publish_service_schedule', {
       p_church_id: auth.churchId,
       p_service_id: service.id,
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
       p_expected_version: body.expected_version,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: error.code === '42501' ? 403 : 409 });
-    return NextResponse.json({ status: 'published', published_by: auth.userId, published_at: new Date().toISOString(), results });
+    return NextResponse.json({ status: 'published', published_by: auth.userId, published_at: new Date().toISOString(), results, overridden_checks, active_overrides: service.active_overrides ?? {} });
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not publish the schedule.' }, { status: 500 });

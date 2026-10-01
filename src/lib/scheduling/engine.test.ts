@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SchedulingEngine } from './engine';
-import { SchedulingFailureError, ScheduleContext } from '../types/scheduling';
+import { ScheduleContext } from '../types/scheduling';
 import type { Availability, Instrument, Member, MemberRole, MemberSkill, Role, ScheduleAssignment, Service } from '../types/database';
 
 const leaderRole: Role = { id: 'leader', ministry_id: 'ministry', name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '' };
@@ -52,18 +52,33 @@ describe('SchedulingEngine', () => {
     expect(service.backup_singers.map((candidate) => candidate.id)).toContain('light');
   });
 
-  it('returns a structured failure when a hard constraint makes scheduling impossible', async () => {
+  it('reports an unfilled leader with its rejection reason instead of failing the whole month', async () => {
     const leader = member('leader', [role('leader', leaderRole)], { max_monthly_assignments: 1 });
     const existing = assignment('existing', 'leader', leaderRole, true);
-    await expect(new SchedulingEngine(context([leader], { existing_assignments: [existing] })).generateSchedule())
-      .rejects.toMatchObject({ name: 'SchedulingFailureError' });
-    try {
-      await new SchedulingEngine(context([leader], { existing_assignments: [existing] })).generateSchedule();
-    } catch (error) {
-      expect(error).toBeInstanceOf(SchedulingFailureError);
-      expect((error as SchedulingFailureError).failures[0]).toMatchObject({ role_name: 'Worship Leader', week_number: 1 });
-      expect((error as SchedulingFailureError).failures[0].rejected_candidates[0].reason).toBe('monthly limit reached');
-    }
+    const [service] = await new SchedulingEngine(context([leader], { existing_assignments: [existing] })).generateSchedule();
+
+    // The month still returns a schedule; Rule 2 is reported, not enforced away.
+    expect(service.week_number).toBe(1);
+    const leaderGap = service.unfilled_positions?.find((gap) => gap.role_name === 'Worship Leader');
+    expect(leaderGap).toMatchObject({ week_number: 1, required_slots: 1 });
+    expect(leaderGap?.rejected_candidates[0].reason).toBe('monthly limit reached');
+    // A short backup count is ONE gap with the shortfall, not one row per slot.
+    const backupGap = service.unfilled_positions?.find((gap) => gap.role_name === 'Backup');
+    expect(backupGap?.required_slots).toBe(3);
+    expect(service.unfilled_positions).toHaveLength(2);
+  });
+
+  it('degrades the four gap criticals to deferred warnings at draft stage but never a non-deferrable one', async () => {
+    const leader = member('leader', [role('leader', leaderRole)], { max_monthly_assignments: 1 });
+    const existing = assignment('existing', 'leader', leaderRole, true);
+    const [service] = await new SchedulingEngine(context([leader], { existing_assignments: [existing] })).generateSchedule();
+
+    const byCheck = new Map(service.conflicts.map((conflict) => [conflict.check, conflict]));
+    // Rule 5, Rule 4 minimum: downgraded, and the downgrade is DISCLOSED.
+    expect(byCheck.get('leader_count_missing')).toMatchObject({ severity: 'warning', deferred_until: 'validate' });
+    expect(byCheck.get('backup_count_min')).toMatchObject({ severity: 'warning', deferred_until: 'validate' });
+    // Nothing in the result set is still critical: a draft may be partial.
+    expect(service.conflicts.filter((conflict) => conflict.severity === 'critical')).toEqual([]);
   });
 
   it('is deterministic for identical input', async () => {
@@ -75,7 +90,7 @@ describe('SchedulingEngine', () => {
     );
   });
 
-  it('rejects a member holding the October mock unavailability record in October but keeps them eligible in other months', async () => {
+  it('reports the October mock unavailability as an unfilled leader in October and keeps the member eligible in other months', async () => {
     // Exact shape written by the mock-unavailability route for October 2026.
     const octoberMock: Availability = {
       id: 'mock-availability', member_id: 'leader', church_id: 'church',
@@ -86,36 +101,36 @@ describe('SchedulingEngine', () => {
       member('leader', [role('leader', leaderRole), role('leader', backupRole)], { availability: [octoberMock] }),
       member('backup-1'), member('backup-2'), member('backup-3'),
     ];
-
-    // October 2026 (month 9, overriding the helper's August default): the only
-    // leader is unavailable for week 1 so generation must fail with that reason.
-    await expect(new SchedulingEngine(context(members, {
+    const octoberContext = (): ScheduleContext => context(members, {
       month: 9, year: 2026,
       service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
-    })).generateSchedule()).rejects.toMatchObject({ name: 'SchedulingFailureError' });
-    try {
-      await new SchedulingEngine(context(members, {
-        month: 9, year: 2026,
-        service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
-      })).generateSchedule();
-    } catch (error) {
-      expect(error).toBeInstanceOf(SchedulingFailureError);
-      const leaderFailure = (error as SchedulingFailureError).failures.find((failure) => failure.role_name === 'Worship Leader');
-      expect(leaderFailure?.rejected_candidates.some(
-        (candidate) => candidate.member_id === 'leader' && candidate.reason === 'unavailable',
-      )).toBe(true);
-    }
+    });
+
+    // October 2026: the only leader is unavailable for week 1. The month is
+    // generated anyway, with the leader position reported as unfilled and the
+    // reason attached. Rule 1 is still never violated by an ASSIGNMENT.
+    const [octoberService] = await new SchedulingEngine(octoberContext()).generateSchedule();
+    expect(octoberService.leader).toBeNull();
+    const leaderGap = octoberService.unfilled_positions?.find((gap) => gap.role_name === 'Worship Leader');
+    expect(leaderGap?.week_number).toBe(1);
+    expect(leaderGap?.rejected_candidates.some(
+      (candidate) => candidate.member_id === 'leader' && candidate.reason === 'unavailable',
+    )).toBe(true);
+    // Only the leader is unfilled; the three backups are still placed.
+    expect(octoberService.unfilled_positions).toHaveLength(1);
+    expect(octoberService.backup_singers).toHaveLength(3);
 
     // A different month (the helper's default August 2026): the record does not
     // apply and the same member is eligible and selected as leader.
     const [service] = await new SchedulingEngine(context(members)).generateSchedule();
     expect(service.leader?.id).toBe('leader');
+    expect(service.unfilled_positions).toEqual([]);
   });
 
-  it('reports a monthly-limit (not unavailability) failure when one Drums member cannot cover 4 weeks', async () => {
+  it('reports a monthly-limit (not unavailability) gap when one Drums member cannot cover 4 weeks', async () => {
     // Regression for the October 2026 mock test run: with a single Drums holder
-    // and max_monthly_assignments = 3, week 4 must fail with 'monthly limit
-    // reached' — never with 'unavailable'.
+    // and max_monthly_assignments = 3, week 4 must be a gap explained by
+    // 'monthly limit reached' — never by 'unavailable'.
     const drumsInstrument: Instrument = { id: 'drums', ministry_id: 'ministry', name: 'Drums', is_required: true, min_count: 1, max_count: 2, created_at: '' };
     const drumSkill: MemberSkill = { id: 'drum-skill', member_id: 'drummer', instrument_id: 'drums', skill_level: 'advanced', is_primary: true, created_at: '', instrument: drumsInstrument };
     const drummer = member('drummer', [], { skills: [drumSkill] });
@@ -126,18 +141,88 @@ describe('SchedulingEngine', () => {
       service: { id: 'service', church_id: 'church', date: '2026-10-04', week_number: 1, month: 9, year: 2026, service_type: 'sunday', status: 'draft', created_at: '', updated_at: '' },
     });
 
-    await expect(new SchedulingEngine(october()).generateSchedule()).rejects.toMatchObject({ name: 'SchedulingFailureError' });
-    try {
-      await new SchedulingEngine(october()).generateSchedule();
-    } catch (error) {
-      expect(error).toBeInstanceOf(SchedulingFailureError);
-      const drumsFailure = (error as SchedulingFailureError).failures.find((failure) => failure.role_name === 'Drums');
-      expect(drumsFailure).toBeDefined();
-      expect(drumsFailure!.week_number).toBe(4);
-      expect(drumsFailure!.rejected_candidates.some(
-        (candidate) => candidate.member_id === 'drummer' && candidate.reason === 'monthly limit reached',
-      )).toBe(true);
-      expect(drumsFailure!.rejected_candidates.some((candidate) => candidate.reason === 'unavailable')).toBe(false);
+    const services = await new SchedulingEngine(october()).generateSchedule();
+    // All four weeks are generated. Weeks 1-3 are complete; week 4 is the gap.
+    expect(services.map((service) => service.week_number)).toEqual([1, 2, 3, 4]);
+    for (const service of services.slice(0, 3)) {
+      expect(service.unfilled_positions).toEqual([]);
+      expect(service.instrumentalists.map((entry) => entry.member?.id)).toEqual(['drummer']);
     }
+    const [weekFour] = services.slice(3);
+    expect(weekFour.instrumentalists).toEqual([]);
+    const drumsGap = weekFour.unfilled_positions?.find((gap) => gap.role_name === 'Drums');
+    expect(drumsGap).toMatchObject({ week_number: 4, required_slots: 1 });
+    expect(drumsGap?.rejected_candidates.some(
+      (candidate) => candidate.member_id === 'drummer' && candidate.reason === 'monthly limit reached',
+    )).toBe(true);
+    expect(drumsGap?.rejected_candidates.some((candidate) => candidate.reason === 'unavailable')).toBe(false);
+  });
+
+  it('reports a required instrument that no member holds a skill for', async () => {
+    // H1: the catalogue is the source of "required". Before this, an instrument
+    // with zero skill-holders was absent from BOTH the slot list and the
+    // validator, so the gap did not exist rather than being reported.
+    const bass: Instrument = { id: 'bass', ministry_id: 'ministry', name: 'Bass', is_required: true, min_count: 1, max_count: 1, created_at: '' };
+    const members = [
+      member('leader', [role('leader', leaderRole), role('leader', backupRole)]),
+      member('backup-1'), member('backup-2'), member('backup-3'),
+    ];
+    const [service] = await new SchedulingEngine(context(members, { instruments: [bass] })).generateSchedule();
+    const bassGap = service.unfilled_positions?.find((gap) => gap.role_name === 'Bass');
+    expect(bassGap).toBeDefined();
+    expect(service.conflicts.some((conflict) => conflict.check === 'required_instrument_missing')).toBe(true);
+  });
+
+  it('treats an empty instrument catalogue as authoritative, not as a missing catalogue', async () => {
+    // The H1 guard: `[]` means "no required instruments". Falling back to the
+    // skills-derived list here would silently invent requirements.
+    const drums: Instrument = { id: 'drums', ministry_id: 'ministry', name: 'Drums', is_required: true, min_count: 1, max_count: 2, created_at: '' };
+    const drumSkill: MemberSkill = { id: 'drum-skill', member_id: 'drummer', instrument_id: 'drums', skill_level: 'advanced', is_primary: true, created_at: '', instrument: drums };
+    const drummer = member('drummer', [], { skills: [drumSkill] });
+    const members = [
+      member('leader', [role('leader', leaderRole), role('leader', backupRole)]),
+      drummer, member('backup-1'), member('backup-2'), member('backup-3'),
+    ];
+    const [service] = await new SchedulingEngine(context(members, { instruments: [] })).generateSchedule();
+    expect(service.unfilled_positions).toEqual([]);
+    expect(service.instrumentalists).toEqual([]);
+    // Same roster WITHOUT the catalogue falls back to the skills-derived list.
+    const [fallback] = await new SchedulingEngine(context(members)).generateSchedule();
+    expect(fallback.instrumentalists.map((entry) => entry.member?.id)).toEqual(['drummer']);
+  });
+
+  it('restores the gap log when a candidate is rolled back, so an abandoned branch cannot leave a phantom gap', () => {
+    // M1: `solve` records a gap and skips the slot (engine.ts:105). When the
+    // enclosing branch is abandoned, `rollback` must undo that gap as well as
+    // the choice. It restored `service.choices` and `memberState` but never
+    // `this.gaps`, so any branch that recorded a gap and was then rolled back
+    // left that gap in the log: the month would report a position as unfilled
+    // on the strength of a branch the search rejected, and a sibling branch
+    // that DID fill the slot would be contradicted by the stale row.
+    interface InternalSlot { id: string; kind: string; roleName: string; weekNumber: number; date: string; isLeader: boolean }
+    interface InternalRejection { member: Member; reason: string }
+    interface EngineInternals {
+      gaps: unknown[];
+      buildSlots(weekNumber: number): InternalSlot[];
+      getEligibleCandidates(slot: InternalSlot): { candidates: Member[]; rejections: InternalRejection[] };
+      createFailure(slot: InternalSlot, rejections: InternalRejection[]): unknown;
+      apply(choice: unknown): void;
+      rollback(choice: unknown): void;
+    }
+
+    const leader = member('leader', [role('leader', leaderRole), role('leader', backupRole)]);
+    const engine = new SchedulingEngine(context([leader, member('backup-1'), member('backup-2'), member('backup-3')])) as unknown as EngineInternals;
+    const leaderSlot = engine.buildSlots(1).find((slot) => slot.kind === 'leader')!;
+    const pool = engine.getEligibleCandidates(leaderSlot);
+
+    // The exact sequence a failing branch performs: apply the candidate, let a
+    // deeper frame record a gap, then roll the branch back and try a different
+    // candidate for the same slot.
+    const choice = { slot: leaderSlot, member: pool.candidates[0], score: 0 };
+    engine.apply(choice);
+    engine.gaps.push(engine.createFailure(leaderSlot, pool.rejections));
+    engine.rollback(choice);
+
+    expect(engine.gaps).toHaveLength(0);
   });
 });

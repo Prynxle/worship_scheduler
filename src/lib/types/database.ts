@@ -184,6 +184,30 @@ export interface ScheduleChangeLog {
   created_at: string;
 }
 
+/**
+ * Structural mirror of `UnfilledPosition` in `src/lib/types/scheduling.ts`.
+ *
+ * Duplicated rather than imported because that module imports THIS one, so
+ * importing back would create a cycle. TypeScript is structural, so the two are
+ * mutually assignable and `gaps.ts` / the read boundary normalise with `?? []`.
+ */
+export interface ServiceUnfilledPosition {
+  service_id?: string;
+  week_number: number;
+  date: string;
+  role_name: string;
+  required_slots: number;
+  eligible_candidates: string[];
+  rejected_candidates: Array<{ member_id: string; member_name: string; reason: string }>;
+  message: string;
+}
+
+/** The two override axes a coordinator may ever license. Anything else is a bug. */
+export interface ServiceActiveOverrides {
+  availability?: boolean;
+  instrument_qualification?: boolean;
+}
+
 export interface Service {
   id: string;
   church_id: string;
@@ -205,6 +229,21 @@ export interface Service {
   validated_at?: string | null;
   published_by?: string | null;
   revision_of?: string | null;
+  /**
+   * Positions the generator could not fill, with the reason each was rejected.
+   * The single READ authority for gaps: `GET /api/schedule` serves this column
+   * and never recomputes it. Written by the engine's draft pass and by
+   * `gaps.ts` on manual edit.
+   */
+  unfilled_positions?: ServiceUnfilledPosition[];
+  /**
+   * Service-level override licences, always present (default `{}`).
+   *
+   * ASSIGN, never merge: a PUT that does not pass an override flag writes `{}`,
+   * because merging would turn a one-off coordinator decision into a permanent
+   * skip that later edits never surface. Cleared by regeneration.
+   */
+  active_overrides?: ServiceActiveOverrides;
   created_at: string;
   updated_at: string;
   assignments?: ScheduleAssignment[];
