@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Instrument, Member, Role, Service } from '@/lib/types/database';
-import type { GeneratedService } from '@/lib/types/scheduling';
+import type { GeneratedService, UnfilledPosition } from '@/lib/types/scheduling';
 import { assignmentRows, buildMonthSchedulePayload, UnresolvableRoleError } from './persistence';
 
 /**
@@ -68,10 +68,33 @@ describe('buildMonthSchedulePayload', () => {
     expect(payload.services[0]).toEqual({
       week_number: 1,
       date: '2026-09-06',
+      // A complete week must send an explicit empty array so the RPC CLEARS any
+      // gap list left by an earlier generation. Omitting the key would leave a
+      // stale gap on a service the new month has since filled.
+      unfilled_positions: [],
       assignments: [
         { member_id: guitarist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false },
       ],
     });
+  });
+
+  it('carries the engine gap list into the payload, and stamps nothing the engine did not report', () => {
+    const gaps: UnfilledPosition[] = [{
+      week_number: 1,
+      date: '2026-09-06',
+      role_name: 'Worship Leader',
+      required_slots: 1,
+      eligible_candidates: ['leader-a'],
+      rejected_candidates: [{ member_id: 'leader-a', member_name: 'Leader A', reason: 'monthly limit reached' }],
+      message: 'No eligible candidate for Worship Leader in week 1.',
+    }];
+    const payload = buildMonthSchedulePayload([
+      { ...generatedWithGuitarist, leader: null, unfilled_positions: gaps },
+      { ...generatedWithGuitarist, week_number: 2, date: '2026-09-13' },
+    ]);
+
+    expect(payload.services[0].unfilled_positions).toEqual(gaps);
+    expect(payload.services[1].unfilled_positions).toEqual([]);
   });
 
   it('carries the leader flag through to the payload', () => {

@@ -40,6 +40,12 @@ function parseMonthYear(request: Request, body?: Record<string, unknown>) {
 function serviceAssignments(service: Service, assignments: ScheduleAssignment[]) {
   const own = assignments.filter((assignment) => assignment.service_id === service.id);
   const leader = own.find((assignment) => assignment.is_leader)?.member;
+  // SERVED, NOT RECOMPUTED. `unfilled_positions` is the persisted write-side
+  // authority (`engine.ts` on generate, `gaps.ts` on manual edit). This read
+  // path deliberately does not re-derive it: a recompute here would be a second
+  // answer computed from a context the client never had, and the two could
+  // disagree about a month the coordinator already acted on.
+  const unfilledPositions = service.unfilled_positions ?? [];
   return {
     id: service.id,
     church_id: service.church_id,
@@ -65,6 +71,13 @@ function serviceAssignments(service: Service, assignments: ScheduleAssignment[])
     published_by: service.published_by ?? null,
     revision_of: service.revision_of ?? null,
     conflict_count: 0,
+    unfilled_positions: unfilledPositions,
+    /**
+     * Drives the coordinator-facing "incomplete" affordance. Derived from the
+     * stored gap list, so the badge can never disagree with the rows beneath it.
+     */
+    is_complete: unfilledPositions.length === 0,
+    active_overrides: service.active_overrides ?? {},
   };
 }
 
@@ -191,6 +204,9 @@ export async function POST(request: NextRequest) {
       all_members: data.members,
       rules: data.rules,
       config: data.config,
+      // C1: the ministry instrument catalogue, so a required instrument with no
+      // skill-holder becomes a REPORTED gap instead of a silently absent one.
+      instruments: data.instruments,
     };
     const generated = await new SchedulingEngine(scheduleContext).generateSchedule();
 
@@ -223,7 +239,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ services: generated, validation: generated.flatMap((service) => service.conflicts), readiness, month, year, ministry_id: readiness.ministry_id }, { status: 201 });
+    const unfilledPositions = generated.flatMap((service) => service.unfilled_positions ?? []);
+    return NextResponse.json({
+      services: generated,
+      validation: generated.flatMap((service) => service.conflicts),
+      // The month was generated. Whether it is COMPLETE is a separate fact, and
+      // a 201 with gaps must be readable as success-with-gaps rather than as a
+      // partial failure the caller has to infer.
+      unfilled_positions: unfilledPositions,
+      is_complete: unfilledPositions.length === 0,
+      readiness,
+      month,
+      year,
+      ministry_id: readiness.ministry_id,
+    }, { status: 201 });
   } catch (error) {
     return toErrorResponse(error, context);
   }

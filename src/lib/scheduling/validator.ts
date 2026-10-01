@@ -1,16 +1,54 @@
 import {
   ScheduleContext,
   ValidationResult,
+  ValidationStage,
 } from '../types/scheduling';
-import { Instrument, Member } from '../types/database';
+import { Member } from '../types/database';
 import { isWeeklyUnavailable } from './availability';
 import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
+import {
+  assignmentLimitFor,
+  backupRuleNumbers,
+  hasDevotionHolder,
+  isBackupAssignment,
+  isDevotionAssignment,
+  requiredInstruments,
+  stageOf,
+} from './required-roles';
+
+/**
+ * The ONLY four criticals a `draft` may defer, enumerated in one place.
+ *
+ * A missing leader, a short backup count, an unassigned required instrument and
+ * the Devotion role are the four gaps the product must be able to publish a
+ * DRAFT around. Everything else in this file is absent from this set on
+ * purpose, and the set is deliberately a literal rather than a per-call-site
+ * flag: a new check is hard by default, so nobody can relax an invariant by
+ * forgetting a boolean.
+ *
+ * Explicitly NOT deferrable, and never overridable: more than one leader
+ * (Rule 5), more than `max_allowed` backups (Rule 4), inactive members
+ * (Rule 6), dual role (Rule 3), and leader-role qualification (Rule 7).
+ */
+const DEFERABLE_DRAFT_CHECKS = new Set([
+  'leader_count_missing',
+  'backup_count_min',
+  'devotion_missing',
+  'required_instrument_missing',
+]);
+
+/** The only two checks a coordinator override may downgrade. */
+const OVERRIDABLE_CHECKS = new Set(['availability', 'instrument_qualification']);
 
 export class ScheduleValidator {
   private context: ScheduleContext;
+  private stage: ValidationStage;
 
   constructor(context: ScheduleContext) {
     this.context = context;
+    // Default 'final': a caller that does not think about stages must get the
+    // strict behaviour, not the lenient one.
+    this.stage = stageOf(context);
   }
 
   async validate(): Promise<ValidationResult[]> {
@@ -28,6 +66,20 @@ export class ScheduleValidator {
     results.push(...this.checkLeaderRotation());
 
     return results;
+  }
+
+  /**
+   * The single stage choke point. Every result passes through here, so the
+   * complete set of invariant relaxations is enumerable by reading one
+   * function plus `DEFERABLE_DRAFT_CHECKS`, and a new check cannot opt out of
+   * it by accident.
+   */
+  private report(result: ValidationResult): ValidationResult {
+    const overridable = OVERRIDABLE_CHECKS.has(result.check);
+    if (this.stage === 'draft' && result.severity === 'critical' && DEFERABLE_DRAFT_CHECKS.has(result.check)) {
+      return { ...result, severity: 'warning', deferred_until: 'validate', overridable };
+    }
+    return overridable ? { ...result, overridable } : result;
   }
 
   private checkAvailability(): ValidationResult[] {
@@ -60,14 +112,15 @@ export class ScheduleValidator {
       });
 
       if (isUnavailable) {
-        results.push({
+        results.push(this.report({
           rule_type: 'availability_check',
+          check: 'availability',
           severity: 'critical',
           member_id: member.id,
           member_name: member.full_name,
           message: `${member.full_name} is unavailable for week ${this.context.service.week_number}`,
           recommendation: 'Find an available replacement',
-        });
+        }));
       }
     }
 
@@ -78,14 +131,15 @@ export class ScheduleValidator {
     return this.context.existing_assignments.flatMap((assignment) => {
       const member = this.context.all_members.find((candidate) => candidate.id === assignment.member_id);
       if (!member || member.status === 'active') return [];
-      return [{
+      return [this.report({
         rule_type: 'active_member_check',
+        check: 'active_member',
         severity: 'critical' as const,
         member_id: member.id,
         member_name: member.full_name,
         message: `${member.full_name} is inactive and cannot be assigned`,
         recommendation: 'Assign an active member',
-      }];
+      })];
     });
   }
 
@@ -98,19 +152,18 @@ export class ScheduleValidator {
       if (!member) continue;
 
       const count = monthCounts.get(member.id) || 0;
-      const maxAllowed = member.max_monthly_assignments || this.context.rules.find(
-        (r) => r.rule_type === 'assignment_limit'
-      )?.rule_config.default_max as number || 3;
+      const maxAllowed = assignmentLimitFor(this.context, member);
 
       if (count > maxAllowed) {
-        results.push({
+        results.push(this.report({
           rule_type: 'assignment_limit',
+          check: 'assignment_limit',
           severity: 'critical',
           member_id: member.id,
           member_name: member.full_name,
           message: `${member.full_name} has ${count} assignments (max: ${maxAllowed})`,
           recommendation: 'Remove an assignment or increase member limit',
-        });
+        }));
       }
     }
 
@@ -127,14 +180,15 @@ export class ScheduleValidator {
 
       const existing = roleCounts.get(member.id);
       if (existing) {
-        results.push({
+        results.push(this.report({
           rule_type: 'dual_role_check',
+          check: 'dual_role',
           severity: 'critical',
           member_id: member.id,
           member_name: member.full_name,
           message: `${member.full_name} is assigned to multiple roles`,
           recommendation: 'Remove one of the duplicate assignments',
-        });
+        }));
       } else {
         roleCounts.set(member.id, { member, count: 1 });
       }
@@ -148,19 +202,25 @@ export class ScheduleValidator {
     const leaders = this.context.existing_assignments.filter((a) => a.is_leader);
 
     if (leaders.length === 0) {
-      results.push({
+      // Deferrable: a draft may have no leader yet. Rule 5 is still enforced at
+      // validate and publish.
+      results.push(this.report({
         rule_type: 'leader_count',
+        check: 'leader_count_missing',
         severity: 'critical',
         message: 'No worship leader assigned',
         recommendation: 'Assign exactly one worship leader',
-      });
+      }));
     } else if (leaders.length > 1) {
-      results.push({
+      // NEVER deferrable. An over-assigned month is a real double-booking, not
+      // an unfilled gap; deferring it would let a draft claim a valid lineup.
+      results.push(this.report({
         rule_type: 'leader_count',
+        check: 'leader_count_multiple',
         severity: 'critical',
         message: `Multiple worship leaders assigned (${leaders.length})`,
         recommendation: 'Assign exactly one worship leader',
-      });
+      }));
     }
 
     return results;
@@ -168,36 +228,29 @@ export class ScheduleValidator {
 
   private checkBackupCount(): ValidationResult[] {
     const results: ValidationResult[] = [];
-    const backups = this.context.existing_assignments.filter((a) => {
-      if (a.is_leader) return false;
-      if (a.instrument_id) return false;
-      return !a.role || isBackupRoleName(a.role.name);
-    });
-
-    const minRequired = this.context.rules.find(
-      (r) => r.rule_type === 'backup_count'
-    )?.rule_config.min_required as number || 3;
-
-    const maxAllowed = this.context.rules.find(
-      (r) => r.rule_type === 'backup_count'
-    )?.rule_config.max_allowed as number || 3;
+    const backups = this.context.existing_assignments.filter(isBackupAssignment);
+    const { min: minRequired, max: maxAllowed } = backupRuleNumbers(this.context);
 
     if (backups.length < minRequired) {
-      results.push({
+      // Deferrable: this is a shortfall, the canonical unfilled position.
+      results.push(this.report({
         rule_type: 'backup_count',
+        check: 'backup_count_min',
         severity: 'critical',
         message: `Only ${backups.length} backup singers assigned (minimum: ${minRequired})`,
         recommendation: 'Add more backup singers',
-      });
+      }));
     }
 
     if (backups.length > maxAllowed) {
-      results.push({
+      // NEVER deferrable. Overflow is an over-subscription, not a gap.
+      results.push(this.report({
         rule_type: 'backup_count',
+        check: 'backup_count_max',
         severity: 'critical',
         message: `${backups.length} backup singers assigned (maximum: ${maxAllowed})`,
         recommendation: 'Remove excess backup singers',
-      });
+      }));
     }
 
     return results;
@@ -206,23 +259,21 @@ export class ScheduleValidator {
   private checkRequiredRoles(): ValidationResult[] {
     const results: ValidationResult[] = [];
     const assignments = this.context.existing_assignments;
-    const hasDevotionRole = this.context.all_members.some((member) => member.roles?.some((role) => role.role?.name.toLowerCase() === 'devotion'));
-    if (hasDevotionRole && !assignments.some((assignment) => assignment.role?.name.toLowerCase() === 'devotion')) {
-      results.push({
-        rule_type: 'role_validation', severity: 'critical', role_name: 'Devotion',
+
+    if (hasDevotionHolder(this.context.all_members) && !assignments.some(isDevotionAssignment)) {
+      results.push(this.report({
+        rule_type: 'role_validation', check: 'devotion_missing', severity: 'critical', role_name: 'Devotion',
         message: 'Required Devotion role is not assigned', recommendation: 'Assign a qualified devotion member',
-      });
+      }));
     }
-    const requiredInstruments = this.context.all_members.flatMap((member) => member.skills?.map((skill) => skill.instrument) ?? [])
-      .filter((instrument) => instrument?.is_required)
-      .filter((instrument): instrument is Instrument => Boolean(instrument))
-      .filter((instrument, index, all) => all.findIndex((candidate) => candidate.id === instrument.id) === index);
-    for (const instrument of requiredInstruments) {
+    // Catalogue-derived (H1): a required instrument nobody holds a skill for
+    // now produces a finding here instead of vanishing.
+    for (const instrument of requiredInstruments(this.context)) {
       if (!assignments.some((assignment) => assignment.instrument_id === instrument.id)) {
-        results.push({
-          rule_type: 'instrument_constraint', severity: 'critical', role_name: instrument.name,
+        results.push(this.report({
+          rule_type: 'instrument_constraint', check: 'required_instrument_missing', severity: 'critical', role_name: instrument.name,
           message: `Required ${instrument.name} is not assigned`, recommendation: `Assign a qualified ${instrument.name} player`,
-        });
+        }));
       }
     }
     return results;
@@ -238,41 +289,47 @@ export class ScheduleValidator {
       if (assignment.is_leader) {
         const hasLeaderRole = member.roles?.some((r) => r.role && isWorshipLeaderRoleName(r.role.name));
         if (!hasLeaderRole) {
-          results.push({
+          // Rule 7. Not deferrable and NOT overridable: a coordinator override
+          // for availability must never be able to license an unqualified leader.
+          results.push(this.report({
             rule_type: 'role_validation',
+            check: 'leader_qualification',
             severity: 'critical',
             member_id: member.id,
             member_name: member.full_name,
             message: `${member.full_name} is not qualified as Worship Leader`,
             recommendation: 'Assign a qualified worship leader',
-          });
+          }));
         }
       } else if (assignment.role && (isBackupRoleName(assignment.role.name) || isDevotionRoleName(assignment.role.name))) {
         const roleName = assignment.role.name.toLowerCase();
         const qualified = member.roles?.some((role) => role.role_id === assignment.role_id || role.role?.name.toLowerCase() === roleName);
         if (!qualified) {
-          results.push({
+          results.push(this.report({
             rule_type: 'role_validation',
+            check: 'role_qualification',
             severity: 'critical',
             member_id: member.id,
             member_name: member.full_name,
             role_name: assignment.role.name,
             message: `${member.full_name} is not qualified for ${assignment.role.name}`,
             recommendation: `Assign a member qualified for ${assignment.role.name}`,
-          });
+          }));
         }
       } else if (assignment.instrument_id) {
         const hasSkill = member.skills?.some((skill) => skill.instrument_id === assignment.instrument_id);
         if (!hasSkill) {
-          results.push({
+          // The one qualification axis a coordinator MAY override.
+          results.push(this.report({
             rule_type: 'role_validation',
+            check: 'instrument_qualification',
             severity: 'critical',
             member_id: member.id,
             member_name: member.full_name,
             role_name: assignment.instrument?.name,
             message: `${member.full_name} is not qualified for ${assignment.instrument?.name ?? 'the assigned instrument'}`,
             recommendation: 'Assign a member with the required instrument skill',
-          });
+          }));
         }
       }
     }
@@ -298,14 +355,16 @@ export class ScheduleValidator {
         );
 
         if (weeksDiff < cooldownWeeks && weeksDiff > 0) {
-          results.push({
+          // Rule 9 is advisory by product definition, and stays a warning.
+          results.push(this.report({
             rule_type: 'cooldown',
+            check: 'cooldown',
             severity: 'warning',
             member_id: member.id,
             member_name: member.full_name,
             message: `${member.full_name} was scheduled ${weeksDiff} week(s) ago`,
             recommendation: 'Consider a different member for better rotation',
-          });
+          }));
         }
       }
     }
@@ -321,14 +380,15 @@ export class ScheduleValidator {
     for (const [memberId, count] of monthCounts) {
       if (count > avgCount * 1.5) {
         const member = this.context.all_members.find((m) => m.id === memberId);
-        results.push({
+        results.push(this.report({
           rule_type: 'fairness',
+          check: 'fairness',
           severity: 'suggestion',
           member_id: memberId,
           member_name: member?.full_name,
           message: `${member?.full_name} has more assignments than average`,
           recommendation: 'Consider redistributing assignments',
-        });
+        }));
       }
     }
 
@@ -347,14 +407,16 @@ export class ScheduleValidator {
 
       if (recentLeaders > 2) {
         const member = this.context.all_members.find((m) => m.id === leaderId);
-        results.push({
+        // Rule 10 is advisory, and stays a warning.
+        results.push(this.report({
           rule_type: 'leader_rotation',
+          check: 'leader_rotation',
           severity: 'warning',
           member_id: leaderId,
           member_name: member?.full_name,
           message: `${member?.full_name} has been leader ${recentLeaders} times recently`,
           recommendation: 'Rotate to a different worship leader',
-        });
+        }));
       }
     }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
+import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { Service } from '@/lib/types/database';
 
 export async function POST(request: NextRequest) {
@@ -18,11 +19,20 @@ export async function POST(request: NextRequest) {
     if ((service.schedule_version ?? 1) !== body.expected_version) return NextResponse.json({ error: 'The schedule changed. Refresh before validating.' }, { status: 409 });
     const data = await loadScheduleData(auth.churchId, service.month, service.year, service.ministry_id);
     const assignments = data.assignments.filter((assignment) => assignment.service_id === service.id);
-    const results = await new ScheduleValidator({ service, church_id: auth.churchId, month: service.month, year: service.year, week_number: service.week_number, existing_assignments: assignments, monthly_assignments: data.monthlyAssignments.filter((item) => item.service_id !== service.revision_of), available_members: data.members, all_members: data.members, rules: data.rules, config: data.config }).validate();
+    // FINAL stage: this is where every draft-deferred rule comes back as a hard
+    // critical. Validation is the re-assertion point, so running this surface at
+    // draft stage would let a partial month be marked validated.
+    const proposed = await new ScheduleValidator({ service, church_id: auth.churchId, month: service.month, year: service.year, week_number: service.week_number, existing_assignments: assignments, monthly_assignments: data.monthlyAssignments.filter((item) => item.service_id !== service.revision_of), available_members: data.members, all_members: data.members, rules: data.rules, config: data.config, instruments: data.instruments, validation_stage: 'final' }).validate();
+    // The service's recorded licences are honoured here, so a lineup a coordinator
+    // deliberately overrode can still be validated. Only the two allowlisted axes
+    // are affected, and `validate_service_schedule` independently re-asserts the
+    // non-overridable rules in SQL, so this is a second line of defence, not the only one.
+    const { results, overridden_checks } = applyOverrides(proposed, service.active_overrides);
     const critical = results.filter((result) => result.severity === 'critical');
     const warnings = results.filter((result) => result.severity === 'warning');
     const suggestions = results.filter((result) => result.severity === 'suggestion');
-    if (critical.length) return NextResponse.json({ valid: false, results, summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } }, { status: 422 });
+    const unfilledPositions = unfilledFrom({ service, church_id: auth.churchId, month: service.month, year: service.year, week_number: service.week_number, existing_assignments: assignments, available_members: data.members, all_members: data.members, rules: data.rules, config: data.config, instruments: data.instruments }, assignments);
+    if (critical.length) return NextResponse.json({ valid: false, results, overridden_checks, unfilled_positions: unfilledPositions, summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } }, { status: 422 });
     const { error: transitionError } = await admin.rpc('validate_service_schedule', {
       p_church_id: auth.churchId,
       p_service_id: service.id,
@@ -31,7 +41,7 @@ export async function POST(request: NextRequest) {
       p_validation_results: results,
     });
     if (transitionError) return NextResponse.json({ error: transitionError.message }, { status: transitionError.code === '42501' ? 403 : 409 });
-    return NextResponse.json({ valid: true, results, status: 'validated', validated_by: auth.userId, validated_at: new Date().toISOString(), summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } });
+    return NextResponse.json({ valid: true, results, status: 'validated', validated_by: auth.userId, validated_at: new Date().toISOString(), overridden_checks, unfilled_positions: unfilledPositions, is_complete: unfilledPositions.length === 0, summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } });
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not validate service.' }, { status: 400 });

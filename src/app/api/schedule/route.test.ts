@@ -404,6 +404,12 @@ describe('POST /api/schedule — monthly-limit ledger', () => {
 });
 
 describe('POST /api/schedule — persistence', () => {
+  // What this proves, precisely: the write goes through `persist_month_schedule`
+  // and nothing else. It is the testable half of the claim that the legacy
+  // `replace_month_schedule` has no caller, which is why that function is
+  // knowingly left unaligned in 20260930120000. It does NOT assert that the two
+  // functions agree -- they deliberately do not, and this file's comment block
+  // explains why. Do not read a pass here as evidence for plan row I18.
   it('writes the month through persist_month_schedule, never replace_month_schedule', async () => {
     const response = await POST(post({ month: 9, year: 2026 }) as never);
 

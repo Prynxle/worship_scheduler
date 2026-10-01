@@ -3,16 +3,18 @@ import {
   ScheduleContext,
   SchedulingFailure,
   SchedulingFailureError,
+  UnfilledPosition,
 } from '../types/scheduling';
 import { Availability, Instrument, Member, Role, ScheduleAssignment } from '../types/database';
 import { formatLocalDate, getWeekDate } from '../utils/date-utils';
 import { FairnessScorer, TemporaryMemberState } from './scorer';
 import { isWeeklyUnavailable } from './availability';
-import { isBackupRoleName } from './role-classifier';
+import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
+import { requiredPositions } from './required-roles';
 
 type SlotKind = 'leader' | 'backup' | 'devotion' | 'instrument';
 interface AssignmentSlot { id: string; weekNumber: number; date: string; kind: SlotKind; roleName: string; role?: Role; instrument?: Instrument; isLeader: boolean; }
-interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number; previousState?: TemporaryMemberState; }
+interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number; previousState?: TemporaryMemberState; previousGapCount?: number; }
 interface Rejection { member: Member; reason: string; }
 interface ServiceState { choices: AssignmentChoice[]; usedMemberIds: Set<string>; }
 
@@ -22,6 +24,13 @@ export class SchedulingEngine {
   private readonly memberState: Map<string, TemporaryMemberState>;
   private readonly serviceStates = new Map<number, ServiceState>();
   private readonly failures: SchedulingFailure[] = [];
+  /**
+   * Positions the search could not fill, per week, with why each candidate was
+   * rejected. This is the month's honest partial result: previously a single
+   * unassignable slot aborted the entire generation and the coordinator saw
+   * nothing at all.
+   */
+  private readonly gaps: UnfilledPosition[] = [];
   private searchNodes = 0;
 
   constructor(context: ScheduleContext) {
@@ -84,8 +93,17 @@ export class SchedulingEngine {
     evaluated.sort((a, b) => a.pool.candidates.length - b.pool.candidates.length || this.slotPriority(a.slot) - this.slotPriority(b.slot) || a.slot.id.localeCompare(b.slot.id));
     const selected = evaluated[0];
     if (selected.pool.candidates.length === 0) {
-      this.failures.push(this.createFailure(selected.slot, selected.pool.rejections));
-      return null;
+      // Record the gap and SKIP the slot instead of failing the whole month.
+      //
+      // Skipping is sound, not a heuristic shortcut: every candidate-eligibility
+      // test in `rejectionReason` is MONOTONICALLY WORSENING as the search
+      // progresses. Assignment only ever adds to `usedMemberIds` and to the
+      // monthly counters, and the other tests read fixed per-member data. So a
+      // slot with an empty pool now has an empty pool at every later state
+      // reachable from here, and retrying it could never succeed. Backtracking
+      // past it would be wasted work, not a missed assignment.
+      this.gaps.push(this.createFailure(selected.slot, selected.pool.rejections));
+      return this.solve(unfilledSlots.filter((slot) => slot.id !== selected.slot.id));
     }
     const cooldownWeeks = this.context.config?.cooldown_weeks ?? this.getRuleNumber('cooldown', 'weeks', 1);
     const ranked = selected.pool.candidates.map((member) => {
@@ -126,6 +144,9 @@ export class SchedulingEngine {
     state.lastAssignedDate = choice.slot.date;
     state.roleHistory.set(choice.slot.roleName, (state.roleHistory.get(choice.slot.roleName) ?? 0) + 1);
     if (choice.slot.isLeader) state.leaderAssignments += 1;
+    // The gap log is part of the search state this choice mutates: a branch
+    // that records a gap must lose it when the branch is abandoned.
+    choice.previousGapCount = this.gaps.length;
   }
 
   private rollback(choice: AssignmentChoice): void {
@@ -133,6 +154,11 @@ export class SchedulingEngine {
     const index = service.choices.indexOf(choice);
     if (index >= 0) service.choices.splice(index, 1);
     if (!service.choices.some((item) => item.member.id === choice.member.id)) service.usedMemberIds.delete(choice.member.id);
+    // Discard the gaps recorded while this branch was live. They describe why
+    // the search could not fill a position UNDER THIS CANDIDATE; a sibling
+    // candidate may well fill it, and keeping the row would report a phantom
+    // gap on the accepted schedule.
+    if (choice.previousGapCount !== undefined) this.gaps.length = choice.previousGapCount;
     const state = this.memberState.get(choice.member.id)!;
     if (choice.previousState) {
       Object.assign(state, choice.previousState);
@@ -158,24 +184,39 @@ export class SchedulingEngine {
     if (!state) return 'member state unavailable';
     if (state.currentMonthAssignments >= (member.max_monthly_assignments || this.getRuleNumber('assignment_limit', 'default_max', 3))) return 'monthly limit reached';
     if (!this.context.config?.allows_dual_role && service.usedMemberIds.has(member.id)) return 'already assigned in this service';
-    if (slot.kind === 'leader' && !this.hasRole(member, 'Worship Leader')) return 'not qualified for Worship Leader';
+    if (slot.kind === 'leader' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isWorshipLeaderRoleName(role.role.name))) return 'not qualified for Worship Leader';
     if (slot.kind === 'backup' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isBackupRoleName(role.role.name))) return 'not qualified for Backup';
-    if (slot.kind === 'devotion' && !this.hasRole(member, 'Devotion')) return 'not qualified for Devotion';
+    if (slot.kind === 'devotion' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isDevotionRoleName(role.role.name))) return 'not qualified for Devotion';
     if (slot.kind === 'instrument' && !member.skills?.some((skill) => skill.instrument_id === slot.instrument?.id)) return `not qualified for ${slot.instrument?.name ?? 'instrument'}`;
     return null;
   }
 
+  /**
+   * Slot construction is delegated to `requiredPositions` so the validator
+   * reports gaps for exactly the positions the generator tried to fill. The two
+   * used to derive that list independently, which is how a required instrument
+   * with no skill-holder could be invisible to both.
+   *
+   * Per-week context is required because `requiredPositions` is month-scoped in
+   * its rules and catalogue reads but returns the same list for every week.
+   */
   private buildSlots(weekNumber: number): AssignmentSlot[] {
     const date = formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year));
-    const slots: AssignmentSlot[] = [{ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRole('Worship Leader') }];
-    for (let index = 1; index <= this.getRuleNumber('backup_count', 'min_required', 3); index += 1) {
-      slots.push({ id: `${weekNumber}:backup:${index}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false });
-    }
-    if (this.context.all_members.some((member) => this.hasRole(member, 'Devotion'))) {
-      slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRole('Devotion'), isLeader: false });
-    }
-    for (const instrument of this.getInstruments()) {
-      if (instrument.is_required) slots.push({ id: `${weekNumber}:instrument:${instrument.id}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false });
+    const perWeek = { ...this.context, service: { ...this.context.service, week_number: weekNumber, date } };
+    const slots: AssignmentSlot[] = [];
+    let backupIndex = 0;
+    for (const position of requiredPositions(perWeek)) {
+      if (position.kind === 'leader') {
+        slots.push({ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRoleByPredicate(isWorshipLeaderRoleName) });
+      } else if (position.kind === 'backup') {
+        backupIndex += 1;
+        slots.push({ id: `${weekNumber}:backup:${backupIndex}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false });
+      } else if (position.kind === 'devotion') {
+        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isDevotionRoleName), isLeader: false });
+      } else {
+        const instrument = position.instrument!;
+        slots.push({ id: `${weekNumber}:instrument:${instrument.id}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false });
+      }
     }
     return slots;
   }
@@ -190,9 +231,56 @@ export class SchedulingEngine {
       instrumentalists: choices.filter((choice) => choice.slot.kind === 'instrument' && choice.slot.instrument).map((choice) => ({ instrument: choice.slot.instrument!, member: choice.member, is_fallback: false })),
       devotion: choices.find((choice) => choice.slot.kind === 'devotion')?.member ?? null,
       conflicts: [],
+      // Always an array, never absent: the persistence and read layers must not
+      // each have to decide what a missing gap list means.
+      unfilled_positions: this.gapsForWeek(weekNumber),
     };
   }
 
+  /**
+   * Collapse this week's skipped slots into one row per unfilled POSITION.
+   *
+   * The search skips slots, so a short backup count skips N slots and would
+   * otherwise emit N identical `Backup` rows. `requiredPositions`/
+   * `unfilledFrom` on the write path report the same shortfall as a single row
+   * with `required_slots = N`, and the read path and the editor must not
+   * disagree with the generator about how many rows a gap is.
+   *
+   * Rejections are deduped by member, keeping the first reason: the same member
+   * rejected for the same reason once per skipped backup slot is one fact, and
+   * repeating it N times would misrepresent the roster.
+   */
+  private gapsForWeek(weekNumber: number): UnfilledPosition[] {
+    const byRole = new Map<string, UnfilledPosition>();
+    for (const item of this.gaps) {
+      if (item.week_number !== weekNumber) continue;
+      const existing = byRole.get(item.role_name);
+      if (!existing) {
+        byRole.set(item.role_name, { ...item, rejected_candidates: [...item.rejected_candidates] });
+        continue;
+      }
+      existing.required_slots += item.required_slots;
+      for (const candidate of item.rejected_candidates) {
+        if (!existing.rejected_candidates.some((other) => other.member_id === candidate.member_id)) {
+          existing.rejected_candidates.push(candidate);
+        }
+      }
+    }
+    return [...byRole.values()];
+  }
+
+  /**
+   * Independent re-validation of what the generator produced, run at `draft`
+   * stage on purpose.
+   *
+   * Draft stage means the four gap criticals arrive already downgraded to
+   * warnings carrying `deferred_until: 'validate'`, so a partial week is a
+   * reportable result instead of a thrown error. Any remaining CRITICAL is one
+   * of the never-deferrable invariants (multiple leaders, backup overflow,
+   * inactive member, dual role, unqualified leader, monthly limit) and still
+   * throws: the generator has produced something the product forbids, which is
+   * a bug in the generator, not a gap a coordinator can resolve.
+   */
   private async validateGeneratedServices(services: GeneratedService[], assignments: AssignmentChoice[]): Promise<void> {
     const { ScheduleValidator } = await import('./validator');
     for (const service of services) {
@@ -200,6 +288,7 @@ export class SchedulingEngine {
         ...this.context,
         service: { ...this.context.service, week_number: service.week_number, date: service.date },
         existing_assignments: this.toScheduleAssignments(service, assignments),
+        validation_stage: 'draft',
       };
       const results = await new ScheduleValidator(context).validate();
       service.conflicts = results;
@@ -258,10 +347,7 @@ export class SchedulingEngine {
   }
 
   private sameDate(left: string, right: string): boolean { return new Date(left).toISOString().slice(0, 10) === right; }
-  private hasRole(member: Member, roleName: string): boolean { return member.roles?.some((role) => role.role?.is_active !== false && role.role?.name.toLowerCase() === roleName.toLowerCase()) ?? false; }
-  private findRole(roleName: string): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role?.name.toLowerCase() === roleName.toLowerCase()); }
   private findRoleByPredicate(predicate: (name: string) => boolean): Role | undefined { return this.context.all_members.flatMap((member) => member.roles ?? []).map((item) => item.role).find((role): role is Role => role !== undefined && predicate(role.name)); }
-  private getInstruments(): Instrument[] { return this.context.all_members.flatMap((member) => member.skills?.map((skill) => skill.instrument) ?? []).filter((instrument): instrument is Instrument => Boolean(instrument)).filter((instrument, index, all) => all.findIndex((candidate) => candidate.id === instrument.id) === index).sort((a, b) => a.id.localeCompare(b.id)); }
   private getRuleNumber(ruleType: string, key: string, fallback: number): number { const value = this.context.rules.find((rule) => rule.rule_type === ruleType)?.rule_config[key]; return typeof value === 'number' ? value : fallback; }
   private assignmentRoleName(assignment: ScheduleAssignment): string { if (assignment.is_leader) return 'Worship Leader'; return assignment.role?.name ?? assignment.instrument?.name ?? 'Assignment'; }
 }

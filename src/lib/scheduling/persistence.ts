@@ -1,5 +1,5 @@
-import type { GeneratedService } from '@/lib/types/scheduling';
-import type { Instrument, Member, Role, Service } from '@/lib/types/database';
+import type { GeneratedService, UnfilledPosition } from '@/lib/types/scheduling';
+import type { Instrument, Member, Role, Service, ServiceUnfilledPosition } from '@/lib/types/database';
 import {
   isBackupRoleName,
   isDevotionRoleName,
@@ -36,6 +36,16 @@ export interface PersistService {
   week_number: number;
   date: string;
   assignments: PersistAssignment[];
+  /**
+   * Positions this week could not fill, persisted to
+   * `services.unfilled_positions`.
+   *
+   * Always an array, including for a complete week, and never `null`: the RPC
+   * writes it with COALESCE so an explicit `[]` CLEARS the column on
+   * regeneration. Omitting the key, or sending `null`, would leave a stale gap
+   * list on a service that a later regeneration has since filled completely.
+   */
+  unfilled_positions: ServiceUnfilledPosition[];
 }
 
 export interface MonthSchedulePayload {
@@ -113,8 +123,31 @@ export function buildMonthSchedulePayload(generated: GeneratedService[]): MonthS
       week_number: generatedService.week_number,
       date: generatedService.date,
       assignments: toPersistAssignments(resolveAssignments(generatedService)),
+      // `?? []` rather than a conditional: a complete week MUST send an empty
+      // array so the RPC clears any gap list left by an earlier generation.
+      unfilled_positions: normalizeGaps(generatedService.unfilled_positions),
     })),
   };
+}
+
+/**
+ * The engine's `UnfilledPosition[]` and the RPC's `ServiceUnfilledPosition[]`
+ * are structurally identical by design, so this is only making two guarantees
+ * explicit: the array is always present, and `service_id` is omitted rather than
+ * sent as `null` when the generator does not yet know the service row id (the
+ * RPC stamps the real id onto each entry it persists).
+ */
+function normalizeGaps(gaps: UnfilledPosition[] | undefined): ServiceUnfilledPosition[] {
+  return (gaps ?? []).map(({ service_id, week_number, date, role_name, required_slots, eligible_candidates, rejected_candidates, message }) => ({
+    ...(service_id ? { service_id } : {}),
+    week_number,
+    date,
+    role_name,
+    required_slots,
+    eligible_candidates: eligible_candidates ?? [],
+    rejected_candidates: (rejected_candidates ?? []).map(({ member_id, member_name, reason }) => ({ member_id, member_name, reason })),
+    message,
+  }));
 }
 
 function assignmentRowsFor(service: Service, resolved: ResolvedAssignment[], userId: string, now: string): Array<Record<string, unknown>> {
