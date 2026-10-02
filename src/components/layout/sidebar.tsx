@@ -108,23 +108,13 @@ export function Sidebar() {
 
         <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
           {!isStaff ? (
-  <>
-    <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link>
-    <Link
-      href="/events"
-      className={cn(
-        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-        pathname === '/events' || pathname.startsWith('/events/')
-          ? 'bg-primary/[0.11] font-medium text-primary'
-          : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
-      )}
-    >
-      {(pathname === '/events' || pathname.startsWith('/events/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
-      <CalendarPlus2 className="size-[18px] text-muted-foreground group-hover:text-primary" />
-      <span>Events</span>
-    </Link>
-  </>
-) : null}
+            <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link>
+          ) : null}
+          {/* Staff only. Members get the calendar inside their workspace
+              (/member), where it renders read-only, so a separate Events tab
+              would duplicate it. Admins and coordinators need this page because
+              event create/delete lives in the calendar's dialog and trash button,
+              which the member copy hides via canManage={false}. */}
           {isStaff ? (
             <Link
               href="/events"
