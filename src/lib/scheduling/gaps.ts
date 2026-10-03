@@ -4,6 +4,7 @@ import {
   backupRuleNumbers,
   isBackupAssignment,
   isDevotionAssignment,
+  minSlotsFor,
   requiredInstruments,
   requiredPositions,
 } from './required-roles';
@@ -58,8 +59,21 @@ export function unfilledFrom(context: ScheduleContext, assignments: ScheduleAssi
     gaps.push(gap({ ...base, role_name: DEVOTION_ROLE_NAME, required_slots: 1, message: `Required Devotion role is not assigned for week ${service.week_number}.` }));
   }
   for (const instrument of requiredInstruments(context)) {
-    if (!assignments.some((assignment) => assignment.instrument_id === instrument.id)) {
-      gaps.push(gap({ ...base, role_name: instrument.name, required_slots: 1, message: `Required ${instrument.name} is not assigned for week ${service.week_number}.` }));
+    // COUNT-based only when the catalogue row opted in. `minSlotsFor` returns 1
+    // for every row without `slot_counts = true`, and `0 assigned < 1` is the
+    // historical presence test, so a flag-off instrument's gap is the same row,
+    // the same `required_slots`, and the same message it has always been.
+    const required = minSlotsFor(instrument);
+    const assigned = assignments.filter((assignment) => assignment.instrument_id === instrument.id).length;
+    if (assigned < required) {
+      gaps.push(gap({
+        ...base,
+        role_name: instrument.name,
+        required_slots: Math.max(1, required - assigned),
+        message: required <= 1
+          ? `Required ${instrument.name} is not assigned for week ${service.week_number}.`
+          : `Only ${assigned} of ${required} ${instrument.name} assigned for week ${service.week_number}.`,
+      }));
     }
   }
   return gaps;

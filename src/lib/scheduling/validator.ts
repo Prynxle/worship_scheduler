@@ -12,6 +12,7 @@ import {
   hasDevotionHolder,
   isBackupAssignment,
   isDevotionAssignment,
+  minSlotsFor,
   requiredInstruments,
   stageOf,
 } from './required-roles';
@@ -269,7 +270,17 @@ export class ScheduleValidator {
     // Catalogue-derived (H1): a required instrument nobody holds a skill for
     // now produces a finding here instead of vanishing.
     for (const instrument of requiredInstruments(this.context)) {
-      if (!assignments.some((assignment) => assignment.instrument_id === instrument.id)) {
+      // COUNT-based only when the row opted in. `minSlotsFor` is 1 without
+      // `slot_counts = true`, so for every existing instrument this is still the
+      // presence test and the emitted finding is unchanged. The check name,
+      // severity, and `DEFERABLE_DRAFT_CHECKS` membership are deliberately the
+      // same for a shortfall as for an absence: "one of two guitarists" is the
+      // same defect the coordinator resolves by adding a guitarist, and a
+      // shortfall must not become a new, harder critical that a draft cannot
+      // publish around.
+      const required = minSlotsFor(instrument);
+      const assigned = this.context.existing_assignments.filter((assignment) => assignment.instrument_id === instrument.id).length;
+      if (assigned < required) {
         results.push(this.report({
           rule_type: 'instrument_constraint', check: 'required_instrument_missing', severity: 'critical', role_name: instrument.name,
           message: `Required ${instrument.name} is not assigned`, recommendation: `Assign a qualified ${instrument.name} player`,

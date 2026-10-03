@@ -13,7 +13,14 @@ import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from '.
 import { requiredPositions } from './required-roles';
 
 type SlotKind = 'leader' | 'backup' | 'devotion' | 'instrument';
-interface AssignmentSlot { id: string; weekNumber: number; date: string; kind: SlotKind; roleName: string; role?: Role; instrument?: Instrument; isLeader: boolean; }
+interface AssignmentSlot { id: string; weekNumber: number; date: string; kind: SlotKind; roleName: string; role?: Role; instrument?: Instrument; isLeader: boolean; /**
+   * A non-blocking extra slot for an opt-in count instrument.
+   *
+   * Optional slots are NEVER entered into `solve`, so they can never be
+   * backtracked, never displace a hard-slot member, and never record a gap.
+   * See `fillOptional`.
+   */
+  optional: boolean; }
 interface AssignmentChoice { slot: AssignmentSlot; member: Member; score: number; previousState?: TemporaryMemberState; previousGapCount?: number; }
 interface Rejection { member: Member; reason: string; }
 interface ServiceState { choices: AssignmentChoice[]; usedMemberIds: Set<string>; }
@@ -42,14 +49,32 @@ export class SchedulingEngine {
   async generateSchedule(): Promise<GeneratedService[]> {
     const weeks = [...new Set(this.context.week_numbers ?? [this.context.service.week_number])].sort((a, b) => a - b);
     const slots = weeks.flatMap((weekNumber) => this.buildSlots(weekNumber));
-    const assignments = this.solve(slots);
-    if (!assignments) {
+    // TWO PHASES, and the phase boundary is a correctness requirement, not a
+    // scheduling optimisation.
+    //
+    // Phase 1 (`solve`) sees ONLY hard slots. It is the full backtracking
+    // search, and it is allowed to place anybody anywhere, because every slot
+    // in it is a position the service cannot be published without.
+    //
+    // Phase 2 (`fillOptional`) then adds the opt-in extra players to the
+    // ALREADY-ACCEPTED state. It never reopens a decision phase 1 made.
+    //
+    // Doing this in one pass is the trap: with `Guitar` at min 1 / max 2 a
+    // single-pass search may hand the only available guitarist to the OPTIONAL
+    // slot, leaving the HARD slot with an empty pool. The week then reports
+    // `Guitar` unfilled - a critical the coordinator cannot do anything about -
+    // while a guitarist is visibly sitting in that very service. Phase 1 makes
+    // that state unreachable rather than merely unlikely.
+    const hard = this.solve(slots.filter((slot) => !slot.optional));
+    if (!hard) {
       throw new SchedulingFailureError(this.failures.length > 0 ? this.failures : [{
         service_id: this.context.service.id, week_number: this.context.week_number, date: this.context.service.date,
-        role_name: 'schedule', required_slots: slots.length, eligible_candidates: [], rejected_candidates: [],
+        role_name: 'schedule', required_slots: slots.filter((slot) => !slot.optional).length, eligible_candidates: [], rejected_candidates: [],
         message: 'No valid schedule satisfies the configured hard constraints.',
       }]);
     }
+    this.fillOptional(slots.filter((slot) => slot.optional));
+    const assignments = [...this.serviceStates.values()].flatMap((service) => service.choices);
     const services = weeks.map((weekNumber) => this.toGeneratedService(weekNumber, assignments));
     await this.validateGeneratedServices(services, assignments);
     return services;
@@ -102,23 +127,16 @@ export class SchedulingEngine {
       // slot with an empty pool now has an empty pool at every later state
       // reachable from here, and retrying it could never succeed. Backtracking
       // past it would be wasted work, not a missed assignment.
-      this.gaps.push(this.createFailure(selected.slot, selected.pool.rejections));
+      //
+      // `optional` slots are excluded from this branch by construction
+      // (`generateSchedule` filters them out before calling `solve`), and this
+      // guard keeps that true if a future caller forgets: an optional slot must
+      // never reach the gap log, whatever else changes.
+      if (!selected.slot.optional) this.gaps.push(this.createFailure(selected.slot, selected.pool.rejections));
       return this.solve(unfilledSlots.filter((slot) => slot.id !== selected.slot.id));
     }
-    const cooldownWeeks = this.context.config?.cooldown_weeks ?? this.getRuleNumber('cooldown', 'weeks', 1);
-    const ranked = selected.pool.candidates.map((member) => {
-      const score = this.scorer.score(member, this.memberState.get(member.id)!, selected.slot.roleName,
-        selected.slot.weekNumber, selected.slot.isLeader, cooldownWeeks, selected.slot.date);
-      return { member, score };
-    }).sort((a, b) => {
-      const byScore = a.score.total - b.score.total;
-      if (byScore !== 0) return byScore;
-      const recent = this.memberState.get(a.member.id)!.recentAssignments - this.memberState.get(b.member.id)!.recentAssignments;
-      if (recent !== 0) return recent;
-      const role = (this.memberState.get(a.member.id)!.roleHistory.get(selected.slot.roleName) ?? 0) -
-        (this.memberState.get(b.member.id)!.roleHistory.get(selected.slot.roleName) ?? 0);
-      return role || a.member.id.localeCompare(b.member.id);
-    });
+    const cooldownWeeks = this.cooldownWeeks();
+    const ranked = this.rankCandidates(selected.slot, selected.pool.candidates, cooldownWeeks);
     const remaining = unfilledSlots.filter((slot) => slot.id !== selected.slot.id);
     for (const candidate of ranked) {
       const choice = { slot: selected.slot, member: candidate.member, score: candidate.score.total };
@@ -128,6 +146,32 @@ export class SchedulingEngine {
       this.rollback(choice);
     }
     return null;
+  }
+
+  private cooldownWeeks(): number {
+    return this.context.config?.cooldown_weeks ?? this.getRuleNumber('cooldown', 'weeks', 1);
+  }
+
+  /**
+   * The one candidate ordering, shared by the backtracking search and the
+   * optional-slot fill so a Phase 2 placement is scored identically to the
+   * Phase 1 placement it sits beside. Fully deterministic: the last key is the
+   * member id, so equal scores never resolve by map or query order.
+   */
+  private rankCandidates(slot: AssignmentSlot, candidates: Member[], cooldownWeeks: number): { member: Member; score: { total: number } }[] {
+    return candidates.map((member) => {
+      const score = this.scorer.score(member, this.memberState.get(member.id)!, slot.roleName,
+        slot.weekNumber, slot.isLeader, cooldownWeeks, slot.date);
+      return { member, score };
+    }).sort((a, b) => {
+      const byScore = a.score.total - b.score.total;
+      if (byScore !== 0) return byScore;
+      const recent = this.memberState.get(a.member.id)!.recentAssignments - this.memberState.get(b.member.id)!.recentAssignments;
+      if (recent !== 0) return recent;
+      const role = (this.memberState.get(a.member.id)!.roleHistory.get(slot.roleName) ?? 0) -
+        (this.memberState.get(b.member.id)!.roleHistory.get(slot.roleName) ?? 0);
+      return role || a.member.id.localeCompare(b.member.id);
+    });
   }
 
   private apply(choice: AssignmentChoice): void {
@@ -207,18 +251,74 @@ export class SchedulingEngine {
     let backupIndex = 0;
     for (const position of requiredPositions(perWeek)) {
       if (position.kind === 'leader') {
-        slots.push({ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, role: this.findRoleByPredicate(isWorshipLeaderRoleName) });
+        slots.push({ id: `${weekNumber}:leader`, weekNumber, date, kind: 'leader', roleName: 'Worship Leader', isLeader: true, optional: false, role: this.findRoleByPredicate(isWorshipLeaderRoleName) });
       } else if (position.kind === 'backup') {
         backupIndex += 1;
-        slots.push({ id: `${weekNumber}:backup:${backupIndex}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false });
+        slots.push({ id: `${weekNumber}:backup:${backupIndex}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false, optional: false });
       } else if (position.kind === 'devotion') {
-        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isDevotionRoleName), isLeader: false });
+        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isDevotionRoleName), isLeader: false, optional: false });
       } else {
         const instrument = position.instrument!;
-        slots.push({ id: `${weekNumber}:instrument:${instrument.id}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false });
+        for (let index = 0; index < position.required_slots; index += 1) {
+          // `solve` removes a selected slot by `id`, so ids must be unique or
+          // `min_count > 1` would silently drop every hard slot sharing that id.
+          // The FIRST slot keeps the historical id exactly, so a min-1
+          // instrument's slot id - and therefore its gap rejection text and
+          // ordering - is byte-identical to before this change.
+          const suffix = index === 0 ? '' : `:${index + 1}`;
+          slots.push({ id: `${weekNumber}:instrument:${instrument.id}${suffix}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false, optional: false });
+        }
+        // The suffix is an id-uniqueness device, NOT a gap-suppression device.
+        // `solve` removes a selected slot by `id`, so hard and optional slots
+        // sharing an id would make the removal ambiguous - and `:2` is the same
+        // problem one step further down, where `min_count > 1` puts several hard
+        // slots on one instrument.
+        //
+        // What actually stops an unfilled optional slot from becoming a phantom
+        // `Guitar` row is the phase boundary in `generateSchedule`:
+        // `this.solve(slots.filter((slot) => !slot.optional))`. Optional slots
+        // are excluded from the backtracking search entirely, so no optional
+        // `SchedulingFailure` can ever be recorded for `gapsForWeek` to find and
+        // sum into `required_slots`. (`fillOptional` additionally skips an empty
+        // pool without recording a gap, which keeps the same guarantee on the
+        // code path that runs without backtracking.)
+        for (let index = 0; index < position.optional_slots; index += 1) {
+          const suffix = index === 0 ? ':opt' : `:opt:${index + 1}`;
+          slots.push({ id: `${weekNumber}:instrument:${instrument.id}${suffix}`, weekNumber, date, kind: 'instrument', roleName: instrument.name, instrument, isLeader: false, optional: true });
+        }
       }
     }
     return slots;
+  }
+
+  /**
+   * Phase 2: fill the opt-in extra slots against the accepted state.
+   *
+   * The guard the phase boundary buys, stated as a contract rather than left to
+   * search ordering: this method NEVER calls `rollback` and NEVER passes an
+   * optional slot to `solve`. Every candidate it places is drawn from a pool
+   * recomputed from live state at this instant, so a hard-slot member is
+   * already in `usedMemberIds` (excluded as "already assigned in this service")
+   * and already counted against `currentMonthAssignments`. There is therefore
+   * no branch for an optional slot to take, and no hard-slot assignment it can
+   * undo or re-rank.
+   *
+   * An empty pool is skipped SILENTLY. "If not available at least 1" is the
+   * product rule: the optional slot is a courtesy, so failing it is not a gap.
+   * It must not reach `createFailure`, `this.gaps`, or any persisted
+   * `rejected_candidates`, or a perfectly valid single-guitarist week would
+   * arrive in the editor with a `Guitar` row the coordinator must dismiss.
+   */
+  private fillOptional(slots: AssignmentSlot[]): void {
+    if (slots.length === 0) return;
+    const cooldownWeeks = this.context.config?.cooldown_weeks ?? this.getRuleNumber('cooldown', 'weeks', 1);
+    const order = [...slots].sort((a, b) => this.slotPriority(a) - this.slotPriority(b) || a.weekNumber - b.weekNumber || a.id.localeCompare(b.id));
+    for (const slot of order) {
+      const pool = this.getEligibleCandidates(slot);
+      if (pool.candidates.length === 0) continue;
+      const best = this.rankCandidates(slot, pool.candidates, cooldownWeeks)[0];
+      this.apply({ slot, member: best.member, score: best.score.total });
+    }
   }
 
   private toGeneratedService(weekNumber: number, assignments: AssignmentChoice[]): GeneratedService {
@@ -319,7 +419,17 @@ export class SchedulingEngine {
     };
   }
 
+  /**
+   * Ties only, so this is a fairness preference (Rules 8/10) rather than a hard
+   * constraint, but the ordering is still stable.
+   *
+   * Optional slots rank AFTER every hard slot. This is a second line of defence
+   * behind the phase boundary in `generateSchedule`: if an optional slot ever
+   * reaches a comparator again, it loses the tie and the hard slot is resolved
+   * first.
+   */
   private slotPriority(slot: AssignmentSlot): number {
+    if (slot.optional) return 4;
     return slot.kind === 'leader' ? 0 : slot.kind === 'instrument' ? 1 : slot.kind === 'devotion' ? 2 : 3;
   }
 
