@@ -47,5 +47,6 @@ supabase/.temp/
 next-env.d.ts
 zed/
 opencode.json
-
+mcp-setup.md
 .codex/
+.agents/Report-format/Format.md

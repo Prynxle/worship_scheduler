@@ -1,0 +1,50 @@
+-- ============================================================================
+-- Migration: 20261002130000_schedule_assignments_privilege_hygiene
+-- Created: 2026-10-02
+-- Purpose: Close the privilege residue left on schedule_assignments by the
+--          blanket GRANT ALL ON ALL TABLES in 20260727213700_rls_policies.sql.
+--
+-- WHY
+--
+-- 20261002120000_schedule_assignments_member_rls.sql:202 re-asserted only
+-- INSERT, UPDATE and DELETE. It did so to defend against a replayed
+-- GRANT ALL -- but a replayed GRANT ALL restores TRUNCATE just as surely, and
+-- that statement was not covered. Verified live on 2026-10-02: `authenticated`
+-- held SELECT, TRUNCATE, TRIGGER and REFERENCES.
+--
+-- TRUNCATE IS NOT SUBJECT TO ROW LEVEL SECURITY. Postgres evaluates policies for
+-- SELECT, INSERT, UPDATE and DELETE only; TRUNCATE is privilege-checked alone.
+-- So no policy in this schema -- including the role-gated FOR ALL policy added
+-- by 20261002120000 -- prevents an `authenticated` session from truncating the
+-- table and wiping every assignment in the tenant.
+--
+-- This is a latent over-grant rather than a live hole. PostgREST exposes no
+-- TRUNCATE endpoint, and every application write goes through the service-role
+-- client. It matters because it is the same class of defect as the
+-- "Admins can manage assignments in their church" policy that carried no role
+-- check at all: an access rule whose name promised more than its body enforced.
+--
+-- WHAT THIS CHANGES
+--
+-- REVOKE ALL rather than naming TRUNCATE, TRIGGER and REFERENCES
+-- individually, so `authenticated` is left holding exactly SELECT and a future
+-- GRANT ALL ON ALL TABLES cannot reopen the boundary. GRANT SELECT is
+-- re-issued because REVOKE ALL withdraws that privilege too.
+--
+-- Idempotent: re-running this file reaches the same end state.
+--
+-- NOTE ON 20261002120000
+--
+-- That file's header contradicts itself. Lines 6-8 state that "the
+-- member-facing read path is a browser client using the anon/authenticated key,
+-- so RLS -- not the app's requireStaff routes -- is the only enforcement
+-- point", while lines 12-15 state that "no file under src/ references
+-- schedule_assignments" and that it is reached only through service-role
+-- routes and RPCs. The second is the accurate one. RLS on this table is
+-- defence in depth, not the sole enforcement point, and no application read
+-- path currently exercises it. Its header is left as applied; this note is the
+-- correction of record.
+-- ============================================================================
+
+REVOKE ALL ON schedule_assignments FROM anon, authenticated;
+GRANT SELECT ON schedule_assignments TO authenticated;
