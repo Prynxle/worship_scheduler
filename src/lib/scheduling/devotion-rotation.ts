@@ -42,9 +42,6 @@ export class DevotionRotation {
     return members.filter((member) => {
       if (member.status !== 'active') return false;
 
-      const hasDevotionRole = member.roles?.some((r) => r.role?.name === 'Devotion');
-      if (!hasDevotionRole) return false;
-
       const isUnavailable = member.availability?.some((a) =>
         isWeeklyUnavailable(a, weekNumber, month, year)
       );

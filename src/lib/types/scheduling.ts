@@ -1,5 +1,20 @@
 import { Member, Role, Instrument, Service, ScheduleAssignment } from './database';
 
+/**
+ * Enforcement stage for validation severity.
+ *
+ * `draft`   - generation and manual editing. The four *gap* criticals (Rule 5
+ *             zero leaders, Rule 4 backup minimum, a required instrument, the
+ *             Devotion role) are reported as `warning` with `deferred_until`
+ *             set, so an unfillable position no longer fails the whole month.
+ * `final`   - the validate and publish surfaces. Nothing is deferred, so every
+ *             invariant is a hard `critical` again.
+ *
+ * This is a change in enforcement TIMING, not a relaxation. More than one
+ * leader and more than `max_allowed` backups are never degradable at any stage.
+ */
+export type ValidationStage = 'draft' | 'final';
+
 export interface ScheduleContext {
   service: Service;
   church_id: string;
@@ -18,6 +33,20 @@ export interface ScheduleContext {
   week_numbers?: number[];
   /** Optional ministry-level scheduling settings. */
   config?: SchedulingConfig;
+  /**
+   * The ministry's full instrument list, INCLUDING instruments nobody holds a
+   * skill for.
+   *
+   * Required, not cosmetic: the pre-existing derivation walked
+   * `all_members[].skills[].instrument`, so a required instrument with zero
+   * skill-holders produced no slot at all and the gap was invisible rather than
+   * merely failing. `undefined` means "no instrument catalogue was supplied" and
+   * selects the legacy skills-derived fallback; an empty array is a real
+   * catalogue with no required instruments and must NOT fall back.
+   */
+  instruments?: Instrument[];
+  /** Defaults to `'final'`. Only the engine's draft pass sets `'draft'`. */
+  validation_stage?: ValidationStage;
 }
 
 export interface FairnessWeights {
@@ -40,28 +69,73 @@ export interface SchedulingRuleConfig {
   rule_type: string;
   rule_config: Record<string, unknown>;
   severity: 'critical' | 'warning' | 'suggestion';
+  is_active?: boolean;
 }
 
-export interface ValidationResult {
-  rule_type: string;
-  severity: 'critical' | 'warning' | 'suggestion';
-  member_id?: string;
-  member_name?: string;
-  role_name?: string;
-  message: string;
-  recommendation?: string;
-}
-
-export interface SchedulingFailure {
+/**
+ * One ministry position that could not be filled for a given service week.
+ *
+ * This is the domain shape behind both the `unfilled_positions` database column
+ * and the `failures` array of `SchedulingFailureError`. It is deliberately the
+ * SAME shape on both so a coordinator sees identical detail whether the month
+ * failed outright or only partially filled.
+ */
+export interface UnfilledPosition {
   service_id?: string;
   week_number: number;
   date: string;
+  /** Position label: 'Worship Leader', 'Backup', an instrument name, 'Devotion'. */
   role_name: string;
   required_slots: number;
   eligible_candidates: string[];
   rejected_candidates: Array<{ member_id: string; member_name: string; reason: string }>;
   message: string;
 }
+
+export interface ValidationResult {
+  rule_type: string;
+  /**
+   * The single specific finding this result reports, and the ONLY key that
+   * stage-deferral and override-downgrade may be keyed on.
+   *
+   * `rule_type` is far too coarse to be safe here: a missing Devotion role and a
+   * member who is not qualified for their role both emit
+   * `rule_type: 'role_validation'`, so degrading or downgrading by `rule_type`
+   * would silently convert the Rule 7 qualification critical (hard, never
+   * overridable) into a pass. `check` separates them.
+   */
+  check: string;
+  severity: 'critical' | 'warning' | 'suggestion';
+  member_id?: string;
+  member_name?: string;
+  role_name?: string;
+  message: string;
+  recommendation?: string;
+  /**
+   * Set when a `draft`-stage critical was downgraded to `warning`. Its
+   * presence is the disclosure that keeps the downgrade from being silent: the
+   * invariant is re-asserted at the named lifecycle transition instead.
+   */
+  deferred_until?: 'validate' | 'publish';
+  /**
+   * Marks the two axes a coordinator manual-assignment override may downgrade:
+   * `availability` (Rule 1) and `instrument_qualification` (instrument skill)
+   * ONLY. Set on the check regardless of severity so the override path can
+   * match on it; `leader_qualification` and every other critical never carry it.
+   */
+  overridable?: boolean;
+}
+
+/**
+ * A hard rejection that made the whole month ungeneratable.
+ *
+ * Structurally identical to `UnfilledPosition` and aliased rather than
+ * redeclared: the same detail describes both a position the engine could not
+ * fill and a month it could not generate at all, and two independent
+ * declarations of one shape are exactly the drift this feature must not
+ * introduce.
+ */
+export type SchedulingFailure = UnfilledPosition;
 
 export class SchedulingFailureError extends Error {
   readonly failures: SchedulingFailure[];
@@ -127,7 +201,15 @@ export interface GeneratedService {
   backup_singers: Member[];
   instrumentalists: InstrumentAssignment[];
   devotion: Member | null;
+  /** Generic persisted role for this devotion assignment; qualification is universal. */
+  devotion_role?: Role | null;
   conflicts: ValidationResult[];
+  /**
+   * Optional so the existing typed `GeneratedService` literals in the test
+   * harness keep compiling; every production producer sets it, and the read
+   * boundary normalises with `?? []`.
+   */
+  unfilled_positions?: UnfilledPosition[];
 }
 
 export interface InstrumentAssignment {

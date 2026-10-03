@@ -16,6 +16,16 @@ import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-
 import { AlertTriangle, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
 
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
+/** A position the generator or the last manual edit could not fill. */
+type UnfilledPosition = {
+  week_number: number;
+  date: string;
+  role_name: string;
+  required_slots: number;
+  eligible_candidates: string[];
+  rejected_candidates: { member_id: string; member_name: string; reason: string }[];
+  message: string;
+};
 type ScheduleItem = {
   id: string;
   date: string;
@@ -33,6 +43,10 @@ type ScheduleItem = {
   validated_version?: number | null;
   published_at?: string | null;
   assignments: EditableAssignment[];
+  /** Served from `services.unfilled_positions`; never recomputed by the client. */
+  unfilled_positions?: UnfilledPosition[];
+  is_complete?: boolean;
+  active_overrides?: { availability?: boolean; instrument_qualification?: boolean };
 };
 type RosterMember = { id: string; full_name: string };
 type RoleOption = { id: string; name: string };
@@ -187,9 +201,21 @@ export default function SchedulePage() {
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ month, year, regenerate }),
       });
-      const payload = await response.json() as { services?: unknown[]; error?: string; readiness?: AvailabilityReadiness };
+      const payload = await response.json() as { services?: unknown[]; error?: string; readiness?: AvailabilityReadiness; unfilled_positions?: unknown[] };
       if (!response.ok) throw new Error(payload.error ?? 'Could not generate the schedule.');
-      setMessage(`Generated ${payload.services?.length ?? 0} service lineups for ${monthLabel}.`);
+      // Report the gap count. A 201 with gaps is SUCCESS-WITH-GAPS, and the gap
+      // total is the whole point of the response: without it the confirmation
+      // reads "Generated 4 service lineups" for a month that silently left
+      // positions unfilled, and the coordinator has to notice the shortfall
+      // somewhere else or not at all. The positions themselves are rendered per
+      // service from the persisted `unfilled_positions` column; this is the
+      // at-a-glance count.
+      const gapCount = payload.unfilled_positions?.length ?? 0;
+      setMessage(
+        gapCount === 0
+          ? `Generated ${payload.services?.length ?? 0} service lineups for ${monthLabel}.`
+          : `Generated ${payload.services?.length ?? 0} service lineups for ${monthLabel} with ${gapCount} unfilled ${gapCount === 1 ? 'position' : 'positions'}. Review the gaps before validating.`,
+      );
       await loadSchedules();
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : 'Could not generate the schedule.');
@@ -222,8 +248,14 @@ export default function SchedulePage() {
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ service_id: service.id, expected_version: service.schedule_version }),
       });
-      const payload = await response.json() as { error?: string; summary?: { warnings: number; suggestions: number } };
-      if (!response.ok) throw new Error(payload.error ?? 'Could not validate this schedule.');
+      const payload = await response.json() as { error?: string; summary?: { warnings: number; suggestions: number }; unfilled_positions?: UnfilledPosition[] };
+      if (!response.ok) {
+        // A 422 body carries the authoritative gap list. Surfacing only the
+        // generic message would leave the coordinator guessing which position to
+        // fill, and would hide the whole point of the partial-generation work.
+        const gaps = payload.unfilled_positions ?? [];
+        throw new Error(gaps.length ? `Cannot validate yet: ${gaps.length} position(s) still unfilled (${gaps.map((gap) => gap.role_name).join(', ')}). Fill them in the lineup first.` : payload.error ?? 'Could not validate this schedule.');
+      }
       const notes = (payload.summary?.warnings ?? 0) + (payload.summary?.suggestions ?? 0);
       setMessage(notes ? `Schedule validated with ${notes} advisory finding(s).` : 'Schedule validated with no outstanding findings.');
       await loadSchedules();
@@ -285,7 +317,7 @@ export default function SchedulePage() {
         <div className="relative flex flex-col gap-7 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-2xl">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-primary">Worship coordination / monthly plan</p>
-            <h1 className="font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">The month, in harmony.</h1>
+            <h1 className="font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">Month Schedule</h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Review availability, shape each service lineup, and publish only after the current schedule has been validated.</p>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-2 xl:max-w-xl">
@@ -397,12 +429,41 @@ export default function SchedulePage() {
           <CardContent className="p-5">
             {selectedService ? (
               <div className="space-y-5">
-                <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Service status</span><Badge variant={selectedService.status === 'published' ? 'default' : 'outline'} className="capitalize">{selectedService.legacy_unscoped ? 'Legacy · ministry unknown' : selectedService.status}</Badge></div>
+                <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Service status</span><div className="flex items-center gap-2"><Badge variant={selectedService.status === 'published' ? 'default' : 'outline'} className="capitalize">{selectedService.legacy_unscoped ? 'Legacy · ministry unknown' : selectedService.status}</Badge>{selectedService.is_complete === false && !selectedService.legacy_unscoped ? <Badge variant="outline" className="border-[oklch(0.70_0.08_80)]/45 text-[oklch(0.52_0.09_62)]">Incomplete</Badge> : null}</div></div>
+                {selectedService.is_complete === false && selectedService.unfilled_positions?.length ? (
+                  <div role="status" className="rounded-2xl border border-[oklch(0.70_0.08_80)]/40 bg-[oklch(0.70_0.08_80)]/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[oklch(0.52_0.09_62)]">Still unfilled</p>
+                    <ul className="mt-2 space-y-2">
+                      {selectedService.unfilled_positions.map((gap, index) => (
+                        <li key={`${gap.role_name}-${index}`} className="text-sm">
+                          <span className="font-medium">{gap.role_name}</span>
+                          {gap.required_slots > 1 ? <span className="text-muted-foreground"> · {gap.required_slots} needed</span> : null}
+                          {gap.rejected_candidates.length ? (
+                            <span className="block text-xs text-muted-foreground">
+                              {gap.rejected_candidates.map((rejected) => `${rejected.member_name}: ${rejected.reason}`).join(' · ')}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 text-xs text-muted-foreground">A draft may stay incomplete. Validation and publishing require every position above to be filled.</p>
+                  </div>
+                ) : null}
+                {selectedService.active_overrides && Object.values(selectedService.active_overrides).some(Boolean) ? (
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Coordinator override in effect</p>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {selectedService.active_overrides.availability ? <li>Availability conflicts are licensed for this service.</li> : null}
+                      {selectedService.active_overrides.instrument_qualification ? <li>Instrument skill checks are licensed for this service.</li> : null}
+                    </ul>
+                    <p className="mt-2 text-xs text-muted-foreground">Recorded with a reason in the schedule history. Open the lineup to withdraw it.</p>
+                  </div>
+                ) : null}
                 <div className="rounded-2xl bg-primary/5 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Worship leader</p><p className="mt-1 text-lg font-semibold">{selectedService.leader_name}</p>
                 </div>
-                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Vocal team</p><div className="flex flex-wrap gap-2">{selectedService.backup_singers.length ? selectedService.backup_singers.map((member, index) => <Badge key={`${member.name}-${index}`} variant="secondary" className="h-7 px-3 font-normal">{member.name}</Badge>) : <span className="text-sm text-muted-foreground">No backup singers assigned</span>}</div></div>
-                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Instruments & service roles</p><div className="space-y-2">{selectedService.instrumentalists.map((player, index) => <div key={`${player.instrument}-${index}`} className="flex justify-between gap-4 border-b border-border/70 pb-2 text-sm"><span className="text-muted-foreground">{player.instrument}</span><span className="font-medium text-right">{player.name}</span></div>)}{selectedService.devotion_name ? <div className="flex justify-between gap-4 text-sm"><span className="text-muted-foreground">Devotion</span><span className="font-medium">{selectedService.devotion_name}</span></div> : null}</div></div>
+                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Back Up</p><div className="flex flex-wrap gap-2">{selectedService.backup_singers.length ? selectedService.backup_singers.map((member, index) => <Badge key={`${member.name}-${index}`} variant="secondary" className="h-7 px-3 font-normal">{member.name}</Badge>) : <span className="text-sm text-muted-foreground">No backup singers assigned</span>}</div></div>
+                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Instrumentalist</p><div className="space-y-2">{selectedService.instrumentalists.map((player, index) => <div key={`${player.instrument}-${index}`} className="flex justify-between gap-4 border-b border-border/70 pb-2 text-sm"><span className="text-muted-foreground">{player.instrument}</span><span className="font-medium text-right">{player.name}</span></div>)}{selectedService.devotion_name ? <div className="flex justify-between gap-4 text-sm"><span className="text-muted-foreground">Devotion</span><span className="font-medium">{selectedService.devotion_name}</span></div> : null}</div></div>
                 {selectedService.legacy_unscoped ? <p className="rounded-xl border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">This historical schedule has no reliable ministry assignment. It can be reviewed, but editing and regeneration stay locked until its ownership is resolved.</p> : null}
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                   {['draft', 'validated'].includes(selectedService.status) && (!monthIsPast || selectedService.revision_of) && !selectedService.legacy_unscoped ? <Button onClick={() => setEditingId(selectedService.id)}>Edit lineup</Button> : null}
@@ -443,6 +504,7 @@ export default function SchedulePage() {
         members={members}
         roles={roles}
         instruments={instruments}
+        activeOverrides={editingService?.active_overrides}
         onSaved={() => { setEditingId(''); setMessage('Lineup saved as a draft. Any prior validation was cleared, so validate this version before publishing.'); void loadSchedules(); }}
       />
 

@@ -1,8 +1,7 @@
-import type { GeneratedService } from '@/lib/types/scheduling';
-import type { Instrument, Member, Role, Service } from '@/lib/types/database';
+import type { GeneratedService, UnfilledPosition } from '@/lib/types/scheduling';
+import type { Instrument, Member, Role, Service, ServiceUnfilledPosition } from '@/lib/types/database';
 import {
   isBackupRoleName,
-  isDevotionRoleName,
   isInstrumentalistRoleName,
   isWorshipLeaderRoleName,
   matchesInstrumentName,
@@ -30,12 +29,23 @@ export interface PersistAssignment {
   /** `null`, never `undefined`: matches the SQL `NULLIF(...,'')::UUID`. */
   instrument_id: string | null;
   is_leader: boolean;
+  is_devotion: boolean;
 }
 
 export interface PersistService {
   week_number: number;
   date: string;
   assignments: PersistAssignment[];
+  /**
+   * Positions this week could not fill, persisted to
+   * `services.unfilled_positions`.
+   *
+   * Always an array, including for a complete week, and never `null`: the RPC
+   * writes it with COALESCE so an explicit `[]` CLEARS the column on
+   * regeneration. Omitting the key, or sending `null`, would leave a stale gap
+   * list on a service that a later regeneration has since filled completely.
+   */
+  unfilled_positions: ServiceUnfilledPosition[];
 }
 
 export interface MonthSchedulePayload {
@@ -60,6 +70,7 @@ interface ResolvedAssignment {
   roleId: string;
   instrumentId: string | null;
   isLeader: boolean;
+  isDevotion: boolean;
 }
 
 function roleFor(member: Member | null, predicate: (role: Role) => boolean): Role | undefined {
@@ -81,12 +92,14 @@ function resolveAssignments(generated: GeneratedService): ResolvedAssignment[] {
   const add = (member: Member | null, role: Role | undefined, instrumentId: string | null, isLeader = false) => {
     if (!member) return;
     if (!role) throw new UnresolvableRoleError(member.full_name);
-    resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader });
+    const isDevotion = !isLeader && member === generated.devotion;
+    resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader, isDevotion });
   };
   add(generated.leader, roleFor(generated.leader, (role) => isWorshipLeaderRoleName(role.name)), null, true);
   for (const member of generated.backup_singers) add(member, roleFor(member, (role) => isBackupRoleName(role.name)), null);
   for (const item of generated.instrumentalists) add(item.member, instrumentRoleFor(item.member, item.instrument), item.instrument.id);
-  add(generated.devotion, roleFor(generated.devotion, (role) => isDevotionRoleName(role.name)), null);
+  add(generated.devotion, generated.devotion_role ?? (generated.devotion ?
+    roleFor(generated.devotion, (role) => role.is_active) : undefined), null);
   return resolved;
 }
 
@@ -96,6 +109,7 @@ function toPersistAssignments(resolved: ResolvedAssignment[]): PersistAssignment
     role_id: row.roleId,
     instrument_id: row.instrumentId,
     is_leader: row.isLeader,
+    is_devotion: row.isDevotion,
   }));
 }
 
@@ -113,12 +127,35 @@ export function buildMonthSchedulePayload(generated: GeneratedService[]): MonthS
       week_number: generatedService.week_number,
       date: generatedService.date,
       assignments: toPersistAssignments(resolveAssignments(generatedService)),
+      // `?? []` rather than a conditional: a complete week MUST send an empty
+      // array so the RPC clears any gap list left by an earlier generation.
+      unfilled_positions: normalizeGaps(generatedService.unfilled_positions),
     })),
   };
 }
 
+/**
+ * The engine's `UnfilledPosition[]` and the RPC's `ServiceUnfilledPosition[]`
+ * are structurally identical by design, so this is only making two guarantees
+ * explicit: the array is always present, and `service_id` is omitted rather than
+ * sent as `null` when the generator does not yet know the service row id (the
+ * RPC stamps the real id onto each entry it persists).
+ */
+function normalizeGaps(gaps: UnfilledPosition[] | undefined): ServiceUnfilledPosition[] {
+  return (gaps ?? []).map(({ service_id, week_number, date, role_name, required_slots, eligible_candidates, rejected_candidates, message }) => ({
+    ...(service_id ? { service_id } : {}),
+    week_number,
+    date,
+    role_name,
+    required_slots,
+    eligible_candidates: eligible_candidates ?? [],
+    rejected_candidates: (rejected_candidates ?? []).map(({ member_id, member_name, reason }) => ({ member_id, member_name, reason })),
+    message,
+  }));
+}
+
 function assignmentRowsFor(service: Service, resolved: ResolvedAssignment[], userId: string, now: string): Array<Record<string, unknown>> {
-  return resolved.map((row) => ({ service_id: service.id, member_id: row.memberId, role_id: row.roleId, instrument_id: row.instrumentId, is_leader: row.isLeader, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }));
+  return resolved.map((row) => ({ service_id: service.id, member_id: row.memberId, role_id: row.roleId, instrument_id: row.instrumentId, is_leader: row.isLeader, is_devotion: row.isDevotion, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }));
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Instrument, Member, Role, Service } from '@/lib/types/database';
-import type { GeneratedService } from '@/lib/types/scheduling';
+import type { GeneratedService, UnfilledPosition } from '@/lib/types/scheduling';
 import { assignmentRows, buildMonthSchedulePayload, UnresolvableRoleError } from './persistence';
 
 /**
@@ -17,7 +17,7 @@ const instrumentalistRole: Role = {
 };
 const guitar: Instrument = {
   id: 'guitar-1', ministry_id: 'ministry', name: 'Guitar 1', is_required: true,
-  min_count: 1, max_count: 1, created_at: '',
+  min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 const guitarist: Member = {
   id: 'guitarist', church_id: 'church', full_name: 'Guitarist', status: 'active',
@@ -53,6 +53,23 @@ describe('assignmentRows', () => {
     expect(() => assignmentRows(service, generated, 'user')).toThrow('Could not resolve a persisted role');
     expect(() => assignmentRows(service, generated, 'user')).toThrow(UnresolvableRoleError);
   });
+
+  it('persists devotion as a marked assignment without requiring a member role', () => {
+    const devotionMember: Member = { ...guitarist, id: 'devotion-member', roles: [] };
+    const backupRole: Role = { ...instrumentalistRole, id: 'role-back-up', name: 'Back Up' };
+    const rows = assignmentRows(service, {
+      ...generatedWithGuitarist,
+      instrumentalists: [],
+      devotion: devotionMember,
+      devotion_role: backupRole,
+    }, 'user');
+
+    expect(rows).toEqual([expect.objectContaining({
+      member_id: devotionMember.id,
+      role_id: backupRole.id,
+      is_devotion: true,
+    })]);
+  });
 });
 
 describe('buildMonthSchedulePayload', () => {
@@ -68,10 +85,33 @@ describe('buildMonthSchedulePayload', () => {
     expect(payload.services[0]).toEqual({
       week_number: 1,
       date: '2026-09-06',
+      // A complete week must send an explicit empty array so the RPC CLEARS any
+      // gap list left by an earlier generation. Omitting the key would leave a
+      // stale gap on a service the new month has since filled.
+      unfilled_positions: [],
       assignments: [
-        { member_id: guitarist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false },
+        { member_id: guitarist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false, is_devotion: false },
       ],
     });
+  });
+
+  it('carries the engine gap list into the payload, and stamps nothing the engine did not report', () => {
+    const gaps: UnfilledPosition[] = [{
+      week_number: 1,
+      date: '2026-09-06',
+      role_name: 'Worship Leader',
+      required_slots: 1,
+      eligible_candidates: ['leader-a'],
+      rejected_candidates: [{ member_id: 'leader-a', member_name: 'Leader A', reason: 'monthly limit reached' }],
+      message: 'No eligible candidate for Worship Leader in week 1.',
+    }];
+    const payload = buildMonthSchedulePayload([
+      { ...generatedWithGuitarist, leader: null, unfilled_positions: gaps },
+      { ...generatedWithGuitarist, week_number: 2, date: '2026-09-13' },
+    ]);
+
+    expect(payload.services[0].unfilled_positions).toEqual(gaps);
+    expect(payload.services[1].unfilled_positions).toEqual([]);
   });
 
   it('carries the leader flag through to the payload', () => {
@@ -91,7 +131,7 @@ describe('buildMonthSchedulePayload', () => {
     ]);
 
     expect(payload.services[0].assignments).toEqual([
-      { member_id: 'leader', role_id: leaderRole.id, instrument_id: null, is_leader: true },
+      { member_id: 'leader', role_id: leaderRole.id, instrument_id: null, is_leader: true, is_devotion: false },
     ]);
   });
 

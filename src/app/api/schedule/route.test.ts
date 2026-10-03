@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instrument, Member, Role, ScheduleAssignment, Service } from '@/lib/types/database';
 import type { GeneratedService, ScheduleContext } from '@/lib/types/scheduling';
 import { SchedulingFailureError } from '@/lib/types/scheduling';
+import { unfilledFrom } from '@/lib/scheduling/gaps';
 
 /**
  * Route-level contract tests for the COMPOSITE `GET`/`POST /api/schedule`
@@ -96,7 +97,7 @@ const instrumentalistRole: Role = {
 };
 const guitar: Instrument = {
   id: 'instrument-guitar-1', ministry_id: MINISTRY_ID, name: 'Guitar 1',
-  is_required: true, min_count: 1, max_count: 1, created_at: '',
+  is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 /** The live-data shape that used to be dropped: role 'Instrumentalist', instrument 'Guitar 1'. */
 const instrumentalist: Member = {
@@ -222,6 +223,86 @@ describe('GET /api/schedule', () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ code: 'invalid_month_year' });
     expect(loadScheduleData).not.toHaveBeenCalled();
+  });
+
+  it('serves the collapsed Guitar catalogue and a single role_name Guitar gap unchanged', async () => {
+    // ROUND TRIP for the collapsed catalogue. `unfilled_positions` is served,
+    // never recomputed, so the contract is: the write authority
+    // (`unfilledFrom`, run for real below) computes the row, it is persisted, and
+    // the read path must hand back exactly those bytes. A `Guitar` gap of
+    // `required_slots: 2` here would mean the min_count of 1 was read as a
+    // demand for two players.
+    const collapsed: Instrument = {
+      id: 'instrument-guitar', ministry_id: MINISTRY_ID, name: 'Guitar',
+      is_required: true, min_count: 1, max_count: 2, slot_counts: true, created_at: '',
+    };
+    const guitarist: Member = {
+      ...instrumentalist, id: 'm-guitar', full_name: 'Guitarist',
+      skills: [{ id: 'sk-1', member_id: 'm-guitar', instrument_id: collapsed.id, skill_level: 'advanced', is_primary: true, created_at: '', instrument: collapsed }],
+    };
+    // One guitarist against min 1 / max 2, in an otherwise complete week: the
+    // write path must report NOTHING at all, not a courtesy second slot.
+    const leaderRole: Role = { id: 'role-leader', ministry_id: MINISTRY_ID, name: 'Worship Leader', min_required: 1, max_allowed: 1, priority: 1, is_active: true, created_at: '' };
+    const soloLineup = [
+      assignment({ id: 'a-leader', member_id: 'm-leader', role_id: leaderRole.id, role: leaderRole, is_leader: true }),
+      assignment({
+        id: 'a-guitar', member_id: 'm-guitar', role_id: instrumentalistRole.id,
+        role: instrumentalistRole, instrument_id: collapsed.id, instrument: collapsed,
+        member: guitarist,
+      }),
+    ];
+    const noGaps = unfilledFrom({
+      service: service({ month: 9 }), church_id: 'church-1', month: 9, year: 2026, week_number: 1,
+      existing_assignments: soloLineup, available_members: [guitarist], all_members: [guitarist],
+      rules: [{ rule_type: 'backup_count', severity: 'critical', rule_config: { min_required: 0, max_allowed: 10 } }],
+      instruments: [collapsed],
+    }, soloLineup);
+    expect(noGaps).toEqual([]);
+
+    loadScheduleData.mockResolvedValue({
+      services: [service({ unfilled_positions: noGaps })],
+      assignments: soloLineup, monthlyAssignments: [],
+      members: [guitarist], roles: [instrumentalistRole], instruments: [collapsed], rules: [], config: {},
+    });
+
+    const body = await (await GET(get() as never)).json();
+
+    // The catalogue round-trips whole, flag included: a client that renders the
+    // "min 1 / max 2" hint must not silently lose the opt-in.
+    expect(body.instruments).toEqual([collapsed]);
+    expect(body.services[0].instrumentalists).toEqual([{ instrument: 'Guitar', name: 'Guitarist' }]);
+    expect(body.services[0].unfilled_positions).toEqual([]);
+    expect(body.services[0].is_complete).toBe(true);
+
+    // And the unfilled case is ONE row, not one per slot. The row is still the
+    // authority's own output, computed by `unfilledFrom` on a week that is
+    // otherwise complete (leader + backups, no guitarist) so the Guitar shortfall
+    // is provably the ONLY gap it reports.
+    const backupRole: Role = { id: 'role-backup', ministry_id: MINISTRY_ID, name: 'Backup', min_required: 0, max_allowed: 10, priority: 2, is_active: true, created_at: '' };
+    const noGuitarLineup = [
+      assignment({ id: 'a-leader', member_id: 'm-leader', role_id: leaderRole.id, role: leaderRole, is_leader: true }),
+      ...['m-b1', 'm-b2', 'm-b3'].map((memberId, index) =>
+        assignment({ id: `a-b${index}`, member_id: memberId, role_id: backupRole.id, role: backupRole })),
+    ];
+    const guitarGap = unfilledFrom({
+      service: service({ month: 9 }), church_id: 'church-1', month: 9, year: 2026, week_number: 1,
+      existing_assignments: noGuitarLineup, available_members: [], all_members: [],
+      rules: [{ rule_type: 'backup_count', severity: 'critical', rule_config: { min_required: 3, max_allowed: 10 } }],
+      instruments: [collapsed],
+    }, noGuitarLineup);
+    expect(guitarGap).toHaveLength(1);
+    expect(guitarGap[0]).toMatchObject({ role_name: 'Guitar', required_slots: 1 });
+
+    loadScheduleData.mockResolvedValue({
+      services: [service({ unfilled_positions: guitarGap })],
+      assignments: noGuitarLineup, monthlyAssignments: [],
+      members: [guitarist], roles: [instrumentalistRole], instruments: [collapsed], rules: [], config: {},
+    });
+
+    const gapped = await (await GET(get() as never)).json();
+    expect(gapped.services[0].unfilled_positions).toEqual([expect.objectContaining({ role_name: 'Guitar', required_slots: 1 })]);
+    expect(gapped.services[0].unfilled_positions.filter((row: { role_name: string }) => row.role_name === 'Guitar')).toHaveLength(1);
+    expect(gapped.services[0].is_complete).toBe(false);
   });
 });
 
@@ -404,6 +485,12 @@ describe('POST /api/schedule — monthly-limit ledger', () => {
 });
 
 describe('POST /api/schedule — persistence', () => {
+  // What this proves, precisely: the write goes through `persist_month_schedule`
+  // and nothing else. It is the testable half of the claim that the legacy
+  // `replace_month_schedule` has no caller, which is why that function is
+  // knowingly left unaligned in 20260930120000. It does NOT assert that the two
+  // functions agree -- they deliberately do not, and this file's comment block
+  // explains why. Do not read a pass here as evidence for plan row I18.
   it('writes the month through persist_month_schedule, never replace_month_schedule', async () => {
     const response = await POST(post({ month: 9, year: 2026 }) as never);
 
@@ -462,7 +549,7 @@ describe('POST /api/schedule — persistence', () => {
 
     expect(response.status).toBe(201);
     expect(sent[0].assignments).toEqual([
-      { member_id: instrumentalist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false },
+      { member_id: instrumentalist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false, is_devotion: false },
     ]);
   });
 

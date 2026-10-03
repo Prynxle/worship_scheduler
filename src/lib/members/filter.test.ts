@@ -48,6 +48,7 @@ const instrument = (id: string, name: string): Instrument => ({
   is_required: false,
   min_count: 0,
   max_count: 99,
+  slot_counts: false,
   created_at: '2026-01-01T00:00:00Z',
 });
 

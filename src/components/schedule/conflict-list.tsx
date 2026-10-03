@@ -92,6 +92,19 @@ export function ConflictList({ conflicts, onResolve, onDismiss }: ConflictListPr
                       Recommendation: {conflict.recommendation}
                     </p>
                   )}
+                  {/*
+                    A `warning` here may be a hard conflict that was deliberately
+                    downgraded. Saying so is the whole point: without it a
+                    coordinator sees a softer-looking row and cannot tell an
+                    accepted risk from a genuinely minor advisory.
+                  */}
+                  {conflict.deferred_until && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {conflict.deferred_until === 'publish'
+                        ? 'Overridden by a coordinator. Re-checked at publication.'
+                        : 'Allowed while this schedule is a draft. Re-checked at validation.'}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">

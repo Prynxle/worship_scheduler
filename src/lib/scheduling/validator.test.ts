@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ScheduleValidator } from './validator';
 import type { ScheduleContext } from '../types/scheduling';
 import type {
+  Instrument,
   Member,
   Service,
   ScheduleAssignment,
@@ -281,5 +282,201 @@ describe('ScheduleValidator (AGENTS.md hard rules)', () => {
     const results = await new ScheduleValidator(ctx).validate();
     const critical = results.filter((r) => r.severity === 'critical');
     expect(critical).toHaveLength(0);
+  });
+});
+
+/**
+ * Stage enforcement. The `check` field is the ONLY key the stage logic reads, and
+ * these tests pin both halves of that contract: the four deferrable checks degrade
+ * at draft stage, and everything else does not.
+ */
+describe('ScheduleValidator stage enforcement', () => {
+  const backupRules = [{ rule_type: 'backup_count', severity: 'critical' as const, rule_config: { min_required: 3, max_allowed: 3 } }];
+
+  /** A draft with no leader and one backup: two deferrable gaps at once. */
+  const partialContext = (stage?: 'draft' | 'final') => context({
+    existing_assignments: [assignment({ id: 'a1', member_id: 'm2', is_leader: false })],
+    all_members: [roleMember(), member({ id: 'm2' })],
+    rules: backupRules,
+    validation_stage: stage,
+  });
+
+  it('defaults to the final stage, so a caller that ignores stages gets strict behaviour', async () => {
+    const results = await new ScheduleValidator(partialContext()).validate();
+    const checks = results.filter((r) => r.severity === 'critical').map((r) => r.check);
+    expect(checks).toEqual(expect.arrayContaining(['leader_count_missing', 'backup_count_min']));
+  });
+
+  it('defers exactly the four gap criticals at draft stage, each disclosing where it is re-asserted', async () => {
+    const results = await new ScheduleValidator(partialContext('draft')).validate();
+    const deferred = results.filter((r) => r.deferred_until);
+    expect(deferred.map((r) => r.check).sort()).toEqual(['backup_count_min', 'leader_count_missing']);
+    for (const result of deferred) {
+      expect(result.severity).toBe('warning');
+      expect(result.deferred_until).toBe('validate');
+    }
+  });
+
+  it('never defers a second leader, a backup overflow, or an unqualified leader', async () => {
+    // Two leaders plus an overflowed backup count plus an unqualified leader: all
+    // three are the non-deferrable half of their rules and must survive draft stage
+    // as CRITICAL, because none of them is an unfillable gap.
+    const twoLeaders = context({
+      validation_stage: 'draft',
+      existing_assignments: [
+        assignment({ id: 'a1', member_id: 'm1', is_leader: true }),
+        assignment({ id: 'a2', member_id: 'm2', is_leader: true }),
+        assignment({ id: 'a3', member_id: 'm3', is_leader: false }),
+        assignment({ id: 'a4', member_id: 'm4', is_leader: false }),
+        assignment({ id: 'a5', member_id: 'm5', is_leader: false }),
+        assignment({ id: 'a6', member_id: 'm6', is_leader: false }),
+        // m1 is already a leader; giving m1 a second row is the "leader is also
+        // doing another job" case, which is a hard duplicate, not a gap.
+        assignment({ id: 'a7', member_id: 'm1', is_leader: false }),
+      ],
+      all_members: [
+        roleMember(),
+        member({ id: 'm2', roles: [roleMemberRole] }),
+        member({ id: 'm3' }), member({ id: 'm4' }), member({ id: 'm5' }), member({ id: 'm6' }),
+      ],
+      rules: backupRules,
+    });
+    const results = await new ScheduleValidator(twoLeaders).validate();
+    const critical = results.filter((r) => r.severity === 'critical').map((r) => r.check);
+    expect(critical).toEqual(expect.arrayContaining(['leader_count_multiple', 'backup_count_max', 'dual_role']));
+    // `m2` holds a leader role, so only the dual-role and count findings apply here.
+    expect(critical).not.toContain('leader_qualification');
+  });
+
+  it('does not defer leader-role qualification, and does not mark it overridable', async () => {
+    const singerMember = member({
+      roles: [{
+        id: 'mr-singer', member_id: 'm1', role_id: 'role-singer', skill_level: 'intermediate', is_preferred: false, created_at: '',
+        role: { id: 'role-singer', ministry_id: 'min1', name: 'Singer', description: '', min_required: 1, max_allowed: 5, priority: 2, is_active: true, created_at: '' },
+      }],
+    });
+    const results = await new ScheduleValidator(context({
+      validation_stage: 'draft',
+      existing_assignments: [assignment({ id: 'a1', member_id: 'm1', is_leader: true })],
+      all_members: [singerMember],
+      rules: backupRules,
+    })).validate();
+    const qualification = results.find((r) => r.check === 'leader_qualification');
+    expect(qualification?.severity).toBe('critical');
+    expect(qualification?.deferred_until).toBeUndefined();
+    expect(qualification?.overridable).toBeFalsy();
+  });
+
+  it('marks exactly availability and instrument qualification as overridable', async () => {
+    const unavailable: Availability = { id: 'av1', member_id: 'm2', church_id: 'church1', type: 'weekly', week_number: 1, status: 'approved', created_at: '' };
+    const results = await new ScheduleValidator(context({
+      existing_assignments: [
+        assignment({ id: 'a1', member_id: 'm1', is_leader: true }),
+        assignment({ id: 'a2', member_id: 'm2', is_leader: false, instrument_id: 'inst-guitar' }),
+      ],
+      all_members: [roleMember(), member({ id: 'm2', availability: [unavailable] })],
+      rules: backupRules,
+    })).validate();
+    const overridable = results.filter((r) => r.overridable).map((r) => r.check).sort();
+    expect(overridable).toEqual(['availability', 'instrument_qualification']);
+  });
+
+  it('reports a required instrument supplied by the catalogue that no member holds', async () => {
+    const bass = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
+    const results = await new ScheduleValidator(context({
+      existing_assignments: [assignment({ id: 'a1', member_id: 'm1', is_leader: true })],
+      all_members: [roleMember()],
+      instruments: [bass],
+      rules: backupRules,
+    })).validate();
+    const gap = results.find((r) => r.check === 'required_instrument_missing');
+    expect(gap).toMatchObject({ severity: 'critical', role_name: 'Bass' });
+  });
+});
+
+/**
+ * `final` stage, which is the validate and publish surface: nothing is
+ * deferred, so every one of these is a real hard `critical`.
+ */
+describe('ScheduleValidator: instrument slot counts at final stage', () => {
+  const guitar: Instrument = { id: 'inst-guitar', ministry_id: 'min1', name: 'Guitar', is_required: true, min_count: 1, max_count: 2, slot_counts: true, created_at: '' };
+  const pairGuitar: Instrument = { ...guitar, min_count: 2, max_count: 2 };
+  const countRules = [{ rule_type: 'backup_count', severity: 'critical' as const, rule_config: { min_required: 0, max_allowed: 10 } }];
+
+  const instrumentalistRole: Role = { ...leaderRole, id: 'role-inst', name: 'Instrumentalist', min_required: 0, max_allowed: 10 };
+
+  function guitarPlayer(id: string): Member {
+    const memberRole: MemberRole = { id: `mr-${id}`, member_id: id, role_id: instrumentalistRole.id, skill_level: 'advanced', is_preferred: true, created_at: '', role: instrumentalistRole };
+    return member({
+      id, full_name: id, roles: [memberRole],
+      skills: [{ id: `sk-${id}`, member_id: id, instrument_id: guitar.id, skill_level: 'advanced', is_primary: true, created_at: '', instrument: guitar }],
+    });
+  }
+
+  function guitarAssignment(id: string, memberId: string, instrumentId = guitar.id): ScheduleAssignment {
+    return assignment({ id, member_id: memberId, role_id: instrumentalistRole.id, role: instrumentalistRole, instrument_id: instrumentId, is_leader: false });
+  }
+
+  function guitarContext(instrument: Instrument, guitarAssignments: ScheduleAssignment[]): ScheduleContext {
+    const leader = roleMember({ id: 'm-leader' });
+    return context({
+      existing_assignments: [assignment({ id: 'a-leader', member_id: 'm-leader', role_id: leaderRole.id, role: leaderRole, is_leader: true }), ...guitarAssignments],
+      all_members: [leader, ...guitarAssignments.map((entry) => guitarPlayer(entry.member_id))],
+      available_members: [leader],
+      instruments: [instrument],
+      rules: countRules,
+      validation_stage: 'final',
+    });
+  }
+
+  it('is clean at final stage with one guitarist against min 1 / max 2', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
+    expect(results.filter((result) => result.severity === 'critical')).toEqual([]);
+  });
+
+  it('stays clean with two guitarists against min 1 / max 2', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [
+      guitarAssignment('g1', 'g1'), guitarAssignment('g2', 'g2'),
+    ])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
+    expect(results.filter((result) => result.severity === 'critical')).toEqual([]);
+  });
+
+  it('reports required_instrument_missing as a critical at final stage with zero guitarists', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'critical', role_name: 'Guitar', rule_type: 'instrument_constraint' }),
+    ]);
+  });
+
+  it('reports a shortfall against a min_count of 2 using the same check and severity', async () => {
+    // A shortfall must reuse `required_instrument_missing`, not invent a new hard
+    // check: the set of draft-deferrable checks is a literal, so a new critical
+    // name would silently become non-deferrable and an unpublishable draft.
+    const results = await new ScheduleValidator(guitarContext(pairGuitar, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'critical', role_name: 'Guitar' }),
+    ]);
+  });
+
+  it('does not report the shortfall at draft stage as more than a deferred warning', async () => {
+    const draft = { ...guitarContext(pairGuitar, [guitarAssignment('g1', 'g1')]), validation_stage: 'draft' as const };
+    const results = await new ScheduleValidator(draft).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'warning', deferred_until: 'validate' }),
+    ]);
+  });
+
+  it('keeps the flag-off row a pure presence test even with max_count above min_count', async () => {
+    const legacy = { ...pairGuitar, slot_counts: false };
+    const results = await new ScheduleValidator(guitarContext(legacy, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
   });
 });
