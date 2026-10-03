@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: validated.error }, { status: 400 });
   }
 
-  const { title, date, time, location, kind, color, attendees } = validated.value;
+  const { title, date, time, location, description, attendees } = validated.value;
 
   const { count, error: countError } = await getAdminClient()
     .from('events')
@@ -58,8 +58,7 @@ export async function POST(request: NextRequest) {
       date,
       time,
       location,
-      kind: kind ?? 'Gathering',
-      color: color ?? 'violet',
+      description,
       attendees,
       created_by: context.userId,
     })
