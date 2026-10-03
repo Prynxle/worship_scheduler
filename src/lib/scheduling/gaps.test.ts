@@ -39,8 +39,8 @@ const backupRole: Role = { ...leaderRole, id: 'role-backup', name: 'Backup Singe
 
 const devotionRole: Role = { ...leaderRole, id: 'role-devotion', name: 'Devotion', min_required: 0, max_allowed: 10, priority: 3 };
 
-const guitar: Instrument = { id: 'inst-guitar', ministry_id: 'min1', name: 'Guitar', is_required: true, min_count: 1, max_count: 1, created_at: '' };
-const bass: Instrument = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, created_at: '' };
+const guitar: Instrument = { id: 'inst-guitar', ministry_id: 'min1', name: 'Guitar', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
+const bass: Instrument = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
 const optionalKeys: Instrument = { ...guitar, id: 'inst-keys', name: 'Keys', is_required: false };
 
 function member(overrides: Partial<Member> = {}): Member {
@@ -236,6 +236,87 @@ describe('unfilledFrom: the write-side gap authority', () => {
       expect(gap.eligible_candidates).toEqual([]);
       expect(gap.rejected_candidates).toEqual([]);
     }
+  });
+});
+
+/**
+ * `unfilledFrom` is the WRITE-side authority: it is what gets persisted into
+ * `services.unfilled_positions`, so a mistake here is a gap row the coordinator
+ * sees next to a lineup that contradicts it.
+ */
+describe('unfilledFrom with an opted-in instrument count', () => {
+  const countGuitar: Instrument = { ...guitar, min_count: 1, max_count: 2, slot_counts: true };
+  const pairGuitar: Instrument = { ...guitar, min_count: 2, max_count: 2, slot_counts: true };
+
+  function guitaristAssignments(instrumentId: string, ids: string[]): ScheduleAssignment[] {
+    return ids.map((id, index) => assignment({
+      id: `g-${index}`, member_id: id, role_id: 'role-inst',
+      role: { ...backupRole, id: 'role-inst', name: 'Instrumentalist' },
+      instrument_id: instrumentId,
+    }));
+  }
+
+  it('reports no gap for one guitarist when the row asks for min 1 / max 2', () => {
+    const ctx = context({ rules: backupRule(3), instruments: [countGuitar] });
+    const lineup = [...fullLineup(3), ...guitaristAssignments(countGuitar.id, ['m-g1'])];
+
+    expect(unfilledFrom(ctx, lineup)).toEqual([]);
+  });
+
+  it('reports the numeric shortfall as required_slots when a count is missed', () => {
+    const ctx = context({ rules: backupRule(3), instruments: [pairGuitar] });
+    const lineup = [...fullLineup(3), ...guitaristAssignments(pairGuitar.id, ['m-g1'])];
+
+    expect(unfilledFrom(ctx, lineup)).toEqual([
+      expect.objectContaining({ role_name: 'Guitar', required_slots: 1, message: expect.stringContaining('Only 1 of 2 Guitar assigned') }),
+    ]);
+  });
+
+  it('keeps the presence test and its message byte-identical when the flag is off', () => {
+    // Same `max_count: 2`, no opt-in: the row is an absence, not a shortfall, and
+    // reads exactly as it did before counts existed.
+    const legacy = { ...countGuitar, slot_counts: false };
+    const ctx = context({ rules: backupRule(3), instruments: [legacy] });
+
+    expect(unfilledFrom(ctx, fullLineup(3))).toEqual([
+      expect.objectContaining({ role_name: 'Guitar', required_slots: 1, message: 'Required Guitar is not assigned for week 1.' }),
+    ]);
+    // And a min_count of 2 with the flag off still demands only ONE.
+    const legacyPair = { ...pairGuitar, slot_counts: false };
+    const pairCtx = context({ rules: backupRule(3), instruments: [legacyPair] });
+    expect(unfilledFrom(pairCtx, fullLineup(3))).toEqual([
+      expect.objectContaining({ role_name: 'Guitar', required_slots: 1 }),
+    ]);
+  });
+
+  it('never reports required_slots below 1', () => {
+    const ctx = context({ rules: backupRule(3), instruments: [pairGuitar] });
+    const zero = unfilledFrom(ctx, fullLineup(3));
+    expect(zero).toEqual([expect.objectContaining({ role_name: 'Guitar', required_slots: 2 })]);
+    for (const gap of zero) expect(gap.required_slots).toBeGreaterThanOrEqual(1);
+  });
+
+  it('ignores assignments for a different instrument when counting', () => {
+    const ctx = context({ rules: backupRule(3), instruments: [countGuitar] });
+    const lineup = [...fullLineup(3), ...guitaristAssignments('some-other-instrument', ['m-g1'])];
+
+    expect(unfilledFrom(ctx, lineup)).toEqual([
+      expect.objectContaining({ role_name: 'Guitar', required_slots: 1 }),
+    ]);
+  });
+
+  it('reports no gap at all for an opted-in row that requires none of the instrument', () => {
+    // `min_count: 0` with the flag on is a legal, legal-to-store configuration
+    // ("up to max, none required"). The position is not required, so an empty
+    // slot is not a gap: reporting one would put a coordinator in the position of
+    // filling a role the catalogue does not actually demand.
+    const noneRequired: Instrument = { ...guitar, min_count: 0, max_count: 2, slot_counts: true };
+    const ctx = context({ rules: backupRule(3), instruments: [noneRequired] });
+
+    expect(unfilledFrom(ctx, fullLineup(3))).toEqual([]);
+    // Nor does a shortfall in the OPTIONAL part become a gap: one of two is the
+    // configured happy path for min 0 / max 2.
+    expect(unfilledFrom(ctx, [...fullLineup(3), ...guitaristAssignments(noneRequired.id, ['m-g1'])])).toEqual([]);
   });
 });
 

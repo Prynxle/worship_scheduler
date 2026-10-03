@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ScheduleValidator } from './validator';
 import type { ScheduleContext } from '../types/scheduling';
 import type {
+  Instrument,
   Member,
   Service,
   ScheduleAssignment,
@@ -381,7 +382,7 @@ describe('ScheduleValidator stage enforcement', () => {
   });
 
   it('reports a required instrument supplied by the catalogue that no member holds', async () => {
-    const bass = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, created_at: '' };
+    const bass = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
     const results = await new ScheduleValidator(context({
       existing_assignments: [assignment({ id: 'a1', member_id: 'm1', is_leader: true })],
       all_members: [roleMember()],
@@ -390,5 +391,92 @@ describe('ScheduleValidator stage enforcement', () => {
     })).validate();
     const gap = results.find((r) => r.check === 'required_instrument_missing');
     expect(gap).toMatchObject({ severity: 'critical', role_name: 'Bass' });
+  });
+});
+
+/**
+ * `final` stage, which is the validate and publish surface: nothing is
+ * deferred, so every one of these is a real hard `critical`.
+ */
+describe('ScheduleValidator: instrument slot counts at final stage', () => {
+  const guitar: Instrument = { id: 'inst-guitar', ministry_id: 'min1', name: 'Guitar', is_required: true, min_count: 1, max_count: 2, slot_counts: true, created_at: '' };
+  const pairGuitar: Instrument = { ...guitar, min_count: 2, max_count: 2 };
+  const countRules = [{ rule_type: 'backup_count', severity: 'critical' as const, rule_config: { min_required: 0, max_allowed: 10 } }];
+
+  const instrumentalistRole: Role = { ...leaderRole, id: 'role-inst', name: 'Instrumentalist', min_required: 0, max_allowed: 10 };
+
+  function guitarPlayer(id: string): Member {
+    const memberRole: MemberRole = { id: `mr-${id}`, member_id: id, role_id: instrumentalistRole.id, skill_level: 'advanced', is_preferred: true, created_at: '', role: instrumentalistRole };
+    return member({
+      id, full_name: id, roles: [memberRole],
+      skills: [{ id: `sk-${id}`, member_id: id, instrument_id: guitar.id, skill_level: 'advanced', is_primary: true, created_at: '', instrument: guitar }],
+    });
+  }
+
+  function guitarAssignment(id: string, memberId: string, instrumentId = guitar.id): ScheduleAssignment {
+    return assignment({ id, member_id: memberId, role_id: instrumentalistRole.id, role: instrumentalistRole, instrument_id: instrumentId, is_leader: false });
+  }
+
+  function guitarContext(instrument: Instrument, guitarAssignments: ScheduleAssignment[]): ScheduleContext {
+    const leader = roleMember({ id: 'm-leader' });
+    return context({
+      existing_assignments: [assignment({ id: 'a-leader', member_id: 'm-leader', role_id: leaderRole.id, role: leaderRole, is_leader: true }), ...guitarAssignments],
+      all_members: [leader, ...guitarAssignments.map((entry) => guitarPlayer(entry.member_id))],
+      available_members: [leader],
+      instruments: [instrument],
+      rules: countRules,
+      validation_stage: 'final',
+    });
+  }
+
+  it('is clean at final stage with one guitarist against min 1 / max 2', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
+    expect(results.filter((result) => result.severity === 'critical')).toEqual([]);
+  });
+
+  it('stays clean with two guitarists against min 1 / max 2', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [
+      guitarAssignment('g1', 'g1'), guitarAssignment('g2', 'g2'),
+    ])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
+    expect(results.filter((result) => result.severity === 'critical')).toEqual([]);
+  });
+
+  it('reports required_instrument_missing as a critical at final stage with zero guitarists', async () => {
+    const results = await new ScheduleValidator(guitarContext(guitar, [])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'critical', role_name: 'Guitar', rule_type: 'instrument_constraint' }),
+    ]);
+  });
+
+  it('reports a shortfall against a min_count of 2 using the same check and severity', async () => {
+    // A shortfall must reuse `required_instrument_missing`, not invent a new hard
+    // check: the set of draft-deferrable checks is a literal, so a new critical
+    // name would silently become non-deferrable and an unpublishable draft.
+    const results = await new ScheduleValidator(guitarContext(pairGuitar, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'critical', role_name: 'Guitar' }),
+    ]);
+  });
+
+  it('does not report the shortfall at draft stage as more than a deferred warning', async () => {
+    const draft = { ...guitarContext(pairGuitar, [guitarAssignment('g1', 'g1')]), validation_stage: 'draft' as const };
+    const results = await new ScheduleValidator(draft).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([
+      expect.objectContaining({ severity: 'warning', deferred_until: 'validate' }),
+    ]);
+  });
+
+  it('keeps the flag-off row a pure presence test even with max_count above min_count', async () => {
+    const legacy = { ...pairGuitar, slot_counts: false };
+    const results = await new ScheduleValidator(guitarContext(legacy, [guitarAssignment('g1', 'g1')])).validate();
+
+    expect(results.filter((result) => result.check === 'required_instrument_missing')).toEqual([]);
   });
 });

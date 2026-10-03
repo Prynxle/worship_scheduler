@@ -132,6 +132,19 @@ export interface Instrument {
   is_required: boolean;
   min_count: number;
   max_count: number;
+  /**
+   * Opt-in: sweep `min_count`/`max_count` into a slot count.
+   *
+   * `false` (the column default, and every pre-existing row) means this
+   * instrument contributes exactly ONE slot however it is configured, which is
+   * the behaviour that shipped before counts existed. `true` means
+   * `min_count` hard slots plus `max_count - min_count` optional slots.
+   *
+   * It is read as `=== true` everywhere, so a row that predates the column, or
+   * any untyped/DB-sourced object that omits it, is inert rather than
+   * accidentally count-driven.
+   */
+  slot_counts: boolean;
   created_at: string;
 }
 

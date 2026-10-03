@@ -65,7 +65,7 @@ const instrumentalistRole: Role = {
 };
 const guitar: Instrument = {
   id: 'instrument-guitar-1', ministry_id: MINISTRY_ID, name: 'Guitar 1',
-  is_required: true, min_count: 1, max_count: 1, created_at: '',
+  is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 
 function memberRole(role: Role, memberId: string): MemberRole {
@@ -211,6 +211,61 @@ describe('PUT /api/schedule/[serviceId]/assignments', () => {
 
     expect(response.status).toBe(200);
     expect(body.unfilled_positions).toEqual([expect.objectContaining({ role_name: 'Guitar 1', required_slots: 1 })]);
+    expect(body.is_complete).toBe(false);
+  });
+
+  it('treats the collapsed Guitar min-1/max-2 catalogue as complete with one guitarist', async () => {
+    // The write path for the collapse. `unfilledFrom` is the authority that
+    // persists this column, so this is where a `max_count` of 2 could leak into
+    // a persisted demand for two players. It must not: one guitarist against
+    // min 1 is a complete week.
+    const collapsed: Instrument = {
+      id: 'instrument-guitar', ministry_id: MINISTRY_ID, name: 'Guitar',
+      is_required: true, min_count: 1, max_count: 2, slot_counts: true, created_at: '',
+    };
+    const renamedGuitarist = member({
+      ...guitarist,
+      skills: [{ ...guitarist.skills![0], instrument_id: collapsed.id, instrument: collapsed }],
+    });
+    loadScheduleData.mockResolvedValue(contextData({
+      members: [leader, backup1, backup2, backup3, renamedGuitarist, unqualifiedGuitarist],
+      instruments: [collapsed],
+    }));
+
+    const response = await callPut({ expected_version: 3, assignments: [
+      ...completeLineup.slice(0, 4),
+      { member_id: renamedGuitarist.id, role_id: instrumentalistRole.id, instrument_id: collapsed.id, is_leader: false },
+    ] });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.unfilled_positions).toEqual([]);
+    expect(body.is_complete).toBe(true);
+    expect(rpc).toHaveBeenCalledWith('replace_service_assignments', expect.objectContaining({ p_unfilled_positions: [] }));
+  });
+
+  it('records exactly one Guitar gap of required_slots 1 when nobody is staffed', async () => {
+    const collapsed: Instrument = {
+      id: 'instrument-guitar', ministry_id: MINISTRY_ID, name: 'Guitar',
+      is_required: true, min_count: 1, max_count: 2, slot_counts: true, created_at: '',
+    };
+    const renamedGuitarist = member({
+      ...guitarist,
+      skills: [{ ...guitarist.skills![0], instrument_id: collapsed.id, instrument: collapsed }],
+    });
+    loadScheduleData.mockResolvedValue(contextData({
+      members: [leader, backup1, backup2, backup3, renamedGuitarist, unqualifiedGuitarist],
+      instruments: [collapsed],
+    }));
+
+    const response = await callPut({ expected_version: 3, assignments: completeLineup.slice(0, 4) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // ONE row. Two rows, or `required_slots: 2`, would tell the coordinator to
+    // add a second guitarist for a week whose minimum is one.
+    expect(body.unfilled_positions).toEqual([expect.objectContaining({ role_name: 'Guitar', required_slots: 1 })]);
+    expect(body.unfilled_positions).toHaveLength(1);
     expect(body.is_complete).toBe(false);
   });
 

@@ -26,7 +26,7 @@ const service: Service = {
 };
 const guitar: Instrument = {
   id: 'guitar-1', ministry_id: 'ministry', name: 'Guitar 1', is_required: true,
-  min_count: 1, max_count: 1, created_at: '',
+  min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 
 function roleNamed(name: string): Role {
@@ -143,5 +143,92 @@ describe('role classifier', () => {
     for (const roleName of REAL_ROLE_NAMES) {
       expect(isWorshipLeaderRoleName(roleName)).toBe(roleName === 'Worship Leader');
     }
+  });
+});
+
+/**
+ * The `Guitar` collapse renames four catalogue rows into one instrument named
+ * `Guitar`, so every role name that resolved against `Guitar 1` / `Guitar 2` /
+ * `Acoustic Guitar` / `Electric Guitar` must still resolve against `Guitar`.
+ *
+ * The important property is the ANTI-ASYMMETRY, and it is asserted rather than
+ * tolerated: `matchesInstrumentName` is the strict clause and may legitimately
+ * return false for a generic role, but the consumer must then WIDEN. If the two
+ * ever agree on false, an instrumentalist assignment is dropped at the write
+ * layer. `role-classifier.ts` may only ever widen a predicate, so this test
+ * fails if a future change makes the two clauses symmetric in the narrowing
+ * direction.
+ */
+describe('guitar collapse: every legacy guitar role still resolves against the collapsed instrument', () => {
+  const collapsed: Instrument = {
+    id: 'guitar-collapsed', ministry_id: 'ministry', name: 'Guitar', is_required: true,
+    min_count: 1, max_count: 2, slot_counts: true, created_at: '',
+  };
+
+  // The instrument roles the live roster actually carries, per the seeded schema
+  // plus the church-defined names in REAL_ROLE_NAMES.
+  const GUITAR_ROLE_NAMES = ['Guitar 1', 'Guitar 2', 'Acoustic Guitar', 'Electric Guitar', 'Guitarist', 'Instrumentalist'];
+
+  function persistsFor(roleName: string): boolean {
+    const member = memberWith(roleNamed(roleName), `member-${roleName.replace(/\s+/g, '-')}`);
+    try {
+      const rows = assignmentRows(service, {
+        week_number: 1, date: service.date, leader: null, backup_singers: [], devotion: null, conflicts: [],
+        instrumentalists: [{ instrument: collapsed, member, is_fallback: false }],
+      }, 'user');
+      return rows.length === 1 && rows[0].instrument_id === collapsed.id;
+    } catch {
+      return false;
+    }
+  }
+
+  it('persists every legacy guitar role against the collapsed instrument', () => {
+    for (const roleName of GUITAR_ROLE_NAMES) {
+      expect(persistsFor(roleName)).toBe(true);
+    }
+  });
+
+  it('widens the strict name match through the Instrumentalist fallback rather than narrowing it', () => {
+    // The asymmetry is real and asserted: 'Instrumentalist' does not contain the
+    // string 'guitar', so the strict clause is false while the consumer accepts
+    // it. That is the ONLY permitted direction for a disagreement.
+    for (const roleName of GUITAR_ROLE_NAMES) {
+      const strict = matchesInstrumentName(roleName, collapsed.name);
+      const fallback = isInstrumentalistRoleName(roleName);
+      // Consumer behaviour is `strict || fallback`, i.e. never narrower.
+      expect(persistsFor(roleName)).toBe(strict || fallback);
+      expect(strict || fallback).toBe(true);
+    }
+    // The exact disagreement the collapse introduces, pinned rather than left
+    // to inference: a member whose role is the generic 'Instrumentalist' does
+    // not match the new name by string match, and is saved by the fallback.
+    expect(matchesInstrumentName('Instrumentalist', 'Guitar')).toBe(false);
+    expect(isInstrumentalistRoleName('Instrumentalist')).toBe(true);
+  });
+
+  it('keeps every legacy guitar role resolving by name match as well as by fallback', () => {
+    // The four collapsed rows all contained the substring 'guitar', so renaming
+    // the instrument to 'Guitar' keeps their specific match intact - unlike the
+    // reverse direction, which would have narrowed.
+    for (const roleName of ['Guitar 1', 'Guitar 2', 'Acoustic Guitar', 'Electric Guitar', 'Guitarist']) {
+      expect(matchesInstrumentName(roleName, collapsed.name)).toBe(true);
+    }
+  });
+
+  it('still prefers the specific instrument-name match over the generic instrument role', () => {
+    // Unchanged by the collapse: a member holding BOTH must resolve to the
+    // specific role, or every instrumentalist would be persisted as
+    // 'Instrumentalist' and the editor's role filter would break.
+    const named = roleNamed('Acoustic Guitar');
+    const generic = memberWith(roleNamed('Instrumentalist'), 'member-1');
+    const specific = memberWith(named, 'member-2');
+    const both: Member = { ...generic, roles: [...(generic.roles ?? []), ...(specific.roles ?? [])] };
+
+    const rows = assignmentRows(service, {
+      week_number: 1, date: service.date, leader: null, backup_singers: [], devotion: null, conflicts: [],
+      instrumentalists: [{ instrument: collapsed, member: both, is_fallback: false }],
+    }, 'user');
+
+    expect(rows).toEqual([expect.objectContaining({ role_id: named.id, instrument_id: collapsed.id })]);
   });
 });

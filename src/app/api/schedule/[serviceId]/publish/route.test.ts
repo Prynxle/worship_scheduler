@@ -57,7 +57,7 @@ const instrumentalistRole: Role = {
 };
 const guitar: Instrument = {
   id: 'instrument-guitar-1', ministry_id: MINISTRY_ID, name: 'Guitar 1',
-  is_required: true, min_count: 1, max_count: 1, created_at: '',
+  is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 
 function memberRole(role: Role, memberId: string): MemberRole {

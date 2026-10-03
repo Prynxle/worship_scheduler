@@ -17,7 +17,7 @@ const instrumentalistRole: Role = {
 };
 const guitar: Instrument = {
   id: 'guitar-1', ministry_id: 'ministry', name: 'Guitar 1', is_required: true,
-  min_count: 1, max_count: 1, created_at: '',
+  min_count: 1, max_count: 1, slot_counts: false, created_at: '',
 };
 const guitarist: Member = {
   id: 'guitarist', church_id: 'church', full_name: 'Guitarist', status: 'active',
