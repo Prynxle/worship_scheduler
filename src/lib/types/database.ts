@@ -324,9 +324,6 @@ export interface Notification {
   created_at: string;
 }
 
-export type EventKind = 'Service' | 'Rehearsal' | 'Gathering';
-export type EventColor = 'primary' | 'sky' | 'violet';
-
 export interface ChurchEvent {
   id: string;
   church_id: string;
@@ -334,8 +331,8 @@ export interface ChurchEvent {
   date: string;
   time?: string | null;
   location?: string | null;
-  kind: EventKind;
-  color: EventColor;
+  /** Free-text context for the event. Replaces the former Service/Rehearsal/Gathering kind. */
+  description?: string | null;
   attendees: number;
   created_by?: string | null;
   created_at: string;

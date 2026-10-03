@@ -27,27 +27,17 @@ import {
   Trash2,
   UsersRound,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import { MAX_EVENTS_PER_DAY } from '@/lib/api/events';
-import type { ChurchEvent, EventColor, EventKind } from '@/lib/types/database';
+import { MAX_EVENTS_PER_DAY, MAX_EVENT_DESCRIPTION_LENGTH } from '@/lib/api/events';
+import type { ChurchEvent } from '@/lib/types/database';
 
-const colorClasses: Record<EventColor, string> = {
-  primary: 'bg-primary',
-  sky: 'bg-sky-400',
-  violet: 'bg-violet-400',
-};
-const kindColors: Record<EventKind, EventColor> = {
-  Service: 'primary',
-  Rehearsal: 'sky',
-  Gathering: 'violet',
-};
 const timeNumbers = ['12:00', '12:30', '1:00', '1:30', '2:00', '2:30', '3:00', '3:30', '4:00', '4:30', '5:00', '5:30', '6:00', '6:30', '7:00', '7:30', '8:00', '8:30', '9:00', '9:30', '10:00', '10:30', '11:00', '11:30'];
 
 const toIso = (date: Date) =>
@@ -80,7 +70,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [year, setYear] = useState(today.getFullYear());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newKind, setNewKind] = useState<EventKind>('Gathering');
+  const [newDescription, setNewDescription] = useState('');
   const [timeValue, setTimeValue] = useState('6:00');
   const [meridiem, setMeridiem] = useState<'AM' | 'PM'>('PM');
   const [error, setError] = useState<string | null>(null);
@@ -137,8 +127,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
           date: event.date,
           time: event.time,
           location: event.location,
-          kind: event.kind,
-          color: event.color,
           attendees: event.attendees,
         },
       })),
@@ -174,11 +162,16 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
     const response = await fetch('/api/events', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, date: selectedDate, kind: newKind, color: kindColors[newKind], time: timeValue ? `${timeValue} ${meridiem}` : '' }),
+      body: JSON.stringify({
+        title,
+        date: selectedDate,
+        description: newDescription.trim(),
+        time: timeValue ? `${timeValue} ${meridiem}` : '',
+      }),
     });
     if (response.ok) {
       setNewTitle('');
-      setNewKind('Gathering');
+      setNewDescription('');
       setTimeValue('6:00');
       setMeridiem('PM');
       setDialogOpen(false);
@@ -265,15 +258,11 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                 )}
                 dayHeaderContent={(info: DayHeaderInfo) => <span className="evc-dow">{info.weekdayText}</span>}
                 eventClass={() => 'evc-event-slot'}
-                eventContent={(info: EventDisplayInfo) => {
-                  const color = info.event.extendedProps.color as EventColor | undefined;
-                  return (
-                    <span className="evc-event">
-                      <span className={cn('evc-dot', color ? colorClasses[color] : colorClasses.primary)} />
-                      <span className="evc-event-title">{info.event.title}</span>
-                    </span>
-                  );
-                }}
+                eventContent={(info: EventDisplayInfo) => (
+                  <span className="evc-event">
+                    <span className="evc-event-title">{info.event.title}</span>
+                  </span>
+                )}
                 moreLinkClass={() => 'evc-more-static'}
                 moreLinkDidMount={(info) => {
                   info.el.tabIndex = -1;
@@ -318,10 +307,11 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className={cn('size-2 rounded-full', colorClasses[event.color])} />
                         <p className="font-medium">{event.title}</p>
                       </div>
-                      <Badge variant="secondary" className="mt-3 rounded-full">{event.kind}</Badge>
+                      {event.description ? (
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
+                      ) : null}
                     </div>
                     {canManage ? (
                       <Button size="icon-sm" variant="ghost" aria-label={`Delete ${event.title}`} onClick={() => void deleteEvent(event)}>
@@ -356,16 +346,19 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <DialogDescription>Create an event for {formatDate(selectedDate, { month: 'long', day: 'numeric' })}.</DialogDescription>
             </DialogHeader>
             <Input autoFocus placeholder="Event name" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addEvent(); }} />
-            <Select value={newKind} onValueChange={(value) => setNewKind((value || 'Gathering') as EventKind)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Event type" />
-              </SelectTrigger>
-              <SelectContent>
-                {(['Service', 'Rehearsal', 'Gathering'] as const).map((option) => (
-                  <SelectItem key={option} value={option}>{option}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div>
+              <Textarea
+                placeholder="Description (optional)"
+                aria-label="Event description"
+                rows={3}
+                maxLength={MAX_EVENT_DESCRIPTION_LENGTH}
+                value={newDescription}
+                onChange={(event) => setNewDescription(event.target.value)}
+              />
+              <p className="mt-1 text-right text-xs text-muted-foreground">
+                {newDescription.trim().length}/{MAX_EVENT_DESCRIPTION_LENGTH}
+              </p>
+            </div>
             <div className="flex gap-2">
               <Select value={timeValue} onValueChange={(value) => setTimeValue(value ?? '')}>
                 <SelectTrigger className="w-full">
