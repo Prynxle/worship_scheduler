@@ -16,8 +16,8 @@ export type PlannedUnavailability = {
  *   role.
  * - Backup: slots always exist; holders of any role name accepted by the
  *   shared backup-role classifier.
- * - Devotion: slot exists only when at least one active holder of the active
- *   `Devotion` role exists; zero holders means no slot and no exclusion.
+ * - Devotion: slot exists when any active member exists; with one active
+ *   member, that person is the only available devotion holder.
  * - Required instruments: unique instrument ids (by id) referenced by an
  *   active member skill where `instrument.is_required === true`; a required
  *   instrument with zero active holders creates no slot.
@@ -59,8 +59,7 @@ export function soleQualifiedMemberIds(input: {
   const backupHolders = holdersOf(isBackupRoleName);
   if (backupHolders.size === 1) excluded.add([...backupHolders][0]);
 
-  const devotionHolders = holdersOf((name) => name === 'devotion');
-  if (devotionHolders.size === 1) excluded.add([...devotionHolders][0]);
+  if (activeMemberIds.size === 1) excluded.add([...activeMemberIds][0]);
 
   const instrumentHolders = new Map<string, Set<string>>();
   for (const entry of input.skills) {

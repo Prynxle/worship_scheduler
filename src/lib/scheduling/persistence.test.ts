@@ -53,6 +53,23 @@ describe('assignmentRows', () => {
     expect(() => assignmentRows(service, generated, 'user')).toThrow('Could not resolve a persisted role');
     expect(() => assignmentRows(service, generated, 'user')).toThrow(UnresolvableRoleError);
   });
+
+  it('persists devotion as a marked assignment without requiring a member role', () => {
+    const devotionMember: Member = { ...guitarist, id: 'devotion-member', roles: [] };
+    const backupRole: Role = { ...instrumentalistRole, id: 'role-back-up', name: 'Back Up' };
+    const rows = assignmentRows(service, {
+      ...generatedWithGuitarist,
+      instrumentalists: [],
+      devotion: devotionMember,
+      devotion_role: backupRole,
+    }, 'user');
+
+    expect(rows).toEqual([expect.objectContaining({
+      member_id: devotionMember.id,
+      role_id: backupRole.id,
+      is_devotion: true,
+    })]);
+  });
 });
 
 describe('buildMonthSchedulePayload', () => {
@@ -73,7 +90,7 @@ describe('buildMonthSchedulePayload', () => {
       // stale gap on a service the new month has since filled.
       unfilled_positions: [],
       assignments: [
-        { member_id: guitarist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false },
+        { member_id: guitarist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false, is_devotion: false },
       ],
     });
   });
@@ -114,7 +131,7 @@ describe('buildMonthSchedulePayload', () => {
     ]);
 
     expect(payload.services[0].assignments).toEqual([
-      { member_id: 'leader', role_id: leaderRole.id, instrument_id: null, is_leader: true },
+      { member_id: 'leader', role_id: leaderRole.id, instrument_id: null, is_leader: true, is_devotion: false },
     ]);
   });
 

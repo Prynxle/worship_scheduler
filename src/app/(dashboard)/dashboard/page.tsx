@@ -11,12 +11,14 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { StatsCards } from '@/components/dashboard/stats-cards';
 import { UpcomingServices } from '@/components/dashboard/upcoming-services';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getSupabaseClient } from '@/lib/supabase/client';
 
 const mockUpcomingServices = [
   { id: '1', date: '2026-08-03', week_number: 1, leader_name: 'Heidi', backup_count: 3, status: 'published' as const },
@@ -32,6 +34,35 @@ const activity = [
 ];
 
 export default function DashboardPage() {
+  const [greeting, setGreeting] = useState('Welcome to your ministry overview');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const session = (await getSupabaseClient().auth.getSession()).data.session;
+        if (!session) return;
+
+        const response = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!response.ok) return;
+
+        const result = await response.json() as { user?: { full_name?: string; role?: string } };
+        if (cancelled || result.user?.role !== 'coordinator') return;
+
+        const firstName = result.user.full_name?.trim().split(/\s+/)[0]?.toLowerCase();
+        if (firstName === 'zedrick') setGreeting('Welcome back, Music Director Zedrick');
+        if (firstName === 'marilyn') setGreeting('Welcome back, Worship Team Leader Marilyn');
+      } catch {
+        // Keep the generic overview greeting if authentication lookup fails.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="flex flex-col gap-8">
       <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card p-6 shadow-layered sm:p-8">
@@ -42,7 +73,7 @@ export default function DashboardPage() {
               <Sparkles className="size-3.5" />
               Sunday service planning
             </div>
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Good morning, John.</h2>
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">{greeting}</h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
               Your ministry is on track. Review this month&apos;s coverage, resolve two conflicts, and keep every service validated.
             </p>

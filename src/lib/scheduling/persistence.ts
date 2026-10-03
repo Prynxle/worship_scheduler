@@ -2,7 +2,6 @@ import type { GeneratedService, UnfilledPosition } from '@/lib/types/scheduling'
 import type { Instrument, Member, Role, Service, ServiceUnfilledPosition } from '@/lib/types/database';
 import {
   isBackupRoleName,
-  isDevotionRoleName,
   isInstrumentalistRoleName,
   isWorshipLeaderRoleName,
   matchesInstrumentName,
@@ -30,6 +29,7 @@ export interface PersistAssignment {
   /** `null`, never `undefined`: matches the SQL `NULLIF(...,'')::UUID`. */
   instrument_id: string | null;
   is_leader: boolean;
+  is_devotion: boolean;
 }
 
 export interface PersistService {
@@ -70,6 +70,7 @@ interface ResolvedAssignment {
   roleId: string;
   instrumentId: string | null;
   isLeader: boolean;
+  isDevotion: boolean;
 }
 
 function roleFor(member: Member | null, predicate: (role: Role) => boolean): Role | undefined {
@@ -91,12 +92,14 @@ function resolveAssignments(generated: GeneratedService): ResolvedAssignment[] {
   const add = (member: Member | null, role: Role | undefined, instrumentId: string | null, isLeader = false) => {
     if (!member) return;
     if (!role) throw new UnresolvableRoleError(member.full_name);
-    resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader });
+    const isDevotion = !isLeader && member === generated.devotion;
+    resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader, isDevotion });
   };
   add(generated.leader, roleFor(generated.leader, (role) => isWorshipLeaderRoleName(role.name)), null, true);
   for (const member of generated.backup_singers) add(member, roleFor(member, (role) => isBackupRoleName(role.name)), null);
   for (const item of generated.instrumentalists) add(item.member, instrumentRoleFor(item.member, item.instrument), item.instrument.id);
-  add(generated.devotion, roleFor(generated.devotion, (role) => isDevotionRoleName(role.name)), null);
+  add(generated.devotion, generated.devotion_role ?? (generated.devotion ?
+    roleFor(generated.devotion, (role) => role.is_active) : undefined), null);
   return resolved;
 }
 
@@ -106,6 +109,7 @@ function toPersistAssignments(resolved: ResolvedAssignment[]): PersistAssignment
     role_id: row.roleId,
     instrument_id: row.instrumentId,
     is_leader: row.isLeader,
+    is_devotion: row.isDevotion,
   }));
 }
 
@@ -151,7 +155,7 @@ function normalizeGaps(gaps: UnfilledPosition[] | undefined): ServiceUnfilledPos
 }
 
 function assignmentRowsFor(service: Service, resolved: ResolvedAssignment[], userId: string, now: string): Array<Record<string, unknown>> {
-  return resolved.map((row) => ({ service_id: service.id, member_id: row.memberId, role_id: row.roleId, instrument_id: row.instrumentId, is_leader: row.isLeader, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }));
+  return resolved.map((row) => ({ service_id: service.id, member_id: row.memberId, role_id: row.roleId, instrument_id: row.instrumentId, is_leader: row.isLeader, is_devotion: row.isDevotion, status: 'pending', assigned_by: userId, created_at: now, updated_at: now }));
 }
 
 /**

@@ -14,7 +14,7 @@
 // Union of the display and persistence backup clauses above. The validator's
 // narrower exact set is fully subsumed by this pattern.
 // No `g` flag: `test` must stay stateless for deterministic scheduling.
-const BACKUP_ROLE_NAME_PATTERN = /vocal|singer|backup/;
+const BACKUP_ROLE_NAME_PATTERN = /vocal|singer|backup|back up/;
 
 // Second clause of the pre-classifier instrument predicate. The first clause
 // (specific instrument-name match) is instrument-dependent and lives in

@@ -5,7 +5,7 @@ import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, hasActiveOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { ScheduleAssignment, Service, ServiceActiveOverrides } from '@/lib/types/database';
 
-type AssignmentInput = { member_id: string; role_id: string; instrument_id: string | null; is_leader: boolean };
+type AssignmentInput = { member_id: string; role_id: string; instrument_id: string | null; is_leader: boolean; is_devotion?: boolean };
 
 /** The complete override allowlist, mirroring `services_active_overrides_allowlist`. */
 const OVERRIDE_AXES = ['availability', 'instrument_qualification'] as const;
@@ -18,7 +18,8 @@ function validAssignments(value: unknown): value is AssignmentInput[] {
     return typeof input.member_id === 'string' && input.member_id.length > 0
       && typeof input.role_id === 'string' && input.role_id.length > 0
       && (input.instrument_id === null || typeof input.instrument_id === 'string')
-      && typeof input.is_leader === 'boolean';
+      && typeof input.is_leader === 'boolean'
+      && (input.is_devotion === undefined || typeof input.is_devotion === 'boolean');
   });
 }
 
@@ -81,6 +82,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ser
         role_id: role.id,
         instrument_id: instrument?.id,
         is_leader: input.is_leader,
+        is_devotion: input.is_devotion === true,
         status: 'pending',
         assigned_by: auth.userId,
         created_at: now,

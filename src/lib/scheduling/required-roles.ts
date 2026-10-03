@@ -1,6 +1,6 @@
 import type { Instrument, Member, ScheduleAssignment } from '../types/database';
 import type { ScheduleContext, ValidationStage } from '../types/scheduling';
-import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
+import { isBackupRoleName, isWorshipLeaderRoleName } from './role-classifier';
 
 /**
  * THE single owner of "which ministry positions must be filled".
@@ -142,25 +142,19 @@ export function backupRuleNumbers(context: ScheduleContext): { min: number; max:
  */
 export function isBackupAssignment(assignment: ScheduleAssignment): boolean {
   if (assignment.is_leader) return false;
+  if (assignment.is_devotion) return false;
   if (assignment.instrument_id) return false;
   return !assignment.role || isBackupRoleName(assignment.role.name);
 }
 
 /** Shared with the validator so "is this the Devotion slot?" has one answer. */
 export function isDevotionAssignment(assignment: ScheduleAssignment): boolean {
-  return !assignment.is_leader && Boolean(assignment.role) && isDevotionRoleName(assignment.role!.name);
+  return !assignment.is_leader && assignment.is_devotion === true;
 }
 
-/**
- * Does the roster contain a member who could hold the Devotion role at all?
- *
- * Uses the shared classifier rather than the exact `=== 'devotion'` compare and
- * the exact `hasRole(member,'Devotion')` compare this replaces, so the seeded
- * 'Devotion Leader' name and any church-defined 'devotion ...' name are treated
- * identically everywhere.
- */
-export function hasDevotionHolder(members: Member[]): boolean {
-  return members.some((member) => member.roles?.some((item) => item.role?.is_active !== false && item.role && isDevotionRoleName(item.role.name)));
+/** Devotion is enabled by ministry configuration; it is not a member role. */
+export function hasDevotionPosition(context: ScheduleContext): boolean {
+  return context.rules.some((rule) => rule.rule_type === 'devotion_sequence' && rule.is_active !== false);
 }
 
 /** Required instruments, from the ministry catalogue, with the legacy fallback. */
@@ -194,7 +188,7 @@ export function requiredPositions(context: ScheduleContext): RequiredPosition[] 
   for (let index = 0; index < min; index += 1) {
     positions.push({ kind: 'backup', role_name: BACKUP_ROLE_NAME, required_slots: 1, optional_slots: 0 });
   }
-  if (hasDevotionHolder(context.all_members)) {
+  if (hasDevotionPosition(context)) {
     positions.push({ kind: 'devotion', role_name: DEVOTION_ROLE_NAME, required_slots: 1, optional_slots: 0 });
   }
   for (const instrument of requiredInstruments(context)) {

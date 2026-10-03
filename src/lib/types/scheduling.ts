@@ -69,6 +69,7 @@ export interface SchedulingRuleConfig {
   rule_type: string;
   rule_config: Record<string, unknown>;
   severity: 'critical' | 'warning' | 'suggestion';
+  is_active?: boolean;
 }
 
 /**
@@ -200,6 +201,8 @@ export interface GeneratedService {
   backup_singers: Member[];
   instrumentalists: InstrumentAssignment[];
   devotion: Member | null;
+  /** Generic persisted role for this devotion assignment; qualification is universal. */
+  devotion_role?: Role | null;
   conflicts: ValidationResult[];
   /**
    * Optional so the existing typed `GeneratedService` literals in the test

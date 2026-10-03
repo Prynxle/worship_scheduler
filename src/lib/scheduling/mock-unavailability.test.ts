@@ -236,7 +236,7 @@ describe('soleQualifiedMemberIds', () => {
     expect(excluded.size).toBe(0);
   });
 
-  it('excludes a sole active Devotion holder and ignores a zero-holder devotion slot', () => {
+  it('treats every active member as a devotion holder', () => {
     const excluded = soleQualifiedMemberIds({
       memberIds: ['m-1', 'm-2', 'm-3', 'm-4', 'm-5'],
       roles: [
@@ -246,7 +246,7 @@ describe('soleQualifiedMemberIds', () => {
       ],
       skills: [],
     });
-    expect(excluded.has('m-1')).toBe(true);
+    expect(excluded.has('m-1')).toBe(false);
 
     const noDevotion = soleQualifiedMemberIds({
       memberIds: ['m-1', 'm-2', 'm-3', 'm-4'],
@@ -254,6 +254,9 @@ describe('soleQualifiedMemberIds', () => {
       skills: [],
     });
     expect(noDevotion.size).toBe(0);
+
+    const onlyMember = soleQualifiedMemberIds({ memberIds: ['m-only'], roles: [], skills: [] });
+    expect(onlyMember.has('m-only')).toBe(true);
   });
 
   it('does not count inactive roles (is_active:false)', () => {

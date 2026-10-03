@@ -14,7 +14,7 @@ import type { Instrument, Member, MemberRole, Role, ScheduleAssignment, Service 
 // the two added by 20260916090000_member_truth_values.sql.
 const REAL_ROLE_NAMES = [
   'Worship Leader', 'Vocalist', 'Guitarist', 'Drummer', 'Pianist/Keyboard',
-  'Sound Engineer', 'Devotion Leader', 'Backup', 'Instrumentalist',
+  'Sound Engineer', 'Devotion Leader', 'Backup', 'Back Up', 'Instrumentalist',
   // Church-defined names the pre-classifier display/persistence predicates
   // accepted and that must stay accepted (widening, never narrowing).
   'Lead Vocalist', 'Vocalist 2', 'Soprano Singer', 'Acoustic Guitar', 'Piano', 'Keyboard',
@@ -98,7 +98,7 @@ describe('role classifier', () => {
     // The role that clause missed, which dropped every instrumentalist assignment.
     expect(isInstrumentalistRoleName('Instrumentalist')).toBe(true);
     // Non-instrument roles stay non-instrument.
-    for (const roleName of ['Worship Leader', 'Vocalist', 'Backup', 'Sound Engineer', 'Devotion Leader']) {
+    for (const roleName of ['Worship Leader', 'Vocalist', 'Backup', 'Back Up', 'Sound Engineer', 'Devotion Leader']) {
       expect(isInstrumentalistRoleName(roleName)).toBe(false);
     }
   });
@@ -131,6 +131,7 @@ describe('role classifier', () => {
 
   it('normalizes case and surrounding whitespace', () => {
     expect(isBackupRoleName('  bAcKuP sInGeR  ')).toBe(true);
+    expect(isBackupRoleName(' Back Up ')).toBe(true);
     expect(isBackupRoleName('\tSinger\n')).toBe(true);
     expect(isWorshipLeaderRoleName(' Worship LEADER ')).toBe(true);
     expect(isInstrumentalistRoleName(' gUiTaRiSt ')).toBe(true);
