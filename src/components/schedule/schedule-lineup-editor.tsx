@@ -19,6 +19,7 @@ export interface EditableAssignment {
   instrument_id: string | null;
   instrument_name: string | null;
   is_leader: boolean;
+  is_devotion?: boolean;
 }
 
 export interface AssignmentOption {
@@ -55,7 +56,7 @@ interface Props {
   onSaved: () => void;
 }
 
-type EditRow = { key: string; member_id: string; role_id: string; instrument_id: string; is_leader: boolean };
+type EditRow = { key: string; member_id: string; role_id: string; instrument_id: string; is_leader: boolean; is_devotion: boolean };
 type OverrideState = { availability: boolean; instrument_qualification: boolean };
 
 export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVersion, assignments, members, roles, instruments, activeOverrides, onSaved }: Props) {
@@ -69,16 +70,16 @@ export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVe
   // Initialize the local edit buffer from the selected service whenever it opens.
   useEffect(() => {
     if (!open) return;
-    const initialRows = assignments.map((item, index) => ({ key: `${item.id}-${index}`, member_id: item.member_id, role_id: item.role_id, instrument_id: item.instrument_id ?? '', is_leader: item.is_leader }));
+    const initialRows = assignments.map((item, index) => ({ key: `${item.id}-${index}`, member_id: item.member_id, role_id: item.role_id, instrument_id: item.instrument_id ?? '', is_leader: item.is_leader, is_devotion: item.is_devotion === true }));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRows(initialRows);
-    setOriginalRows(JSON.stringify(initialRows.map(({ member_id, role_id, instrument_id, is_leader }) => ({ member_id, role_id, instrument_id, is_leader }))));
+    setOriginalRows(JSON.stringify(initialRows.map(({ member_id, role_id, instrument_id, is_leader, is_devotion }) => ({ member_id, role_id, instrument_id, is_leader, is_devotion }))));
     setOverrides({ availability: activeOverrides?.availability === true, instrument_qualification: activeOverrides?.instrument_qualification === true });
     setReason('');
     setError('');
   }, [open, assignments, activeOverrides]);
 
-  const currentRows = JSON.stringify(rows.map(({ member_id, role_id, instrument_id, is_leader }) => ({ member_id, role_id, instrument_id, is_leader })));
+  const currentRows = JSON.stringify(rows.map(({ member_id, role_id, instrument_id, is_leader, is_devotion }) => ({ member_id, role_id, instrument_id, is_leader, is_devotion })));
   const hasUnsavedChanges = currentRows !== originalRows;
   // A licence is an audited decision, so the server refuses one without a reason.
   // Requiring it here as well means the coordinator is told before the round trip
@@ -103,7 +104,7 @@ export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVe
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           expected_version: scheduleVersion,
-          assignments: rows.map(({ member_id, role_id, instrument_id, is_leader }) => ({ member_id, role_id, instrument_id: instrument_id || null, is_leader })),
+          assignments: rows.map(({ member_id, role_id, instrument_id, is_leader, is_devotion }) => ({ member_id, role_id, instrument_id: instrument_id || null, is_leader, is_devotion })),
           // Only checked axes are sent. The server stores the set verbatim, so
           // omitting an axis CLEARS a previously recorded licence rather than
           // silently carrying it onto a lineup nobody re-reviewed.
@@ -163,7 +164,7 @@ export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVe
               <Button type="button" variant="outline" size="icon" aria-label={`Remove assignment ${index + 1}`} onClick={() => setRows((current) => current.filter((item) => item.key !== row.key))}><Trash2 className="h-4 w-4" /></Button>
             </div>
           ))}
-          <Button type="button" variant="outline" onClick={() => setRows((current) => [...current, { key: `new-${Date.now()}-${current.length}`, member_id: members[0]?.id ?? '', role_id: roles[0]?.id ?? '', instrument_id: '', is_leader: false }])} disabled={!members.length || !roles.length}>
+          <Button type="button" variant="outline" onClick={() => setRows((current) => [...current, { key: `new-${Date.now()}-${current.length}`, member_id: members[0]?.id ?? '', role_id: roles[0]?.id ?? '', instrument_id: '', is_leader: false, is_devotion: false }])} disabled={!members.length || !roles.length}>
             <Plus className="mr-2 h-4 w-4" />Add assignment
           </Button>
           <fieldset className="space-y-2 rounded-xl border border-border p-4">

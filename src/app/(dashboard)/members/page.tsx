@@ -92,6 +92,10 @@ export default function MembersPage() {
     void fetchMembers();
   }
 
+  // Temporarily keep the control in place while leaving member creation
+  // available for a future coordinator workflow change.
+  function handleAddMemberClick() {}
+
   const filters = {
     searchQuery,
     status: activeTab,
@@ -123,7 +127,7 @@ export default function MembersPage() {
           <h2 className="text-2xl font-bold text-foreground">Members</h2>
           <p className="text-muted-foreground">Manage your ministry team members</p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
+        <Button onClick={handleAddMemberClick}>
           <Plus className="h-4 w-4 mr-1" />
           Add Member
         </Button>

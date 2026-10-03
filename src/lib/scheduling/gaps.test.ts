@@ -4,7 +4,6 @@ import type { ScheduleContext, ValidationResult } from '../types/scheduling';
 import type {
   Instrument,
   Member,
-  MemberRole,
   Role,
   ScheduleAssignment,
   Service,
@@ -37,8 +36,6 @@ const leaderRole: Role = {
 
 const backupRole: Role = { ...leaderRole, id: 'role-backup', name: 'Backup Singer', min_required: 0, max_allowed: 10, priority: 2 };
 
-const devotionRole: Role = { ...leaderRole, id: 'role-devotion', name: 'Devotion', min_required: 0, max_allowed: 10, priority: 3 };
-
 const guitar: Instrument = { id: 'inst-guitar', ministry_id: 'min1', name: 'Guitar', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
 const bass: Instrument = { id: 'inst-bass', ministry_id: 'min1', name: 'Bass', is_required: true, min_count: 1, max_count: 1, slot_counts: false, created_at: '' };
 const optionalKeys: Instrument = { ...guitar, id: 'inst-keys', name: 'Keys', is_required: false };
@@ -54,19 +51,6 @@ function member(overrides: Partial<Member> = {}): Member {
     total_assignments: 0,
     created_at: '',
     updated_at: '',
-    ...overrides,
-  };
-}
-
-function memberRole(role: Role, overrides: Partial<MemberRole> = {}): MemberRole {
-  return {
-    id: `mr-${role.id}`,
-    member_id: 'm1',
-    role_id: role.id,
-    skill_level: 'expert',
-    is_preferred: true,
-    created_at: '',
-    role,
     ...overrides,
   };
 }
@@ -212,16 +196,16 @@ describe('unfilledFrom: the write-side gap authority', () => {
     expect(unfilledFrom(ctx, fullLineup(3))).toEqual([]);
   });
 
-  it('requires Devotion only when the roster has someone who can hold it', () => {
+  it('requires Devotion for an active member without a devotion role qualification', () => {
     const withoutHolder = context({ rules: backupRule(3) });
     expect(unfilledFrom(withoutHolder, fullLineup(3))).toEqual([]);
 
-    const holder = member({ id: 'm-dev', roles: [memberRole(devotionRole)] });
-    const withHolder = context({ rules: backupRule(3), all_members: [holder] });
+    const holder = member({ id: 'm-dev', roles: [] });
+    const withHolder = context({ rules: [...backupRule(3), { rule_type: 'devotion_sequence', severity: 'warning', rule_config: {} }], all_members: [holder] });
     const gaps = unfilledFrom(withHolder, fullLineup(3));
     expect(gaps.map((gap) => gap.role_name)).toEqual(['Devotion']);
 
-    const filled = [...fullLineup(3), assignment({ id: 'a-dev', member_id: 'm-dev', role: devotionRole, role_id: devotionRole.id })];
+    const filled = [...fullLineup(3), assignment({ id: 'a-dev', member_id: 'm-dev', role: backupRole, role_id: backupRole.id, is_devotion: true })];
     expect(unfilledFrom(withHolder, filled)).toEqual([]);
   });
 

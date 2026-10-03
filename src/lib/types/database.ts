@@ -269,6 +269,7 @@ export interface ScheduleAssignment {
   role_id: string;
   instrument_id?: string;
   is_leader: boolean;
+  is_devotion?: boolean;
   status: 'pending' | 'confirmed' | 'declined' | 'swapped';
   assigned_by?: string;
   created_at: string;

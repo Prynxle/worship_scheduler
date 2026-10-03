@@ -549,7 +549,7 @@ describe('POST /api/schedule — persistence', () => {
 
     expect(response.status).toBe(201);
     expect(sent[0].assignments).toEqual([
-      { member_id: instrumentalist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false },
+      { member_id: instrumentalist.id, role_id: instrumentalistRole.id, instrument_id: guitar.id, is_leader: false, is_devotion: false },
     ]);
   });
 

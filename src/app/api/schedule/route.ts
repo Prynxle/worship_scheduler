@@ -7,7 +7,7 @@ import { ApiError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
 import { formatLocalDate, getMonthName, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { ScheduleContext } from '@/lib/types/scheduling';
 import { ScheduleAssignment, Service } from '@/lib/types/database';
-import { isBackupRoleName, isDevotionRoleName } from '@/lib/scheduling/role-classifier';
+import { isBackupRoleName } from '@/lib/scheduling/role-classifier';
 import { loadAvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 
 /**
@@ -57,8 +57,8 @@ function serviceAssignments(service: Service, assignments: ScheduleAssignment[])
     leader_avatar: leader?.avatar_url,
     backup_singers: own.filter((assignment) => !assignment.is_leader && assignment.role && isBackupRoleName(assignment.role.name)).map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })),
     instrumentalists: own.filter((assignment) => assignment.instrument).map((assignment) => ({ instrument: assignment.instrument?.name ?? 'Instrument', name: assignment.member?.full_name ?? 'Unassigned' })),
-    devotion_name: own.find((assignment) => assignment.role && isDevotionRoleName(assignment.role.name))?.member?.full_name,
-    assignments: own.map((assignment) => ({ id: assignment.id, member_id: assignment.member_id, member_name: assignment.member?.full_name ?? 'Unknown member', role_id: assignment.role_id, role_name: assignment.role?.name ?? 'Unknown role', instrument_id: assignment.instrument_id ?? null, instrument_name: assignment.instrument?.name ?? null, is_leader: assignment.is_leader })),
+    devotion_name: own.find((assignment) => assignment.is_devotion)?.member?.full_name,
+    assignments: own.map((assignment) => ({ id: assignment.id, member_id: assignment.member_id, member_name: assignment.member?.full_name ?? 'Unknown member', role_id: assignment.role_id, role_name: assignment.role?.name ?? 'Unknown role', instrument_id: assignment.instrument_id ?? null, instrument_name: assignment.instrument?.name ?? null, is_leader: assignment.is_leader, is_devotion: assignment.is_devotion === true })),
     // `archived` is a storage lifecycle state, not a lineup state; the editor
     // and the filters only ever deal in draft/validated/published.
     status: service.status === 'archived' ? 'draft' : service.status,

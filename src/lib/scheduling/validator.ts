@@ -5,11 +5,11 @@ import {
 } from '../types/scheduling';
 import { Member } from '../types/database';
 import { isWeeklyUnavailable } from './availability';
-import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
+import { isBackupRoleName, isWorshipLeaderRoleName } from './role-classifier';
 import {
   assignmentLimitFor,
   backupRuleNumbers,
-  hasDevotionHolder,
+  hasDevotionPosition,
   isBackupAssignment,
   isDevotionAssignment,
   minSlotsFor,
@@ -261,10 +261,10 @@ export class ScheduleValidator {
     const results: ValidationResult[] = [];
     const assignments = this.context.existing_assignments;
 
-    if (hasDevotionHolder(this.context.all_members) && !assignments.some(isDevotionAssignment)) {
+    if (hasDevotionPosition(this.context) && !assignments.some(isDevotionAssignment)) {
       results.push(this.report({
         rule_type: 'role_validation', check: 'devotion_missing', severity: 'critical', role_name: 'Devotion',
-        message: 'Required Devotion role is not assigned', recommendation: 'Assign a qualified devotion member',
+        message: 'Required Devotion role is not assigned', recommendation: 'Assign an active member to lead the devotion',
       }));
     }
     // Catalogue-derived (H1): a required instrument nobody holds a skill for
@@ -297,6 +297,8 @@ export class ScheduleValidator {
       const member = this.context.all_members.find((m) => m.id === assignment.member_id);
       if (!member) continue;
 
+      if (assignment.is_devotion) continue;
+
       if (assignment.is_leader) {
         const hasLeaderRole = member.roles?.some((r) => r.role && isWorshipLeaderRoleName(r.role.name));
         if (!hasLeaderRole) {
@@ -312,7 +314,7 @@ export class ScheduleValidator {
             recommendation: 'Assign a qualified worship leader',
           }));
         }
-      } else if (assignment.role && (isBackupRoleName(assignment.role.name) || isDevotionRoleName(assignment.role.name))) {
+      } else if (assignment.role && isBackupRoleName(assignment.role.name)) {
         const roleName = assignment.role.name.toLowerCase();
         const qualified = member.roles?.some((role) => role.role_id === assignment.role_id || role.role?.name.toLowerCase() === roleName);
         if (!qualified) {

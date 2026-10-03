@@ -9,7 +9,7 @@ import { Availability, Instrument, Member, Role, ScheduleAssignment } from '../t
 import { formatLocalDate, getWeekDate } from '../utils/date-utils';
 import { FairnessScorer, TemporaryMemberState } from './scorer';
 import { isWeeklyUnavailable } from './availability';
-import { isBackupRoleName, isDevotionRoleName, isWorshipLeaderRoleName } from './role-classifier';
+import { isBackupRoleName, isWorshipLeaderRoleName } from './role-classifier';
 import { requiredPositions } from './required-roles';
 
 type SlotKind = 'leader' | 'backup' | 'devotion' | 'instrument';
@@ -230,7 +230,6 @@ export class SchedulingEngine {
     if (!this.context.config?.allows_dual_role && service.usedMemberIds.has(member.id)) return 'already assigned in this service';
     if (slot.kind === 'leader' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isWorshipLeaderRoleName(role.role.name))) return 'not qualified for Worship Leader';
     if (slot.kind === 'backup' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isBackupRoleName(role.role.name))) return 'not qualified for Backup';
-    if (slot.kind === 'devotion' && !member.roles?.some((role) => role.role?.is_active !== false && role.role && isDevotionRoleName(role.role.name))) return 'not qualified for Devotion';
     if (slot.kind === 'instrument' && !member.skills?.some((skill) => skill.instrument_id === slot.instrument?.id)) return `not qualified for ${slot.instrument?.name ?? 'instrument'}`;
     return null;
   }
@@ -256,7 +255,7 @@ export class SchedulingEngine {
         backupIndex += 1;
         slots.push({ id: `${weekNumber}:backup:${backupIndex}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false, optional: false });
       } else if (position.kind === 'devotion') {
-        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isDevotionRoleName), isLeader: false, optional: false });
+        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false, optional: false });
       } else {
         const instrument = position.instrument!;
         for (let index = 0; index < position.required_slots; index += 1) {
@@ -330,6 +329,7 @@ export class SchedulingEngine {
       backup_singers: choices.filter((choice) => choice.slot.kind === 'backup').map((choice) => choice.member),
       instrumentalists: choices.filter((choice) => choice.slot.kind === 'instrument' && choice.slot.instrument).map((choice) => ({ instrument: choice.slot.instrument!, member: choice.member, is_fallback: false })),
       devotion: choices.find((choice) => choice.slot.kind === 'devotion')?.member ?? null,
+      devotion_role: choices.find((choice) => choice.slot.kind === 'devotion')?.slot.role ?? null,
       conflicts: [],
       // Always an array, never absent: the persistence and read layers must not
       // each have to decide what a missing gap list means.
@@ -406,7 +406,8 @@ export class SchedulingEngine {
     return assignments.filter((choice) => choice.slot.weekNumber === service.week_number).map((choice, index) => ({
       id: `generated-${service.week_number}-${index}`, service_id: this.context.service.id, member_id: choice.member.id,
       role_id: choice.slot.role?.id ?? `generated-${choice.slot.roleName.toLowerCase().replace(/\s+/g, '-')}`,
-      instrument_id: choice.slot.instrument?.id, is_leader: choice.slot.isLeader, status: 'pending',
+      instrument_id: choice.slot.instrument?.id, is_leader: choice.slot.isLeader,
+      is_devotion: choice.slot.kind === 'devotion', status: 'pending',
       created_at: service.date, updated_at: service.date, member: choice.member, role: choice.slot.role, instrument: choice.slot.instrument,
     }));
   }

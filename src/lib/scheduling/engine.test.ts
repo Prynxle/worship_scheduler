@@ -24,6 +24,24 @@ function context(members: Member[], overrides: Partial<ScheduleContext> = {}): S
 }
 
 describe('SchedulingEngine', () => {
+  it('assigns a configured devotion slot to an active member without role qualifications', async () => {
+    const devotionMember = member('devotion-member', []);
+    const rules = [
+      ...context([]).rules,
+      { rule_type: 'devotion_sequence', rule_config: {}, severity: 'warning' as const },
+    ];
+    const members = [
+      member('leader', [role('leader', leaderRole)]),
+      member('backup-1'), member('backup-2'), member('backup-3'),
+      devotionMember,
+    ];
+
+    const [service] = await new SchedulingEngine(context(members, { rules })).generateSchedule();
+
+    expect(service.devotion?.id).toBe(devotionMember.id);
+    expect(service.devotion_role?.name).toBe('Singer');
+  });
+
   it('filters unavailable and inactive members before assignment', async () => {
     const unavailable: Availability = { id: 'availability', member_id: 'leader', church_id: 'church', type: 'weekly', week_number: 1, month: 8, year: 2026, status: 'approved', created_at: '' };
     const members = [
