@@ -346,7 +346,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <DialogDescription>Create an event for {formatDate(selectedDate, { month: 'long', day: 'numeric' })}.</DialogDescription>
             </DialogHeader>
             <Input autoFocus placeholder="Event name" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addEvent(); }} />
-            <div>
+            <div className="min-w-0">
               <Textarea
                 placeholder="Description (optional)"
                 aria-label="Event description"
