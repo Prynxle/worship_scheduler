@@ -689,13 +689,6 @@
   min-width: 0;
 }
 
-.event-calendar-fc .evc-dot {
-  flex-shrink: 0;
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-}
-
 .event-calendar-fc .evc-event-title {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -2,16 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { Availability } from '@/lib/types/database';
 import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
+import { EventCalendar } from '@/components/events/event-calendar';
 import { CalendarCheck, Clock3, X } from 'lucide-react';
 
 type MemberInfo = { id: string; full_name: string; role: string; phone?: string | null };
+type MemberProfileInfo = {
+  fullName: string;
+  accountRole: string;
+  ministryRoles: string[];
+  instruments: string[];
+} | null;
 type MonthlySubmission = { status: 'submitted' | 'approved' | 'revision_required'; revision_note?: string | null; reviewer_name?: string; reviewed_at?: string | null; version: number };
 
 const monthName = (month: number) => new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' });
@@ -25,6 +32,7 @@ export default function MemberPage() {
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
   const [member, setMember] = useState<MemberInfo | null>(null);
+  const [profile, setProfile] = useState<MemberProfileInfo>(null);
   const [selectedMonth, setSelectedMonth] = useState(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`);
   const year = Number(selectedMonth.slice(0, 4));
   const month = Number(selectedMonth.slice(5, 7)) - 1;
@@ -46,10 +54,14 @@ export default function MemberPage() {
       if (!data.session) { router.replace('/login'); return; }
       const response = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${data.session.access_token}` } });
       if (!response.ok) { router.replace('/dashboard'); return; }
-      const result = await response.json() as { user: { member_id: string | null; role: string; member_name?: string | null; phone?: string | null } };
+      const result = await response.json() as {
+        user: { member_id: string | null; role: string; member_name?: string | null; phone?: string | null };
+        profile?: { memberId: string; fullName: string; accountRole: string; ministryRoles: string[]; instruments: string[] } | null;
+      };
       if (!active) return;
       if (result.user.role !== 'member' || !result.user.member_id) { router.replace('/dashboard'); return; }
       setMember({ id: result.user.member_id, full_name: result.user.member_name ?? 'Your profile', role: result.user.role, phone: result.user.phone });
+      setProfile(result.profile ?? null);
     });
     return () => { active = false; };
   }, [router]);
@@ -109,55 +121,113 @@ export default function MemberPage() {
 
   if (!member) return null;
   const canSubmit = !submission || submission.status === 'revision_required';
+  const ministryRoles = profile?.ministryRoles ?? [];
+  const instruments = profile?.instruments ?? [];
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <header><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Member workspace</p><h1 className="mt-1 font-display text-3xl font-semibold">Your monthly availability</h1><p className="mt-2 text-sm text-muted-foreground">Tell the coordinator which service weeks you cannot attend. Leave every week clear to confirm you are available all month.</p></header>
-      <Card><CardHeader><CardTitle>My profile</CardTitle></CardHeader><CardContent><p className="font-medium">{member.full_name}</p><p className="text-sm text-muted-foreground">Worship team member</p></CardContent></Card>
+    <div className="mx-auto max-w-[1440px] space-y-7 pb-10">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Member workspace</p>
+        <h1 className="mt-1 font-display text-3xl font-semibold">Your month at a glance</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">See where you are serving and tell the coordinator which service weeks you cannot attend. Leave every week clear to confirm you are available all month.</p>
+      </header>
 
-      <Card className="overflow-hidden">
-        <div className="border-b border-border bg-primary/[0.035] px-5 py-5 sm:px-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Availability response</p>
-          <h2 className="mt-1 font-display text-2xl font-semibold">{monthName(month)} {year}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choose unavailable weeks, then send one complete monthly response.</p>
+      <div className="grid gap-6 lg:grid-cols-12">
+        <Card className="lg:col-span-4">
+          <CardHeader><h2 className="font-heading text-base leading-snug font-medium">My profile</h2></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="font-medium">{profile?.fullName ?? member.full_name}</p>
+            {member.phone ? <p className="text-sm text-muted-foreground">{member.phone}</p> : null}
+            {ministryRoles.length ? (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ministry role</h3>
+                <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
+                  {ministryRoles.map((name) => (
+                    <li key={name}>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {instruments.length ? (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instrument</h3>
+                <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
+                  {instruments.map((name) => (
+                    <li key={name}>
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {/* A member with no role or instrument row is a real state, so it is
+                stated rather than rendered as an empty list. The previous build
+                hardcoded "Worship team member" here, which read as a role on every
+                profile regardless of the truth. */}
+            {!ministryRoles.length && !instruments.length ? (
+              <p className="text-sm text-muted-foreground">No ministry role or instrument has been recorded for you yet. Ask the coordinator to update your profile.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <div className="lg:col-span-8">
+          {/* The events calendar took the place of the former "upcoming services"
+              card. `EventCalendar` renders its own Cards and its own two-column
+              layout (month grid beside the selected-day panel), so it is placed
+              in a plain grid cell rather than wrapped in another Card, which would
+              double the chrome. It self-fetches /api/events and self-subscribes, and
+              `canManage={false}` hides Add/Delete: a member reads the calendar here
+              rather than navigating to a separate Events tab, which has been
+              removed. */}
+          <EventCalendar canManage={false} />
         </div>
-        <CardContent className="space-y-5 p-5 sm:p-6">
-          <div className="max-w-xs space-y-2"><Label htmlFor="member-month">Month</Label><Select value={selectedMonth} onValueChange={(value) => { if (value) { setSelectedMonth(value); setUnavailableWeeks([]); setMessage(''); setError(''); } }}><SelectTrigger id="member-month" className="h-10 w-full"><SelectValue placeholder="Choose month">{monthName(month)} {year}</SelectValue></SelectTrigger><SelectContent>{monthOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
-          <fieldset disabled={!canSubmit || submitting} className="space-y-3 disabled:opacity-70">
-            <legend className="text-sm font-medium">Which service weeks are you unavailable?</legend>
-            {availableWeeks.length ? <div className="grid gap-2 sm:grid-cols-2">
-              {availableWeeks.map((weekNumber) => (
-                <label key={weekNumber} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm transition-colors hover:bg-muted/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5">
-                  <input type="checkbox" className="h-4 w-4 accent-primary" checked={unavailableWeeks.includes(weekNumber)} onChange={(event) => setUnavailableWeeks((current) => event.target.checked ? [...current, weekNumber].sort((a, b) => a - b) : current.filter((week) => week !== weekNumber))} />
-                  <span>Week {weekNumber}<span className="ml-2 text-muted-foreground">{formatWeek(weekNumber, month, year)}</span></span>
-                </label>
-              ))}
-            </div> : <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">All service weeks in this month have passed.</p>}
-            <p className="text-xs text-muted-foreground">{unavailableWeeks.length ? `Unavailable: week${unavailableWeeks.length === 1 ? '' : 's'} ${unavailableWeeks.join(', ')}.` : 'No weeks selected · available all month.'}</p>
-          </fieldset>
 
-          {submission ? <div className={`rounded-xl border p-4 ${submission.status === 'approved' ? 'border-primary/20 bg-primary/5' : submission.status === 'revision_required' ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/35'}`}>
-            <div className="flex items-center gap-2 text-sm font-semibold capitalize">{submission.status === 'approved' ? <CalendarCheck className="h-4 w-4 text-primary" /> : submission.status === 'submitted' ? <Clock3 className="h-4 w-4 text-muted-foreground" /> : <X className="h-4 w-4 text-destructive" />}{submission.status.replace('_', ' ')}</div>
-            {submission.revision_note ? <p className="mt-2 text-sm">Coordinator request: {submission.revision_note}</p> : null}
-            {submission.reviewed_at && submission.reviewer_name ? <p className="mt-2 text-xs text-muted-foreground">Reviewed by {submission.reviewer_name} on {new Date(submission.reviewed_at).toLocaleDateString()}.</p> : null}
-            {submission.status === 'approved' || submission.status === 'submitted' ? <p className="mt-2 text-xs text-muted-foreground">This response is locked while it is submitted or approved. Contact the coordinator if it needs to change.</p> : null}
-          </div> : null}
-          <Button onClick={() => void submitMonth()} disabled={!canSubmit || submitting || availableWeeks.length === 0}>{submitting ? 'Submitting…' : submission?.status === 'revision_required' ? 'Resubmit month' : 'Submit month'}</Button>
-          {message ? <p role="status" className="text-sm text-primary">{message}</p> : null}
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        </CardContent>
-      </Card>
+        <Card className="overflow-hidden lg:col-span-7">
+          <div className="border-b border-border bg-primary/[0.035] px-5 py-5 sm:px-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Availability response</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold">{monthName(month)} {year}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Choose unavailable weeks, then send one complete monthly response.</p>
+          </div>
+          <CardContent className="space-y-5 p-5 sm:p-6">
+            <div className="max-w-xs space-y-2"><Label htmlFor="member-month">Month</Label><Select value={selectedMonth} onValueChange={(value) => { if (value) { setSelectedMonth(value); setUnavailableWeeks([]); setMessage(''); setError(''); } }}><SelectTrigger id="member-month" className="h-10 w-full"><SelectValue placeholder="Choose month">{monthName(month)} {year}</SelectValue></SelectTrigger><SelectContent>{monthOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+            <fieldset disabled={!canSubmit || submitting} className="space-y-3 disabled:opacity-70">
+              <legend className="text-sm font-medium">Which service weeks are you unavailable?</legend>
+              {availableWeeks.length ? <div className="grid gap-2 sm:grid-cols-2">
+                {availableWeeks.map((weekNumber) => (
+                  <label key={weekNumber} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm transition-colors hover:bg-muted/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/5">
+                    <input type="checkbox" className="h-4 w-4 accent-primary" checked={unavailableWeeks.includes(weekNumber)} onChange={(event) => setUnavailableWeeks((current) => event.target.checked ? [...current, weekNumber].sort((a, b) => a - b) : current.filter((week) => week !== weekNumber))} />
+                    <span>Week {weekNumber}<span className="ml-2 text-muted-foreground">{formatWeek(weekNumber, month, year)}</span></span>
+                  </label>
+                ))}
+              </div> : <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">All service weeks in this month have passed.</p>}
+              <p className="text-xs text-muted-foreground">{unavailableWeeks.length ? `Unavailable: week${unavailableWeeks.length === 1 ? '' : 's'} ${unavailableWeeks.join(', ')}.` : 'No weeks selected · available all month.'}</p>
+            </fieldset>
 
-      <Card>
-        <CardHeader><CardTitle>Availability details</CardTitle></CardHeader>
-        <CardContent>
-          {!requests.length ? <p className="text-sm text-muted-foreground">{submission ? 'No unavailability details were submitted for this month.' : 'Submit the month above, even if you are available every week.'}</p> : <div className="space-y-2">
-            {requests.map((request) => <div key={request.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-4">
-              <div><p className="font-medium">{request.type === 'weekly' ? `Week ${request.week_number} · ${monthName(request.month ?? month)} ${request.year ?? year}` : request.type}</p><p className="text-xs text-muted-foreground">{request.reason || 'No reason provided'} · {new Date(request.created_at).toLocaleDateString()}</p></div>
-              <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-muted-foreground">{request.status}</span>{request.status === 'pending' && !request.submission_id ? <Button variant="ghost" size="sm" onClick={() => void cancelLegacyRequest(request.id)}><X className="mr-1 h-4 w-4" />Cancel</Button> : null}</div>
-            </div>)}
-          </div>}
-        </CardContent>
-      </Card>
+            {submission ? <div className={`rounded-xl border p-4 ${submission.status === 'approved' ? 'border-primary/20 bg-primary/5' : submission.status === 'revision_required' ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/35'}`}>
+              <div className="flex items-center gap-2 text-sm font-semibold capitalize">{submission.status === 'approved' ? <CalendarCheck className="h-4 w-4 text-primary" /> : submission.status === 'submitted' ? <Clock3 className="h-4 w-4 text-muted-foreground" /> : <X className="h-4 w-4 text-destructive" />}{submission.status.replace('_', ' ')}</div>
+              {submission.revision_note ? <p className="mt-2 text-sm">Coordinator request: {submission.revision_note}</p> : null}
+              {submission.reviewed_at && submission.reviewer_name ? <p className="mt-2 text-xs text-muted-foreground">Reviewed by {submission.reviewer_name} on {new Date(submission.reviewed_at).toLocaleDateString()}.</p> : null}
+              {submission.status === 'approved' || submission.status === 'submitted' ? <p className="mt-2 text-xs text-muted-foreground">This response is locked while it is submitted or approved. Contact the coordinator if it needs to change.</p> : null}
+            </div> : null}
+            <Button onClick={() => void submitMonth()} disabled={!canSubmit || submitting || availableWeeks.length === 0}>{submitting ? 'Submitting…' : submission?.status === 'revision_required' ? 'Resubmit month' : 'Submit month'}</Button>
+            {message ? <p role="status" className="text-sm text-primary">{message}</p> : null}
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-5">
+          <CardHeader><h2 className="font-heading text-base leading-snug font-medium">Availability details</h2></CardHeader>
+          <CardContent>
+            {!requests.length ? <p className="text-sm text-muted-foreground">{submission ? 'No unavailability details were submitted for this month.' : 'Submit the month above, even if you are available every week.'}</p> : <div className="space-y-2">
+              {requests.map((request) => <div key={request.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-4">
+                <div><p className="font-medium">{request.type === 'weekly' ? `Week ${request.week_number} · ${monthName(request.month ?? month)} ${request.year ?? year}` : request.type}</p><p className="text-xs text-muted-foreground">{request.reason || 'No reason provided'} · {new Date(request.created_at).toLocaleDateString()}</p></div>
+                <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-muted-foreground">{request.status}</span>{request.status === 'pending' && !request.submission_id ? <Button variant="ghost" size="sm" onClick={() => void cancelLegacyRequest(request.id)}><X className="mr-1 h-4 w-4" />Cancel</Button> : null}</div>
+              </div>)}
+            </div>}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getMonthIndex, getWeeksInMonth } from './date-utils';
+import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getMonthIndex, getWeeksInMonth, formatLongDate } from './date-utils';
 
 describe('getCurrentWeekNumber (database first-Sunday semantics)', () => {
   it('treats dates before the first Sunday of the month as week 1', () => {
@@ -69,6 +69,28 @@ describe('getAvailableWeeks', () => {
 
   it('returns all weeks for a future month', () => {
     expect(getAvailableWeeks(11, 2026, new Date(2026, 8, 16))).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('formatLongDate (dashboard header date)', () => {
+  it('renders weekday, month and day in that order', () => {
+    expect(formatLongDate(new Date(2026, 9, 4))).toBe('Sunday, October 4');
+  });
+
+  it('keeps the weekday consistent with the date', () => {
+    // The header previously showed a frozen "Sunday, August 2" regardless of
+    // the real date, so the weekday is asserted against known calendar dates.
+    expect(formatLongDate(new Date(2026, 7, 2))).toBe('Sunday, August 2');
+    expect(formatLongDate(new Date(2026, 9, 7))).toBe('Wednesday, October 7');
+  });
+
+  it('does not pad the day of the month', () => {
+    expect(formatLongDate(new Date(2026, 0, 5))).toBe('Monday, January 5');
+  });
+
+  it('tracks month and year rollovers', () => {
+    expect(formatLongDate(new Date(2026, 11, 31))).toBe('Thursday, December 31');
+    expect(formatLongDate(new Date(2027, 0, 1))).toBe('Friday, January 1');
   });
 });
 
