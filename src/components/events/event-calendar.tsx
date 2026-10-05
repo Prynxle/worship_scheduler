@@ -22,6 +22,7 @@ import {
   CalendarDays,
   ChevronDown,
   Clock3,
+  Loader2,
   Plus,
   Search,
   Trash2,
@@ -69,6 +70,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [month, setMonth] = useState(today.getMonth());
   const [year, setYear] = useState(today.getFullYear());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [timeValue, setTimeValue] = useState('6:00');
@@ -154,31 +156,52 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
     setSelectedDate(toIso(today));
   }
 
+  // `saving` covers the whole click-to-response window. The Create button used to
+  // stay live for the entire round trip, so a double-click issued two POSTs and
+  // the second created a duplicate event; the server-side 4/day cap only catches
+  // that on a day that is already full.
+  //
+  // try/finally, not a trailing setSaving(false): the button is disabled while
+  // `saving`, so a thrown fetch (dead network, aborted request) would otherwise
+  // leave the coordinator looking at a permanently spinning button with no way
+  // forward. The `catch` is here for the same reason -- this is called as
+  // `void addEvent()`, so nobody observes the rejection, and without it a network
+  // failure is indistinguishable from the button simply doing nothing.
   async function addEvent() {
     const title = newTitle.trim();
-    if (!title || !canManage || atDayLimit) return;
-    const headers = await getAuthHeaders();
-    if (!headers) return;
-    const response = await fetch('/api/events', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title,
-        date: selectedDate,
-        description: newDescription.trim(),
-        time: timeValue ? `${timeValue} ${meridiem}` : '',
-      }),
-    });
-    if (response.ok) {
-      setNewTitle('');
-      setNewDescription('');
-      setTimeValue('6:00');
-      setMeridiem('PM');
-      setDialogOpen(false);
-      await loadEvents();
-    } else {
-      const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(result?.error ?? 'Could not add the event.');
+    if (!title || !canManage || atDayLimit || saving) return;
+    setSaving(true);
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) {
+        setError('Your session has expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/events', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          date: selectedDate,
+          description: newDescription.trim(),
+          time: timeValue ? `${timeValue} ${meridiem}` : '',
+        }),
+      });
+      if (response.ok) {
+        setNewTitle('');
+        setNewDescription('');
+        setTimeValue('6:00');
+        setMeridiem('PM');
+        setDialogOpen(false);
+        await loadEvents();
+      } else {
+        const result = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(result?.error ?? 'Could not add the event.');
+      }
+    } catch {
+      setError('Could not reach the server to create this event. Check your connection and try again.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -213,14 +236,33 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   }
 
   return (
-    <>
-      <div className="relative w-full sm:max-w-xs">
+    <div className="space-y-2.5">
+      {/* One wrapper element so this component owns the gap between the search
+          field and the two Cards below it. Returning a fragment handed those
+          children straight to the embedder, so the embedder's own vertical
+          rhythm (`space-y-6` in the member workspace, `gap-6` in EventManager)
+          landed on each of them: the field's 10px `pb-2.5` was added on top of
+          that 24px sibling gap and the rendered space read as 34px. The wrapper
+          makes this block a single child, so `space-y-2.5` is the whole gap
+          between the input and the calendar, and the embedder's 24px now
+          applies once, to the block as a whole. */}
+      <div className="relative w-full pt-1 sm:max-w-xs">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
 
+      {/* The two Cards share a row and stretch to the same height, so their bottom edges
+          align. Only one of them may have a say in that height, and it is this one: the
+          month grid is content-sized, so its height is what the row should take. The
+          events Card opts out with `contain: size` (`.evc-event-panel`), which removes its
+          contribution to the row -- stretch then matches it to this Card rather than the
+          other way round. Without that opt-out the row follows whichever side has the
+          longer list, and the month grid gets stretched with empty space under it.
+
+          Below `xl` this grid is a single column, each Card is its own auto-height row,
+          and stretching is a no-op. */}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
         <Card className="border-border/70 shadow-layered">
           <CardHeader className="flex flex-row items-center justify-between border-b border-border/60">
@@ -234,7 +276,16 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <Button size="sm" variant="outline" className="ml-1 hidden sm:flex" onClick={goToToday}>Today</Button>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          {/* This Card is the height anchor for the row: `min-h-0` on the events Card
+              below stops the events list from inflating the row, so the row height is the
+              month grid's own height and this Card is never stretched. That is what makes
+              the negative margin correct rather than the cause of the bug -- it extends
+              the content box past the Card's `py-(--card-spacing)` so the last week row
+              meets the bottom border, with no leftover height collecting after that box to
+              reopen the gap. The Card is `overflow-hidden` with rounded corners, so the
+              grid is clipped to the border rather than bleeding past it. Horizontal padding
+              is untouched, so the day cells keep their inset from the Card's sides. */}
+          <CardContent className="p-0 -mb-(--card-spacing)">
             <div className="event-calendar-fc p-3 sm:p-5">
               <FullCalendar
                 ref={calendarRef}
@@ -279,7 +330,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 shadow-layered">
+        <Card className="evc-event-panel min-h-0 border-border/70 shadow-layered">
           <CardHeader className="border-b border-border/60">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -295,15 +346,58 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               ) : null}
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3 pt-5">
+          {/* `flex-1 min-h-0` lets this column claim the Card's leftover height. The Card is
+                `flex flex-col`, so without `min-h-0` the child refuses to shrink below
+                its content and the list could never be bounded. */}
+          {/* `-mb-(--card-spacing)` cancels the Card's own bottom padding on this column only,
+                so the scroll region reaches the Card's bottom edge instead of stopping
+                `var(--card-spacing)` short and leaving a visible gap. The Card is
+                `overflow-hidden` with rounded corners, so the extended region is clipped
+                to the rounded border rather than bleeding past it. Horizontal padding is
+                untouched, so the events keep their inset from the Card's sides. */}
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-5 -mb-(--card-spacing)">
             {canManage && atDayLimit ? (
               <p className="rounded-lg border border-border/70 bg-secondary/25 px-3 py-2 text-xs text-muted-foreground">
                 This day has reached its {MAX_EVENTS_PER_DAY}-event limit.
               </p>
             ) : null}
+            {/* The list fills the height the Card has left, so the events area spans the whole
+                Card and its bottom edge lands level with the calendar's.
+
+                At `xl` the Card carries `.evc-event-panel` (`contain: size`, see globals.css).
+                That is what actually decouples the two heights: it drops this Card's
+                contribution to the grid row to nothing, so the row is sized by the month
+                grid alone and this Card is merely stretched to match it. `min-h-0` alone
+                was not enough -- it only removes the automatic *minimum* size, while an
+                auto-height `flex-col` still folds the list's content into the Card's own
+                intrinsic size, which let a long list size the row and stretch the calendar.
+
+                `flex-1` claims the leftover height and `min-h-0` allows the list to shrink
+                below its content, so it scrolls rather than pushing the Card taller.
+                `max-h-[60vh]` applies below `xl` only, where the grid is a single column
+                and the Card is auto-height with no containment to bound it; without the cap
+                the list would grow unbounded with the event count. Two earlier attempts at
+                this cap are recorded in git history: applying it at every breakpoint left
+                the stretched list stopping short of the Card's bottom edge, and removing it
+                everywhere let events spill past that edge. `contain: size` is what makes
+                lifting it at `xl` safe.
+
+                `snap-y snap-proximity` with `snap-start` on each card stops a card resting
+                sliced mid-height: `proximity` rather than `mandatory` because event cards
+                vary in height with description length, and mandatory can trap a card
+                taller than the region and make its bottom unreachable.
+
+                `overscroll-contain` stops the page behind from scrolling once this list
+                reaches its end. The themed scrollbar is `.evc-event-scroll` in
+                globals.css, and `pr-2` keeps card content clear of the bar.
+
+                No bottom padding on the region: it runs flush to the Card's inner edge so
+                the list ends exactly level with the Card. An earlier `pb-1` here left a
+                gap above the bottom border, which read as the content stopping short. */}
             {selectedEvents.length ? (
-              selectedEvents.map((event) => (
-                <div key={event.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
+              <div className="evc-event-scroll min-h-0 flex-1 snap-y snap-proximity space-y-3 overflow-y-scroll overscroll-contain pr-2 max-h-[60vh] xl:max-h-none">
+              {selectedEvents.map((event) => (
+                <div key={event.id} className="snap-start rounded-xl border border-border/70 bg-secondary/25 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
@@ -326,9 +420,12 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                     <span className="flex min-w-0 items-center gap-2 break-words"><UsersRound className="size-3.5 shrink-0 text-primary" />{event.attendees ? `${event.attendees} people attending` : 'Attendance not set'}</span>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-border p-6 text-center">
+              /* `flex-1` so the empty state also spans the Card rather than sitting at
+                 the top with the Card's height left below it. */
+              <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
                 <CalendarDays className="mx-auto size-7 text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">Nothing scheduled yet</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add an event to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>
@@ -383,11 +480,20 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button onClick={() => void addEvent()} disabled={!newTitle.trim()}>Create event</Button>
+              {/* `saving` joins the disabled condition so the button cannot be
+                  pressed again while the POST is in flight, and the label states
+                  the pending state instead of leaving the dialog looking idle.
+                  `aria-hidden` on the icon because "Creating…" already carries
+                  it to a screen reader; the spinner is the same lucide mark the
+                  sign-in submit uses. */}
+              <Button onClick={() => void addEvent()} disabled={!newTitle.trim() || saving || atDayLimit}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {saving ? 'Creating…' : 'Create event'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       ) : null}
-    </>
+    </div>
   );
 }
