@@ -62,6 +62,17 @@ export function formatDate(date: Date | string): string {
   return format(d, 'MMM dd, yyyy');
 }
 
+/**
+ * Long human date, e.g. `Sunday, October 4`.
+ *
+ * Built from local components via date-fns rather than `toLocaleDateString`, so
+ * the weekday name always agrees with the day number in the same string and the
+ * output does not shift with the host locale's date-order conventions.
+ */
+export function formatLongDate(date: Date): string {
+  return format(date, 'EEEE, MMMM d');
+}
+
 export function formatWeekDate(weekNumber: number, month: number, year: number): string {
   const weekDate = getWeekDate(weekNumber, month, year);
   return format(weekDate, 'MMM dd');
