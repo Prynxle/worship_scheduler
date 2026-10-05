@@ -214,7 +214,11 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
 
   return (
     <>
-      <div className="relative w-full sm:max-w-xs">
+      {/* The search field sits outside the two Cards below, so it needs its own
+          vertical breathing room; without it the input butts against the card
+          edge when this component is embedded in a page grid rather than
+          rendered on its own route. */}
+      <div className="relative w-full pb-2.5 pt-1 sm:max-w-xs">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
@@ -234,7 +238,13 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               <Button size="sm" variant="outline" className="ml-1 hidden sm:flex" onClick={goToToday}>Today</Button>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          {/* `-mb-(--card-spacing)` matches the events Card: the Card is `py-(--card-spacing)`,
+              so without cancelling that bottom padding the month grid stops a full
+              spacing unit short of the bottom border and leaves the same gap the events
+              list had. The Card is `overflow-hidden` with rounded corners, so the grid
+              is clipped to the border rather than bleeding past it. Horizontal padding
+              is untouched, so the day cells keep their inset from the Card's sides. */}
+          <CardContent className="p-0 -mb-(--card-spacing)">
             <div className="event-calendar-fc p-3 sm:p-5">
               <FullCalendar
                 ref={calendarRef}
@@ -295,15 +305,50 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               ) : null}
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3 pt-5">
+          {/* `flex-1 min-h-0` lets this column claim the Card's leftover height. The Card is
+                `flex flex-col`, so without `min-h-0` the child refuses to shrink below
+                its content and the list could never be bounded. */}
+          {/* `-mb-(--card-spacing)` cancels the Card's own bottom padding on this column only,
+                so the scroll region reaches the Card's bottom edge instead of stopping
+                `var(--card-spacing)` short and leaving a visible gap. The Card is
+                `overflow-hidden` with rounded corners, so the extended region is clipped
+                to the rounded border rather than bleeding past it. Horizontal padding is
+                untouched, so the events keep their inset from the Card's sides. */}
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-5 -mb-(--card-spacing)">
             {canManage && atDayLimit ? (
               <p className="rounded-lg border border-border/70 bg-secondary/25 px-3 py-2 text-xs text-muted-foreground">
                 This day has reached its {MAX_EVENTS_PER_DAY}-event limit.
               </p>
             ) : null}
+            {/* The list fills the height the Card has left, so the events area spans the whole
+                Card instead of stopping at a fixed cap and leaving the remainder as
+                empty space below.
+
+                `flex-1` claims the leftover height and `min-h-0` allows the child to
+                shrink below its content, so the list scrolls rather than pushing the Card
+                taller. The `max-h-[60vh]` cap applies at every breakpoint, including `xl`:
+                an earlier version lifted it with `xl:max-h-none` on the theory that the
+                grid-stretched Card would supply the height, but that left the list
+                unbounded whenever the Card ended up taller than the visible column, which
+                is what let events spill past the Card's bottom edge. Viewport-relative so
+                it scales with the window instead of cutting at a fixed pixel count.
+
+                `snap-y snap-proximity` with `snap-start` on each card stops a card resting
+                sliced mid-height: `proximity` rather than `mandatory` because event cards
+                vary in height with description length, and mandatory can trap a card
+                taller than the region and make its bottom unreachable.
+
+                `overscroll-contain` stops the page behind from scrolling once this list
+                reaches its end. The themed scrollbar is `.evc-event-scroll` in
+                globals.css, and `pr-2` keeps card content clear of the bar.
+
+                No bottom padding on the region: it runs flush to the Card's inner edge so
+                the list ends exactly level with the Card. An earlier `pb-1` here left a
+                gap above the bottom border, which read as the content stopping short. */}
             {selectedEvents.length ? (
-              selectedEvents.map((event) => (
-                <div key={event.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
+              <div className="evc-event-scroll min-h-0 flex-1 snap-y snap-proximity space-y-3 overflow-y-scroll overscroll-contain pr-2 max-h-[60vh]">
+              {selectedEvents.map((event) => (
+                <div key={event.id} className="snap-start rounded-xl border border-border/70 bg-secondary/25 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
@@ -326,9 +371,12 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                     <span className="flex min-w-0 items-center gap-2 break-words"><UsersRound className="size-3.5 shrink-0 text-primary" />{event.attendees ? `${event.attendees} people attending` : 'Attendance not set'}</span>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-border p-6 text-center">
+              /* `flex-1` so the empty state also spans the Card rather than sitting at
+                 the top with the Card's height left below it. */
+              <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
                 <CalendarDays className="mx-auto size-7 text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">Nothing scheduled yet</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{canManage ? 'Add an event to keep the team aligned.' : 'Check back soon for the latest ministry moments.'}</p>

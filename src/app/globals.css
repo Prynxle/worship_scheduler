@@ -68,6 +68,12 @@
   --border: oklch(0.62 0.020 70 / 12%);
   --input: oklch(0.62 0.020 70 / 14%);
   --ring: oklch(0.72 0.030 65);
+  /* Themed scrollbar for bounded scroll regions. Declared as tokens rather than
+     inline in the rule so the palette stays the single source of truth and a
+     theme change updates the scrollbar with everything else. */
+  --evc-scrollbar-thumb: oklch(0.62 0.020 70 / 55%);
+  --evc-scrollbar-thumb-hover: oklch(0.72 0.030 65 / 85%);
+  --evc-scrollbar-track: oklch(0.62 0.020 70 / 10%);
   --chart-1: oklch(0.72 0.030 65);
   --chart-2: oklch(0.67 0.025 67);
   --chart-3: oklch(0.62 0.020 70);
@@ -103,6 +109,12 @@
   --border: oklch(0.62 0.020 70 / 12%);
   --input: oklch(0.62 0.020 70 / 14%);
   --ring: oklch(0.72 0.030 65);
+  /* Themed scrollbar for bounded scroll regions. Declared as tokens rather than
+     inline in the rule so the palette stays the single source of truth and a
+     theme change updates the scrollbar with everything else. */
+  --evc-scrollbar-thumb: oklch(0.62 0.020 70 / 55%);
+  --evc-scrollbar-thumb-hover: oklch(0.72 0.030 65 / 85%);
+  --evc-scrollbar-track: oklch(0.62 0.020 70 / 10%);
   --chart-1: oklch(0.72 0.030 65);
   --chart-2: oklch(0.67 0.025 67);
   --chart-3: oklch(0.62 0.020 70);
@@ -711,4 +723,46 @@
 .event-calendar-fc .evc-more-static {
   pointer-events: none;
   cursor: default;
+}
+
+/* ============================================================================
+   THEMED SCROLLBAR
+   Applied to bounded scroll regions (see `.evc-event-scroll`) so a long list
+   scrolls inside its card instead of stretching the Card and pushing the page
+   layout around.
+
+   The project has no ScrollArea primitive, so this styles the native scrollbar
+   directly. Both engines are covered: WebKit/Blink use the ::-webkit pseudo
+   elements, Firefox uses scrollbar-width/scrollbar-color. Colours are derived
+   from the existing theme tokens rather than hardcoded values, so the scrollbar
+   follows the palette.
+
+   The track is given a faint fill rather than being left fully transparent: with
+   a transparent track the bar reads as absent until hovered, which is the
+   opposite of the affordance it is supposed to provide.
+   ============================================================================ */
+.evc-event-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--evc-scrollbar-thumb) var(--evc-scrollbar-track);
+}
+/* Alpha is encoded in the token colour rather than an `opacity` declaration on
+   the pseudo element: `opacity` on ::-webkit-scrollbar-thumb is not reliably
+   applied by WebKit/Blink, whereas the background colour itself always is. */
+.evc-event-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.evc-event-scroll::-webkit-scrollbar-track {
+  background-color: var(--evc-scrollbar-track);
+  border-radius: 9999px;
+}
+.evc-event-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--evc-scrollbar-thumb);
+  border-radius: 9999px;
+  /* A 1px border of the track colour with padding-box clipping rounds the bar's
+     ends without shrinking the visible width further. */
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.evc-event-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: var(--evc-scrollbar-thumb-hover);
 }
