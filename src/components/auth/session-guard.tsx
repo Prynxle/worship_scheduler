@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { SessionProvider, type SessionUser } from '@/contexts/session-context';
 
 type SessionGuardProps = {
   children: React.ReactNode;
@@ -13,6 +14,10 @@ export function SessionGuard({ children }: SessionGuardProps) {
   // Lazy initial state keeps the first client render null, matching the server
   // render so no protected content flashes before the session check finishes.
   const [isChecking, setIsChecking] = useState(true);
+  // The resolved account is published to context so the dashboard shell can read
+  // the role without repeating this request. Previously it was fetched only to
+  // pick the member redirect and then thrown away.
+  const [user, setUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,11 +37,12 @@ export function SessionGuard({ children }: SessionGuardProps) {
           router.replace('/login');
           return;
         }
-        const result = await response.json() as { user?: { role?: string } };
+        const result = await response.json() as { user?: SessionUser };
         if (result.user?.role === 'member' && window.location.pathname !== '/member') {
           router.replace('/member');
           return;
         }
+        setUser(result.user ?? null);
         setIsChecking(false);
       } catch {
         if (cancelled) return;
@@ -55,5 +61,5 @@ export function SessionGuard({ children }: SessionGuardProps) {
     return null;
   }
 
-  return children;
+  return <SessionProvider user={user}>{children}</SessionProvider>;
 }
