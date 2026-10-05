@@ -1,7 +1,7 @@
 export const MAX_EVENTS_PER_DAY = 4;
 
 /** Kept in sync with the events_description_length check in the migration. */
-export const MAX_EVENT_DESCRIPTION_LENGTH = 500;
+export const MAX_EVENT_DESCRIPTION_LENGTH = 250;
 
 export type EventInput = {
   title: string;
