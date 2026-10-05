@@ -741,6 +741,33 @@
    a transparent track the bar reads as absent until hovered, which is the
    opposite of the affordance it is supposed to provide.
    ============================================================================ */
+
+/* Size containment for the Selected day Card at the two-column breakpoint.
+
+   The month grid is content-sized -- six week rows at a fixed row height -- so it is
+   the height reference for the row. The events Card must NOT be: its list is
+   `flex-1` in a `flex-col` Card, and an auto-height column flex container still folds
+   each item's content into its own intrinsic size, so the Card contributed the full
+   list height to the grid row. `min-h-0` did not prevent that, because it only removes
+   the automatic *minimum* size, not the item's content contribution. The result was the
+   calendar Card being stretched by a long events list, with the month grid stopping in
+   mid-air above the gap.
+
+   `contain: size` makes the element's own size independent of its contents, so its
+   contribution to the row is nothing. Stretch then gives it exactly the row height, the
+   `flex-1` list fills what is left and scrolls inside it, and the two Cards' bottom edges
+   align no matter how many events exist.
+
+   Confined to `xl` and up to match the grid: below that the grid is a single column and
+   each Card is its own auto-height row, where size containment would collapse the Card to
+   its header and hide the list. There the `max-h-[60vh]` cap on the list is what keeps a
+   long list scrolling inside its own Card. */
+@media (min-width: 80rem) {
+  .evc-event-panel {
+    contain: size;
+  }
+}
+
 .evc-event-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--evc-scrollbar-thumb) var(--evc-scrollbar-track);
