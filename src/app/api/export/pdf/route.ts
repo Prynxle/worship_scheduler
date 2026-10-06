@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
 
   const { data: services, error } = await servicesQuery;
   if (error) {
+    console.error('PDF export query error:', error);
     return NextResponse.json({ error: 'Could not load schedule.' }, { status: 500 });
   }
 

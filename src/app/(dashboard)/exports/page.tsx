@@ -50,19 +50,24 @@ export default function ExportsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'schedule-' + month + '-' + year + '.pdf';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Failed to generate PDF' }));
+        console.error('Export failed:', error);
+        alert(error.error || 'Failed to generate PDF');
+        return;
       }
-    } catch {
-      // ignore
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'schedule-' + month + '-' + year + '.pdf';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Export error:', err);
+      alert('Failed to generate PDF');
     } finally {
       setIsExporting(false);
     }

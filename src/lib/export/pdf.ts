@@ -91,5 +91,11 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   doc.line(margin, y, pageWidth - margin, y);
   y += 8;
 
+  // If no data, add note
+  if (sortedServices.length === 0) {
+    doc.setFontSize(10);
+    doc.text('No services found for the selected period.', margin, y + 10);
+  }
+
   return doc;
 }
