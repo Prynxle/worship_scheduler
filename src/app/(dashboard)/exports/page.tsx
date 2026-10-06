@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Download, Calendar, FileText, Image as ImageIcon } from 'lucide-react';
+import { getSupabaseClient } from '@/lib/supabase/client';
 
 export default function ExportsPage() {
   const [isExporting, setIsExporting] = useState(false);
@@ -45,10 +46,17 @@ export default function ExportsPage() {
         year: parseInt(year),
       };
       if (week !== 'all') payload.week_numbers = [parseInt(week)];
+      const { data } = await getSupabaseClient().auth.getSession();
+      const token = data.session?.access_token;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
       const res = await fetch('/api/export/pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
