@@ -18,7 +18,6 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DevModeToggle } from '@/components/dev/dev-mode-toggle';
 import { Button } from '@/components/ui/button';
 import { getSupabaseClient } from '@/lib/supabase/client';
 
@@ -164,7 +163,6 @@ export function Sidebar() {
             <Settings2 className="size-[18px]" />
             Settings
           </Link> : null}
-          <DevModeToggle />
           <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/60 p-3">
             <div className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
               {profile.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'U'}
