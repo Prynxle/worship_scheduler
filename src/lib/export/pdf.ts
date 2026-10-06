@@ -15,100 +15,81 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 12;
 
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.text(data.churchName || 'Worship Schedule', margin, margin + 8);
-  doc.setFontSize(10);
   const monthYear = new Date(data.year, data.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  doc.text(monthYear, margin, margin + 15);
+  doc.setFontSize(12);
+  doc.text(${monthYear} Worship Team Singers, margin, margin + 16);
+  
+  doc.setDrawColor(0, 0, 0);
+  doc.line(margin, margin + 18, pageWidth - margin, margin + 18);
 
-  let y = margin + 25;
+  let y = margin + 24;
+  doc.setFontSize(9);
+  doc.text('Date', margin, y);
+  doc.text('Worship Leader', margin + 20, y);
+  doc.text('Back-Up', margin + 60, y);
+  doc.text('Devotion', margin + 120, y);
+  y += 2;
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 5;
 
-  for (const service of data.services) {
-    doc.setFontSize(12);
-    const serviceName = service.name || 'Service';
-    doc.text(serviceName, margin, y);
-    y += 6;
-    doc.setFontSize(9);
-    doc.text('Date: ' + service.date, margin, y);
-    y += 4;
-    if (service.time) {
-      doc.text('Time: ' + service.time, margin + 60, y - 4);
-    }
-    y += 4;
+  const sortedServices = [...data.services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  for (const service of sortedServices) {
+    const dateNum = new Date(service.date).getUTCDate();
     const worshipLeaders = (service.assignments || []).filter(
       (a: ScheduleAssignment) =>
         a.role?.name?.toLowerCase().includes('worship leader') ||
         a.role?.name?.toLowerCase().includes('leader')
     );
-    if (worshipLeaders.length > 0) {
-      doc.setFontSize(9);
-      doc.text('Worship Leader:', margin, y);
-      y += 4;
-      worshipLeaders.forEach((a: ScheduleAssignment) => {
-        const name = a.member?.name || a.member?.email || '';
-        if (name) {
-          doc.text('- ' + name, margin, y);
-          y += 3;
-        }
-      });
-      y += 2;
-    }
+    const backups = (service.assignments || []).filter(
+      (a: ScheduleAssignment) =>
+        a.role?.name?.toLowerCase().includes('backup') ||
+        a.role?.name?.toLowerCase().includes('back-up') ||
+        a.role?.name?.toLowerCase().includes('back up')
+    );
+    const otherSingers = (service.assignments || []).filter((a: ScheduleAssignment) => {
+      const name = (a.role?.name || '').toLowerCase();
+      const isLeader = name.includes('leader');
+      const isBackup = name.includes('backup') || name.includes('back-up') || name.includes('back up');
+      const isSinger = name.includes('singer') || name.includes('voc') || (a.instrument?.name || '').toLowerCase().includes('vox');
+      return isSinger && !isLeader && !isBackup;
+    });
 
-    y = drawTable(doc, pageWidth, pageHeight, margin, y, service.assignments || []);
+    const backupNames = [...backups, ...otherSingers]
+      .map((a: ScheduleAssignment) => a.member?.name || a.member?.email || '')
+      .filter(Boolean)
+      .slice(0, 15);
+    const leaderName = worshipLeaders.map((a: ScheduleAssignment) => a.member?.name || a.member?.email || '').filter(Boolean)[0] || '';
 
+    doc.setFontSize(8);
+    doc.text(dateNum.toString(), margin, y);
+    doc.text(leaderName, margin + 20, y, { maxWidth: 35 });
+    doc.text(backupNames.join(', '), margin + 60, y, { maxWidth: 55 });
+    doc.text('', margin + 120, y);
     y += 6;
-    if (y > pageHeight - margin) {
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+
+    if (y > pageHeight - 40) {
       doc.addPage();
-      y = margin;
+      y = margin + 10;
     }
   }
+
+  if (y < pageHeight - 70) {
+    y = y + 10;
+  } else {
+    doc.addPage();
+    y = margin + 10;
+  }
+
+  doc.setFontSize(12);
+  doc.text(${monthYear} Worship Team Instrumentalists, margin, y);
+  y += 2;
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 8;
 
   return doc;
-}
-
-function drawTable(doc: jsPDF, pageWidth: number, pageHeight: number, margin: number, y: number, assignments: ScheduleAssignment[]) {
-  doc.setFontSize(9);
-  doc.text('Singers', margin, y);
-  y += 4;
-
-  const singers = assignments.filter(
-    (a: ScheduleAssignment) =>
-      a.role?.name?.toLowerCase().includes('singer') ||
-      a.role?.name?.toLowerCase().includes('voc') ||
-      a.instrument?.name?.toLowerCase().includes('vox')
-  );
-  const parts = ['Soprano', 'Alto', 'Tenor', 'Bass'];
-  parts.forEach((part) => {
-    const partAssignments = singers.filter(
-      (a: ScheduleAssignment) =>
-        a.instrument?.name?.toLowerCase().includes(part.toLowerCase()) ||
-        a.role?.name?.toLowerCase().includes(part.toLowerCase())
-    );
-    const names = partAssignments.map((a: ScheduleAssignment) => a.member?.name || '').filter(Boolean).join(', ');
-    if (names || y < pageHeight - margin) {
-      doc.text(part + ': ' + (names || '-'), margin + 2, y);
-      y += 3;
-    }
-  });
-  y += 3;
-
-  doc.text('Instrumentalists', margin, y);
-  y += 4;
-  const instrumentalists = assignments.filter(
-    (a: ScheduleAssignment) =>
-      !(a.role?.name?.toLowerCase().includes('singer') ||
-        a.role?.name?.toLowerCase().includes('voc') ||
-        a.instrument?.name?.toLowerCase().includes('vox'))
-  );
-  const instNames = instrumentalists.map((a: ScheduleAssignment) => a.member?.name || '').filter(Boolean);
-  if (instNames.length > 0) {
-    doc.text(instNames.join(', '), margin + 2, y);
-    y += 3;
-  } else {
-    doc.text('-', margin + 2, y);
-    y += 3;
-  }
-
-  return y;
 }
