@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { ExportOptions } from '@/components/exports/export-options';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,66 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Download, Calendar, FileText, Image as ImageIcon } from 'lucide-react';
 
 export default function ExportsPage() {
+  const [isExporting, setIsExporting] = useState(false);
+  const [month, setMonth] = useState<string>('1');
+  const [year, setYear] = useState<string>(new Date().getFullYear().toString());
+  const [week, setWeek] = useState<string>('all');
+  const months = useMemo(() => {
+    const current = new Date();
+    const items = [];
+    for (let i = -6; i <= 6; i++) {
+      const d = new Date(current.getFullYear(), current.getMonth() + i, 1);
+      items.push({
+        month: d.getMonth() + 1,
+        year: d.getFullYear(),
+        label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      });
+    }
+    return items;
+  }, []);
+
+  useEffect(() => {
+    const current = new Date();
+    const cur = months.find((m) => m.month === current.getMonth() + 1 && m.year === current.getFullYear());
+    if (cur && month === '1') {
+      setTimeout(() => {
+        setMonth(cur.month.toString());
+        setYear(cur.year.toString());
+      }, 0);
+    }
+  }, [months, month, year]);
+
+  async function handleExportPDF() {
+    setIsExporting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        month: parseInt(month),
+        year: parseInt(year),
+      };
+      if (week !== 'all') payload.week_numbers = [parseInt(week)];
+      const res = await fetch('/api/export/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'schedule-' + month + '-' + year + '.pdf';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -18,9 +79,10 @@ export default function ExportsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ExportOptions
-          onExportPDF={() => console.log('Export PDF')}
-          onExportImage={() => console.log('Export Image')}
-          onExportPrint={() => console.log('Export Print')}
+          isExporting={isExporting}
+          onExportPDF={handleExportPDF}
+          onExportImage={() => {}}
+          onExportPrint={() => {}}
         />
 
         <Card className="card-glow">
@@ -33,21 +95,23 @@ export default function ExportsPage() {
           <CardContent className="space-y-4">
             <div>
               <label className="text-sm font-medium text-foreground">Month</label>
-              <Select defaultValue="august">
+              <Select value={month} onValueChange={(v: string | null) => setMonth(v || month)}>
                 <SelectTrigger className="mt-1.5 w-full">
                   <SelectValue placeholder="Select month" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="july">July 2026</SelectItem>
-                  <SelectItem value="august">August 2026</SelectItem>
-                  <SelectItem value="september">September 2026</SelectItem>
+                  {months.map((m) => (
+                    <SelectItem key={m.year + '-' + m.month} value={m.month.toString()}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div>
               <label className="text-sm font-medium text-foreground">Week</label>
-              <Select defaultValue="all">
+              <Select value={week} onValueChange={(v: string | null) => setWeek(v || week)}>
                 <SelectTrigger className="mt-1.5 w-full">
                   <SelectValue placeholder="Select week" />
                 </SelectTrigger>
@@ -76,9 +140,9 @@ export default function ExportsPage() {
               </Select>
             </div>
 
-            <Button className="w-full">
+            <Button className="w-full" onClick={handleExportPDF} disabled={isExporting}>
               <Download className="h-4 w-4 mr-1" />
-              Generate Export
+              {isExporting ? 'Generating...' : 'Generate Export'}
             </Button>
           </CardContent>
         </Card>
@@ -89,40 +153,7 @@ export default function ExportsPage() {
           <CardTitle>Recent Exports</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {[
-              { name: 'August 2026 Schedule.pdf', type: 'PDF', date: 'Aug 1, 2026', size: '245 KB' },
-              { name: 'Week 3 Announcement.png', type: 'Image', date: 'Jul 28, 2026', size: '1.2 MB' },
-              { name: 'July 2026 Schedule.pdf', type: 'PDF', date: 'Jul 1, 2026', size: '238 KB' },
-            ].map((exportItem, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-secondary p-2">
-                    {exportItem.type === 'PDF' ? (
-                      <FileText className="h-5 w-5 text-destructive" />
-                    ) : (
-                      <ImageIcon className="h-5 w-5 text-accent" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-medium text-foreground">{exportItem.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {exportItem.type} &middot; {exportItem.size}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-sm text-muted-foreground">{exportItem.date}</div>
-                  <Button variant="ghost" size="sm">
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="space-y-2"></div>
         </CardContent>
       </Card>
     </div>
