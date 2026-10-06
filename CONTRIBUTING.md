@@ -85,7 +85,7 @@ Treat these as hard constraints unless explicitly configurable:
 - Never assign unavailable members.
 - Never assign inactive members.
 - Enforce each member's monthly assignment limit (default max 3).
-- Never assign one member twice in the same service, regardless of role.
+- Do not assign the same member to duplicate roles in one service unless the ministry explicitly allows dual roles.
 - Require exactly one Worship Leader per service.
 - Only members with the Leader role may be Worship Leader.
 - Require 3 backups per service by default; honor configured minimum/maximum.
