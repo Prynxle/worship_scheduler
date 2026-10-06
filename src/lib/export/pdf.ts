@@ -19,7 +19,7 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   doc.text(data.churchName || 'Worship Schedule', margin, margin + 8);
   const monthYear = new Date(data.year, data.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   doc.setFontSize(12);
-  doc.text(${monthYear} Worship Team Singers, margin, margin + 16);
+  doc.text(monthYear + ' Worship Team Singers', margin, margin + 16);
   
   doc.setDrawColor(0, 0, 0);
   doc.line(margin, margin + 18, pageWidth - margin, margin + 18);
@@ -40,14 +40,14 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
     const dateNum = new Date(service.date).getUTCDate();
     const worshipLeaders = (service.assignments || []).filter(
       (a: ScheduleAssignment) =>
-        a.role?.name?.toLowerCase().includes('worship leader') ||
-        a.role?.name?.toLowerCase().includes('leader')
+        (a.role?.name || '').toLowerCase().includes('worship leader') ||
+        (a.role?.name || '').toLowerCase().includes('leader')
     );
     const backups = (service.assignments || []).filter(
       (a: ScheduleAssignment) =>
-        a.role?.name?.toLowerCase().includes('backup') ||
-        a.role?.name?.toLowerCase().includes('back-up') ||
-        a.role?.name?.toLowerCase().includes('back up')
+        (a.role?.name || '').toLowerCase().includes('backup') ||
+        (a.role?.name || '').toLowerCase().includes('back-up') ||
+        (a.role?.name || '').toLowerCase().includes('back up')
     );
     const otherSingers = (service.assignments || []).filter((a: ScheduleAssignment) => {
       const name = (a.role?.name || '').toLowerCase();
@@ -57,11 +57,12 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
       return isSinger && !isLeader && !isBackup;
     });
 
+    const getName = (a: ScheduleAssignment) => (a as any).member?.full_name || (a as any).member?.name || (a as any).member?.email || '';
     const backupNames = [...backups, ...otherSingers]
-      .map((a: ScheduleAssignment) => a.member?.name || a.member?.email || '')
+      .map(getName)
       .filter(Boolean)
       .slice(0, 15);
-    const leaderName = worshipLeaders.map((a: ScheduleAssignment) => a.member?.name || a.member?.email || '').filter(Boolean)[0] || '';
+    const leaderName = worshipLeaders.map(getName).filter(Boolean)[0] || '';
 
     doc.setFontSize(8);
     doc.text(dateNum.toString(), margin, y);
@@ -86,7 +87,7 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   }
 
   doc.setFontSize(12);
-  doc.text(${monthYear} Worship Team Instrumentalists, margin, y);
+  doc.text(monthYear + ' Worship Team Instrumentalists', margin, y);
   y += 2;
   doc.line(margin, y, pageWidth - margin, y);
   y += 8;
