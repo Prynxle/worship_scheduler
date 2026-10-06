@@ -57,12 +57,11 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
       return isSinger && !isLeader && !isBackup;
     });
 
-    const getName = (a: ScheduleAssignment) => (a as any).member?.full_name || (a as any).member?.name || (a as any).member?.email || '';
     const backupNames = [...backups, ...otherSingers]
-      .map(getName)
+      .map((a) => a.member?.full_name || '')
       .filter(Boolean)
       .slice(0, 15);
-    const leaderName = worshipLeaders.map(getName).filter(Boolean)[0] || '';
+    const leaderName = worshipLeaders.map((a) => a.member?.full_name || '').filter(Boolean)[0] || '';
 
     doc.setFontSize(8);
     doc.text(dateNum.toString(), margin, y);
