@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     .order('date', { ascending: true });
 
   if (Array.isArray(week_numbers) && week_numbers.length > 0) {
-    servicesQuery = servicesQuery.in('week', week_numbers);
+    servicesQuery = servicesQuery.in('week_number', week_numbers);
   }
   if (schedule_id) {
     servicesQuery = servicesQuery.eq('id', schedule_id);
