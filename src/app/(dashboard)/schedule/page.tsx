@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
-import { AlertTriangle, CalendarDays, Check, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Clock3, Download, Plus, ShieldCheck, Users } from 'lucide-react';
 
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
 /** A position the generator or the last manual edit could not fill. */
@@ -100,6 +100,7 @@ export default function SchedulePage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [editingId, setEditingId] = useState('');
 
@@ -299,6 +300,39 @@ export default function SchedulePage() {
     finally { setWorking(false); }
   }
 
+  async function exportPdf() {
+    setExportingPdf(true);
+    setError('');
+    setMessage('');
+    try {
+      const session = await withSession();
+      const payload: Record<string, unknown> = { month: month + 1, year };
+      const res = await fetch('/api/export/pdf', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to generate PDF' }));
+        throw new Error(err.error || 'Failed to generate PDF');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `schedule-${month + 1}-${year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setMessage('PDF exported successfully.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to export PDF');
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   const visibleCards = filteredSchedules.map((service, index) => (
     <ScheduleCard
       key={service.id}
@@ -487,7 +521,12 @@ export default function SchedulePage() {
       <section aria-label="Schedule status filters" className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Monthly lineups</p><h2 className="mt-1 font-display text-3xl font-semibold">Every service, at a glance</h2></div>
-          <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => void exportPdf()}>
+              <Download className="mr-2 h-4 w-4" />{exportingPdf ? 'Exporting...' : 'Export PDF'}
+            </Button>
+            <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
+          </div>
         </div>
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>
           <TabsList className="grid h-auto w-full grid-cols-4 sm:w-[520px]">
