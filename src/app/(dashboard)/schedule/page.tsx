@@ -101,6 +101,8 @@ export default function SchedulePage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportWeek, setExportWeek] = useState<string>('all');
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [editingId, setEditingId] = useState('');
 
@@ -307,6 +309,9 @@ export default function SchedulePage() {
     try {
       const session = await withSession();
       const payload: Record<string, unknown> = { month: month + 1, year };
+      if (exportWeek !== 'all') {
+        payload.week_numbers = [parseInt(exportWeek)];
+      }
       const res = await fetch('/api/export/pdf', {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
@@ -320,12 +325,14 @@ export default function SchedulePage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `schedule-${month + 1}-${year}.pdf`;
+      const weekSuffix = exportWeek !== 'all' ? `-week${exportWeek}` : '';
+      a.download = `schedule-${month + 1}-${year}${weekSuffix}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       setMessage('PDF exported successfully.');
+      setExportDialogOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to export PDF');
     } finally {
@@ -522,8 +529,8 @@ export default function SchedulePage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Monthly lineups</p><h2 className="mt-1 font-display text-3xl font-semibold">Every service, at a glance</h2></div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => void exportPdf()}>
-              <Download className="mr-2 h-4 w-4" />{exportingPdf ? 'Exporting...' : 'Export PDF'}
+            <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => setExportDialogOpen(true)}>
+              <Download className="mr-2 h-4 w-4" />Export PDF
             </Button>
             <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
           </div>
@@ -568,6 +575,55 @@ export default function SchedulePage() {
             {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working}>Replace draft lineups</Button> : null}
             {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working}>Create amendment</Button> : null}
             {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working}>Publish schedule</Button> : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export PDF</DialogTitle>
+            <DialogDescription>
+              Choose which month and week(s) to export for {monthLabel}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Month</label>
+              <Select value={selectedMonth} onValueChange={(value) => { if (value) chooseMonth(value); setExportWeek('all'); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select month" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, index) => {
+                    const ym = monthString(today.getFullYear(), index);
+                    return <SelectItem key={ym} value={ym}>{new Date(2024, index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Week</label>
+              <Select value={exportWeek} onValueChange={setExportWeek}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select week" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Weeks</SelectItem>
+                  <SelectItem value="1">Week 1</SelectItem>
+                  <SelectItem value="2">Week 2</SelectItem>
+                  <SelectItem value="3">Week 3</SelectItem>
+                  <SelectItem value="4">Week 4</SelectItem>
+                  <SelectItem value="5">Week 5</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => void exportPdf()} disabled={exportingPdf || loading}>
+              <Download className="mr-2 h-4 w-4" />{exportingPdf ? 'Exporting...' : 'Export'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
