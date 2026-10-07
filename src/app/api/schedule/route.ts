@@ -7,7 +7,7 @@ import { ApiError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
 import { formatLocalDate, getMonthName, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { ScheduleContext } from '@/lib/types/scheduling';
 import { ScheduleAssignment, Service } from '@/lib/types/database';
-import { isBackupRoleName } from '@/lib/scheduling/role-classifier';
+import { transformServiceAssignments } from '@/lib/scheduling/service-transform';
 import { loadAvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 
 /**
@@ -38,47 +38,7 @@ function parseMonthYear(request: Request, body?: Record<string, unknown>) {
 }
 
 function serviceAssignments(service: Service, assignments: ScheduleAssignment[]) {
-  const own = assignments.filter((assignment) => assignment.service_id === service.id);
-  const leader = own.find((assignment) => assignment.is_leader)?.member;
-  // SERVED, NOT RECOMPUTED. `unfilled_positions` is the persisted write-side
-  // authority (`engine.ts` on generate, `gaps.ts` on manual edit). This read
-  // path deliberately does not re-derive it: a recompute here would be a second
-  // answer computed from a context the client never had, and the two could
-  // disagree about a month the coordinator already acted on.
-  const unfilledPositions = service.unfilled_positions ?? [];
-  return {
-    id: service.id,
-    church_id: service.church_id,
-    ministry_id: service.ministry_id ?? null,
-    legacy_unscoped: !service.ministry_id,
-    date: service.date,
-    week_number: service.week_number,
-    leader_name: leader?.full_name ?? 'Unassigned',
-    leader_avatar: leader?.avatar_url,
-    backup_singers: own.filter((assignment) => !assignment.is_leader && assignment.role && isBackupRoleName(assignment.role.name)).map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })),
-    instrumentalists: own.filter((assignment) => assignment.instrument).map((assignment) => ({ instrument: assignment.instrument?.name ?? 'Instrument', name: assignment.member?.full_name ?? 'Unassigned' })),
-    devotion_name: own.find((assignment) => assignment.is_devotion)?.member?.full_name,
-    assignments: own.map((assignment) => ({ id: assignment.id, member_id: assignment.member_id, member_name: assignment.member?.full_name ?? 'Unknown member', role_id: assignment.role_id, role_name: assignment.role?.name ?? 'Unknown role', instrument_id: assignment.instrument_id ?? null, instrument_name: assignment.instrument?.name ?? null, is_leader: assignment.is_leader, is_devotion: assignment.is_devotion === true })),
-    // `archived` is a storage lifecycle state, not a lineup state; the editor
-    // and the filters only ever deal in draft/validated/published.
-    status: service.status === 'archived' ? 'draft' : service.status,
-    schedule_version: service.schedule_version ?? 1,
-    validated_version: service.validated_version ?? null,
-    validated_by: service.validated_by ?? null,
-    validated_at: service.validated_at ?? null,
-    generated_at: service.generated_at ?? null,
-    published_at: service.published_at ?? null,
-    published_by: service.published_by ?? null,
-    revision_of: service.revision_of ?? null,
-    conflict_count: 0,
-    unfilled_positions: unfilledPositions,
-    /**
-     * Drives the coordinator-facing "incomplete" affordance. Derived from the
-     * stored gap list, so the badge can never disagree with the rows beneath it.
-     */
-    is_complete: unfilledPositions.length === 0,
-    active_overrides: service.active_overrides ?? {},
-  };
+  return transformServiceAssignments(service, assignments);
 }
 
 export async function GET(request: NextRequest) {

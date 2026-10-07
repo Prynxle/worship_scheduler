@@ -2,21 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireStaff, getAdminClient } from '@/lib/auth/server';
 import { generateSchedulePDF } from '@/lib/export/pdf';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
-import { ScheduleAssignment, Service } from '@/lib/types/database';
+import { transformServiceAssignments } from '@/lib/scheduling/service-transform';
 
-/**
- * PDF export for one church month.
- *
- * The data is loaded through `loadScheduleData`, the SAME domain loader the
- * Schedule > Monthly lineups cards use. Both the tenant scope (`church_id`) and
- * the active-ministry scope are applied inside it, so the exported PDF can never
- * disagree with what the coordinator sees on screen.
- *
- * `month` is 0-BASED, exactly like `GET /api/schedule` and the
- * `services.month` column (`services_month_date_consistency_check` enforces
- * `month = EXTRACT(MONTH FROM date) - 1`). A 1-based value here matched no rows
- * at all, which is why every export came out empty.
- */
 export async function POST(request: NextRequest) {
   const auth = await requireStaff(request);
   if (auth instanceof Response) return auth;
@@ -42,24 +29,28 @@ export async function POST(request: NextRequest) {
     const data = await loadScheduleData(auth.churchId, month, year);
 
     const weekFilter = Array.isArray(week_numbers) && week_numbers.length > 0 ? new Set<number>(week_numbers) : null;
-    const assignmentsByService = new Map<string, ScheduleAssignment[]>();
-    for (const assignment of data.assignments) {
-      const existing = assignmentsByService.get(assignment.service_id);
-      if (existing) existing.push(assignment);
-      else assignmentsByService.set(assignment.service_id, [assignment]);
+
+    const transformed = data.services
+      .map((service) => transformServiceAssignments(service, data.assignments))
+      .filter((service) => service.status === 'published' || service.status === 'validated')
+      .filter((service) => !weekFilter || weekFilter.has(service.week_number))
+      .filter((service) => !schedule_id || service.id === schedule_id);
+
+    if (transformed.length === 0) {
+      return NextResponse.json({ error: 'No published or validated schedule found for the selected period.' }, { status: 400 });
     }
 
-    const services = data.services
-      .filter((service) => !weekFilter || weekFilter.has(service.week_number))
-      .filter((service) => !schedule_id || service.id === schedule_id)
-      .map((service) => ({ ...service, assignments: assignmentsByService.get(service.id) ?? [] }));
+    const servicesForPdf: any[] = transformed.map((t) => ({
+      ...t,
+      assignments: data.assignments.filter((a) => a.service_id === t.id),
+    }));
 
     const doc = generateSchedulePDF({
       month,
       year,
       churchName: church?.name || 'Worship Schedule',
       churchLogoUrl: church?.logo_url,
-      services: services as (Service & { assignments: ScheduleAssignment[] })[],
+      services: servicesForPdf,
     });
 
     const pdfBuffer = doc.output('arraybuffer');

@@ -313,7 +313,8 @@ export default function SchedulePage() {
       // an empty PDF.
       const payload: Record<string, unknown> = { month, year };
       if (exportWeek !== 'all') {
-        payload.week_numbers = [parseInt(exportWeek)];
+        const w = parseInt(exportWeek);
+        if (!Number.isNaN(w)) payload.week_numbers = [w];
       }
       const res = await fetch('/api/export/pdf', {
         method: 'POST',
@@ -599,8 +600,8 @@ export default function SchedulePage() {
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 12 }, (_, index) => {
-                    const ym = monthString(today.getFullYear(), index);
-                    return <SelectItem key={ym} value={ym}>{new Date(today.getFullYear(), index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
+                    const ym = monthString(year, index);
+                    return <SelectItem key={ym} value={ym}>{new Date(year, index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
                   })}
                 </SelectContent>
               </Select>
@@ -613,11 +614,9 @@ export default function SchedulePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Weeks</SelectItem>
-                  <SelectItem value="1">Week 1</SelectItem>
-                  <SelectItem value="2">Week 2</SelectItem>
-                  <SelectItem value="3">Week 3</SelectItem>
-                  <SelectItem value="4">Week 4</SelectItem>
-                  <SelectItem value="5">Week 5</SelectItem>
+                  {Array.from(new Set(schedules.map((s) => s.week_number))).sort((a, b) => a - b).map((w) => (
+                    <SelectItem key={w} value={w.toString()}>Week {w}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

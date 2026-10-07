@@ -16,7 +16,7 @@ export default function ExportsPage() {
   const months = useMemo(() => {
     const current = new Date();
     const items = [];
-    for (let i = -6; i <= 6; i++) {
+    for (let i = -12; i <= 12; i++) {
       const d = new Date(current.getFullYear(), current.getMonth() + i, 1);
       items.push({
         month: d.getMonth() + 1,
@@ -137,21 +137,19 @@ export default function ExportsPage() {
                   <SelectItem value="2">Week 2</SelectItem>
                   <SelectItem value="3">Week 3</SelectItem>
                   <SelectItem value="4">Week 4</SelectItem>
+                  <SelectItem value="5">Week 5</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Format</label>
-              <Select defaultValue="a4">
+              <Select value="a4" onValueChange={() => {}}>
                 <SelectTrigger className="mt-1.5 w-full">
                   <SelectValue placeholder="Select format" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="a4">A4 Portrait</SelectItem>
-                  <SelectItem value="a4-landscape">A4 Landscape</SelectItem>
-                  <SelectItem value="social">Social Media (1080x1080)</SelectItem>
-                  <SelectItem value="announcement">Church Announcement</SelectItem>
                 </SelectContent>
               </Select>
             </div>
