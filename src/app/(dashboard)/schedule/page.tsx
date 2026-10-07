@@ -604,7 +604,7 @@ export default function SchedulePage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Week</label>
-              <Select value={exportWeek} onValueChange={setExportWeek}>
+              <Select value={exportWeek} onValueChange={(v: string | null) => setExportWeek(v || 'all')}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select week" />
                 </SelectTrigger>
