@@ -1,9 +1,10 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { EventCalendar } from '@/components/events/event-calendar';
+import { Button } from '@/components/ui/button';
 
 async function getAuthHeaders(): Promise<Record<string, string> | null> {
   const session = (await getSupabaseClient().auth.getSession()).data.session;
@@ -12,21 +13,30 @@ async function getAuthHeaders(): Promise<Record<string, string> | null> {
 
 export function EventManager() {
   const [canManage, setCanManage] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [accessError, setAccessError] = useState('');
+
+  const loadAccess = useCallback(async () => {
+    setCheckingAccess(true);
+    setAccessError('');
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch('/api/auth/me', { headers });
+      if (!response.ok) throw new Error('Could not check your calendar permissions.');
+      const result = (await response.json()) as { user?: { role?: string } };
+      setCanManage(result.user?.role !== 'member');
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : 'Could not check your calendar permissions.');
+    } finally {
+      setCheckingAccess(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const headers = await getAuthHeaders();
-      if (!headers) return;
-      const response = await fetch('/api/auth/me', { headers });
-      if (!response.ok) return;
-      const result = (await response.json()) as { user?: { role?: string } };
-      if (!cancelled) setCanManage(result.user?.role !== 'member');
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const timer = setTimeout(() => { void loadAccess(); }, 0);
+    return () => clearTimeout(timer);
+  }, [loadAccess]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -43,6 +53,7 @@ export function EventManager() {
         </div>
       </section>
 
+      {checkingAccess ? <p role="status" className="text-sm text-muted-foreground">Checking calendar permissions…</p> : accessError ? <div role="alert" className="flex items-center justify-between gap-3"><p className="text-sm text-destructive">{accessError}</p><Button size="sm" variant="outline" onClick={() => void loadAccess()}>Retry</Button></div> : null}
       <EventCalendar canManage={canManage} />
     </div>
   );

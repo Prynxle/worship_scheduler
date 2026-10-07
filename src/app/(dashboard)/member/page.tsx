@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,7 @@ import { Availability } from '@/lib/types/database';
 import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
 import { EventCalendar } from '@/components/events/event-calendar';
 import { CalendarCheck, Clock3, X } from 'lucide-react';
+import { DashboardLoadingSkeleton, Skeleton } from '@/components/ui/loading-skeleton';
 
 type MemberInfo = { id: string; full_name: string; role: string; phone?: string | null };
 type MemberProfileInfo = {
@@ -47,6 +48,11 @@ export default function MemberPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingSubmission, setLoadingSubmission] = useState(true);
+  const [submissionLoadedFor, setSubmissionLoadedFor] = useState('');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const submissionRequest = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -62,20 +68,33 @@ export default function MemberPage() {
       if (result.user.role !== 'member' || !result.user.member_id) { router.replace('/dashboard'); return; }
       setMember({ id: result.user.member_id, full_name: result.user.member_name ?? 'Your profile', role: result.user.role, phone: result.user.phone });
       setProfile(result.profile ?? null);
-    });
+    }).catch(() => {
+      if (active) setError('Could not load your profile. Please refresh the page.');
+    }).finally(() => { if (active) setLoadingProfile(false); });
     return () => { active = false; };
   }, [router]);
 
   const loadSubmission = useCallback(async () => {
     if (!member) return;
-    const session = (await getSupabaseClient().auth.getSession()).data.session;
-    if (!session) return;
-    const response = await fetch(`/api/availability/submission?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-    if (!response.ok) { setError('Could not load your monthly availability.'); return; }
-    const result = await response.json() as { submission: MonthlySubmission | null; availabilities: Availability[] };
-    setSubmission(result.submission);
-    setRequests(result.availabilities);
-    setUnavailableWeeks(result.availabilities.filter((item) => item.type === 'weekly' && item.status !== 'rejected').map((item) => item.week_number ?? 0).filter(Boolean));
+    const requestId = ++submissionRequest.current;
+    setLoadingSubmission(true);
+    try {
+      const session = (await getSupabaseClient().auth.getSession()).data.session;
+      if (!session) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/availability/submission?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!response.ok) throw new Error('Could not load your monthly availability.');
+      const result = await response.json() as { submission: MonthlySubmission | null; availabilities: Availability[] };
+      if (requestId !== submissionRequest.current) return;
+      setSubmission(result.submission);
+      setRequests(result.availabilities);
+      setUnavailableWeeks(result.availabilities.filter((item) => item.type === 'weekly' && item.status !== 'rejected').map((item) => item.week_number ?? 0).filter(Boolean));
+      setSubmissionLoadedFor(`${year}-${month}`);
+      setError('');
+    } catch (loadError) {
+      if (requestId === submissionRequest.current) setError(loadError instanceof Error ? loadError.message : 'Could not load your monthly availability.');
+    } finally {
+      if (requestId === submissionRequest.current) setLoadingSubmission(false);
+    }
   }, [member, month, year]);
 
   // Refresh server state when the member or selected month changes.
@@ -111,15 +130,20 @@ export default function MemberPage() {
   }
 
   async function cancelLegacyRequest(id: string) {
+    if (cancellingId) return;
     setError('');
-    const session = (await getSupabaseClient().auth.getSession()).data.session;
-    if (!session) return;
-    const response = await fetch(`/api/availability?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
-    if (response.ok) await loadSubmission();
-    else setError('Could not cancel that request.');
+    setCancellingId(id);
+    try {
+      const session = (await getSupabaseClient().auth.getSession()).data.session;
+      if (!session) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/availability?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!response.ok) throw new Error('Could not cancel that request.');
+      await loadSubmission();
+    } catch (cancelError) { setError(cancelError instanceof Error ? cancelError.message : 'Could not cancel that request.'); }
+    finally { setCancellingId(null); }
   }
 
-  if (!member) return null;
+  if (!member) return loadingProfile ? <DashboardLoadingSkeleton /> : <div role="alert" className="rounded-lg border border-destructive/30 p-4 text-sm text-destructive">{error || 'Could not load your member profile.'}</div>;
   const canSubmit = !submission || submission.status === 'revision_required';
   const ministryRoles = profile?.ministryRoles ?? [];
   const instruments = profile?.instruments ?? [];
@@ -202,7 +226,7 @@ export default function MemberPage() {
               <p className="text-xs text-muted-foreground">{unavailableWeeks.length ? `Unavailable: week${unavailableWeeks.length === 1 ? '' : 's'} ${unavailableWeeks.join(', ')}.` : 'No weeks selected · available all month.'}</p>
             </fieldset>
 
-            {submission ? <div className={`rounded-xl border p-4 ${submission.status === 'approved' ? 'border-primary/20 bg-primary/5' : submission.status === 'revision_required' ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/35'}`}>
+            {loadingSubmission && submissionLoadedFor !== `${year}-${month}` ? <Skeleton className="h-24 w-full rounded-xl" /> : submission ? <div className={`rounded-xl border p-4 ${submission.status === 'approved' ? 'border-primary/20 bg-primary/5' : submission.status === 'revision_required' ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/35'}`}>
               <div className="flex items-center gap-2 text-sm font-semibold capitalize">{submission.status === 'approved' ? <CalendarCheck className="h-4 w-4 text-primary" /> : submission.status === 'submitted' ? <Clock3 className="h-4 w-4 text-muted-foreground" /> : <X className="h-4 w-4 text-destructive" />}{submission.status.replace('_', ' ')}</div>
               {submission.revision_note ? <p className="mt-2 text-sm">Coordinator request: {submission.revision_note}</p> : null}
               {submission.reviewed_at && submission.reviewer_name ? <p className="mt-2 text-xs text-muted-foreground">Reviewed by {submission.reviewer_name} on {new Date(submission.reviewed_at).toLocaleDateString()}.</p> : null}
@@ -233,10 +257,10 @@ export default function MemberPage() {
           <Card>
             <CardHeader><h2 className="font-heading text-base leading-snug font-medium">Availability details</h2></CardHeader>
             <CardContent>
-              {!requests.length ? <p className="text-sm text-muted-foreground">{submission ? 'No unavailability details were submitted for this month.' : 'Submit the month above, even if you are available every week.'}</p> : <div className="space-y-2">
+              {loadingSubmission && submissionLoadedFor !== `${year}-${month}` ? <div aria-busy="true" aria-label="Loading availability details" role="status" className="space-y-3"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : !requests.length ? <p className="text-sm text-muted-foreground">{submission ? 'No unavailability details were submitted for this month.' : 'Submit the month above, even if you are available every week.'}</p> : <div className="space-y-2">
                 {requests.map((request) => <div key={request.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-4">
                   <div><p className="font-medium">{request.type === 'weekly' ? `Week ${request.week_number} · ${monthName(request.month ?? month)} ${request.year ?? year}` : request.type}</p><p className="text-xs text-muted-foreground">{request.reason || 'No reason provided'} · {new Date(request.created_at).toLocaleDateString()}</p></div>
-                  <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-muted-foreground">{request.status}</span>{request.status === 'pending' && !request.submission_id ? <Button variant="ghost" size="sm" onClick={() => void cancelLegacyRequest(request.id)}><X className="mr-1 h-4 w-4" />Cancel</Button> : null}</div>
+                  <div className="flex items-center gap-2"><span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-muted-foreground">{request.status}</span>{request.status === 'pending' && !request.submission_id ? <Button variant="ghost" size="sm" disabled={cancellingId !== null} onClick={() => void cancelLegacyRequest(request.id)} aria-busy={cancellingId === request.id}>{cancellingId === request.id ? 'Cancelling…' : <><X className="mr-1 h-4 w-4" />Cancel</>}</Button> : null}</div>
                 </div>)}
               </div>}
             </CardContent>
