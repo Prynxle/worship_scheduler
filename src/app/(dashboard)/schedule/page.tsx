@@ -591,13 +591,13 @@ export default function SchedulePage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Month</label>
               <Select value={selectedMonth} onValueChange={(value) => { if (value) chooseMonth(value); setExportWeek('all'); }}>
-                <SelectTrigger>
+                <SelectTrigger className="mt-1.5">
                   <SelectValue placeholder="Select month" />
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 12 }, (_, index) => {
                     const ym = monthString(today.getFullYear(), index);
-                    return <SelectItem key={ym} value={ym}>{new Date(2024, index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
+                    return <SelectItem key={ym} value={ym}>{new Date(today.getFullYear(), index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
                   })}
                 </SelectContent>
               </Select>
@@ -605,7 +605,7 @@ export default function SchedulePage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Week</label>
               <Select value={exportWeek} onValueChange={(v: string | null) => setExportWeek(v || 'all')}>
-                <SelectTrigger>
+                <SelectTrigger className="mt-1.5">
                   <SelectValue placeholder="Select week" />
                 </SelectTrigger>
                 <SelectContent>
