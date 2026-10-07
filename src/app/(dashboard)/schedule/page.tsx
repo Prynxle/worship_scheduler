@@ -9,11 +9,12 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
-import { AlertTriangle, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
 import { ScheduleGridSkeleton } from '@/components/ui/loading-skeleton';
 
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
@@ -329,14 +330,20 @@ export default function SchedulePage() {
             <h1 className="font-display text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">Month Schedule</h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Review availability, shape each service lineup, and publish only after the current schedule has been validated.</p>
           </div>
-          <div className="grid w-full gap-3 sm:grid-cols-2 xl:max-w-xl">
-            <label className="space-y-1.5 text-xs font-medium text-muted-foreground" htmlFor="schedule-month">Month and year
-              <Input id="schedule-month" aria-label="Choose schedule month" type="month" value={selectedMonth} onChange={(event) => chooseMonth(event.target.value)} className="h-11 bg-background text-foreground" />
-            </label>
-            <div className="flex items-center gap-2 sm:col-span-2 xl:justify-end">
-              <Button type="button" variant="outline" aria-label="Previous month" className="h-11 w-11" onClick={() => chooseMonth(monthString(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1))}><ChevronLeft className="h-4 w-4" /></Button>
-              <Button type="button" variant="outline" aria-label="Next month" className="h-11 w-11" onClick={() => chooseMonth(monthString(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1))}><ChevronRight className="h-4 w-4" /></Button>
-              <Button type="button" variant="outline" className="h-11" onClick={() => chooseMonth(monthString(today.getFullYear(), today.getMonth()))}>Today</Button>
+          <div className="flex w-full flex-col gap-3 xl:max-w-xl xl:flex-row xl:items-end xl:justify-end">
+            <div className="space-y-1.5 text-xs font-medium text-muted-foreground">Month and year
+              <div className="flex gap-2">
+                <Select value={String(month)} onValueChange={(value) => { if (value) chooseMonth(monthString(year, Number(value))); }}>
+                  <SelectTrigger className="h-11 w-36 bg-background text-foreground" aria-label="Choose schedule month"><SelectValue placeholder="Choose month">{new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' })}</SelectValue></SelectTrigger>
+                  <SelectContent>{Array.from({ length: 12 }, (_, index) => <SelectItem key={index} value={String(index)}>{new Date(2024, index, 1).toLocaleString('en-US', { month: 'long' })}</SelectItem>)}</SelectContent>
+                </Select>
+                <Select value={String(year)} onValueChange={(value) => { if (value) chooseMonth(monthString(Number(value), month)); }}>
+                  <SelectTrigger className="h-11 w-28 bg-background text-foreground" aria-label="Choose schedule year"><SelectValue placeholder="Choose year">{year}</SelectValue></SelectTrigger>
+                  <SelectContent>{Array.from({ length: Math.max(today.getFullYear() + 2, year + 1) - Math.min(today.getFullYear() - 1, year - 1) + 1 }, (_, index) => Math.min(today.getFullYear() - 1, year - 1) + index).map((optionYear) => <SelectItem key={optionYear} value={String(optionYear)}>{optionYear}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               <Button type="button" variant="outline" className="h-11" disabled={working || loading} onClick={() => setConfirmAction({ kind: 'mock-unavailability' })}>{workingAction === 'mock' ? 'Updating…' : 'Mock unavailability'}</Button>
               {schedules.length > 0 ? (
                   <Button type="button" className="h-11" disabled={working || !readiness?.ready || lockedSchedules || hasLegacySchedules} onClick={() => setConfirmAction({ kind: 'regenerate' })}>

@@ -1,5 +1,6 @@
 import { getAdminClient } from '@/lib/auth/server';
-import { Availability, Instrument, Member, MemberRole, MemberSkill, MinistryRule, Role, ScheduleAssignment, Service } from '@/lib/types/database';
+import { normalizeMinistryRules, toSchedulingRuleConfigs } from '@/lib/ministries/rules';
+import { Availability, Instrument, Member, MemberRole, MemberSkill, Role, ScheduleAssignment, Service } from '@/lib/types/database';
 import { ScheduleContext, SchedulingRuleConfig } from '@/lib/types/scheduling';
 
 type Row = Record<string, unknown>;
@@ -7,22 +8,6 @@ type Row = Record<string, unknown>;
 function rows(value: unknown): Row[] { return Array.isArray(value) ? value.filter((item): item is Row => Boolean(item) && typeof item === 'object') : []; }
 function text(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined; }
 function number(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : undefined; }
-
-function normalizeRules(rawRules: MinistryRule[], defaults: Record<string, number>): SchedulingRuleConfig[] {
-  return rawRules.filter((rule) => rule.is_active).map((rule) => {
-    const config = { ...rule.rule_config };
-    if (rule.rule_type === 'backup_count') {
-      const min = number(config.min_required) ?? number(config.min_backup_singers) ?? defaults.min_backup;
-      const max = number(config.max_allowed) ?? number(config.max_backup_singers) ?? defaults.max_backup;
-      config.min_required = min;
-      config.max_allowed = Math.max(min, max);
-    }
-    if (rule.rule_type === 'assignment_limit') {
-      config.default_max = number(config.default_max) ?? number(config.max_monthly) ?? defaults.max_monthly;
-    }
-    return { rule_type: rule.rule_type, rule_config: config, severity: rule.severity };
-  });
-}
 
 export interface ScheduleData {
   members: Member[];
@@ -71,7 +56,6 @@ export async function loadScheduleData(churchId: string, month: number, year: nu
   const skills = rows(skillRows).map((row) => ({ ...row, instrument: row.instrument } as unknown as MemberSkill));
   const availability = rows(availabilityRows) as unknown as Availability[];
   const members = rows(memberRows).map((row) => ({ ...row, roles: roles.filter((role) => role.member_id === row.id), skills: skills.filter((skill) => skill.member_id === row.id), availability: availability.filter((item) => item.member_id === row.id) } as unknown as Member));
-  const rawRules = rows(rulesRows) as unknown as MinistryRule[];
   const settings = (church?.settings && typeof church.settings === 'object' ? church.settings : {}) as Record<string, unknown>;
   const ministryConfig = (ministry.config && typeof ministry.config === 'object' ? ministry.config : {}) as Record<string, unknown>;
   const defaults = {
@@ -79,7 +63,8 @@ export async function loadScheduleData(churchId: string, month: number, year: nu
     min_backup: number(settings.default_min_backup_singers) ?? 3,
     max_backup: number(settings.default_max_backup_singers) ?? number(settings.default_min_backup_singers) ?? 3,
   };
-  const ruleConfigs = normalizeRules(rawRules, defaults);
+  const normalizedRules = normalizeMinistryRules(rulesRows, defaults);
+  const ruleConfigs = toSchedulingRuleConfigs(normalizedRules);
   if (!ruleConfigs.some((rule) => rule.rule_type === 'backup_count')) ruleConfigs.push({ rule_type: 'backup_count', rule_config: { min_required: defaults.min_backup, max_allowed: defaults.max_backup }, severity: 'critical' });
   if (!ruleConfigs.some((rule) => rule.rule_type === 'assignment_limit')) ruleConfigs.push({ rule_type: 'assignment_limit', rule_config: { default_max: defaults.max_monthly }, severity: 'critical' });
   const serviceIds = rows(serviceRows).map((row) => text(row.id)).filter((id): id is string => Boolean(id));
