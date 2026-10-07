@@ -42,7 +42,9 @@ export default function ExportsPage() {
     setIsExporting(true);
     try {
       const payload: Record<string, unknown> = {
-        month: parseInt(month),
+        // The picker stores a 1-based month; the API and `services.month` are
+        // 0-based, exactly like GET /api/schedule.
+        month: parseInt(month) - 1,
         year: parseInt(year),
       };
       if (week !== 'all') payload.week_numbers = [parseInt(week)];

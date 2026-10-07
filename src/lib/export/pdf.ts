@@ -1,12 +1,53 @@
 import jsPDF from 'jspdf';
+import { isBackupRoleName } from '@/lib/scheduling/role-classifier';
 import { ScheduleAssignment, Service } from '@/lib/types/database';
 
 export interface ScheduleForExport {
+  /** 0-based month, matching `services.month` and `GET /api/schedule`. */
   month: number;
   year: number;
   churchName: string;
   churchLogoUrl?: string;
   services: (Service & { assignments: ScheduleAssignment[] })[];
+}
+
+interface InstrumentRow {
+  label: string;
+  /** `instrumentName` is already trimmed and lower-cased. */
+  matches: (instrumentName: string) => boolean;
+}
+
+const BASE_INSTRUMENT_ROWS: InstrumentRow[] = [
+  { label: 'Guitar/s', matches: (name) => name.includes('guitar') },
+  { label: 'Keys', matches: (name) => /key|piano|organ/.test(name) },
+  { label: 'Drums', matches: (name) => /drum|percussion/.test(name) },
+  { label: 'Bass', matches: (name) => name.includes('bass') },
+];
+
+function memberName(assignment: ScheduleAssignment): string {
+  return assignment.member?.full_name || '';
+}
+
+/**
+ * The instrument rows shown in the instrumentalist grid. The four common rows
+ * are always present, in the reference order; any instrument in the data that
+ * none of them matches (e.g. a configured "Violin") becomes its own row instead
+ * of being silently dropped. This is also why a "Piano"/"Keyboard" instrument
+ * no longer adds a duplicate row next to "Keys".
+ */
+function buildInstrumentRows(services: ScheduleForExport['services']): InstrumentRow[] {
+  const present = new Set<string>();
+  for (const service of services) {
+    for (const assignment of service.assignments || []) {
+      const name = (assignment.instrument?.name || '').trim().toLowerCase();
+      if (name) present.add(name);
+    }
+  }
+  const extraRows: InstrumentRow[] = Array.from(present)
+    .filter((name) => !BASE_INSTRUMENT_ROWS.some((row) => row.matches(name)))
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({ label: name, matches: (candidate: string) => candidate === name || candidate.includes(name) }));
+  return [...BASE_INSTRUMENT_ROWS, ...extraRows];
 }
 
 export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
@@ -15,17 +56,25 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 12;
 
+  // `data.month` is 0-based, so `new Date(year, month)` is the correct month.
+  // Subtracting 1 (the old code) rendered the month before the selected one.
+  const monthYear = new Date(data.year, data.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
   doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
   doc.text(data.churchName || 'Worship Schedule', margin, margin + 8);
-  const monthYear = new Date(data.year, data.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
   doc.text(monthYear + ' Worship Team Singers', margin, margin + 16);
-  
+
   doc.setDrawColor(0, 0, 0);
   doc.line(margin, margin + 18, pageWidth - margin, margin + 18);
 
-  let y = margin + 24;
+  const sortedServices = [...data.services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  let y = margin + 25;
   doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
   doc.text('Date', margin, y);
   doc.text('Worship Leader', margin + 20, y);
   doc.text('Back-Up', margin + 60, y);
@@ -33,41 +82,24 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   y += 2;
   doc.line(margin, y, pageWidth - margin, y);
   y += 5;
-
-  const sortedServices = [...data.services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  doc.setFont('helvetica', 'normal');
 
   for (const service of sortedServices) {
-    const dateNum = new Date(service.date).getUTCDate();
-    const worshipLeaders = (service.assignments || []).filter(
-      (a: ScheduleAssignment) =>
-        (a.role?.name || '').toLowerCase().includes('worship leader') ||
-        (a.role?.name || '').toLowerCase().includes('leader')
-    );
-    const backups = (service.assignments || []).filter(
-      (a: ScheduleAssignment) =>
-        (a.role?.name || '').toLowerCase().includes('backup') ||
-        (a.role?.name || '').toLowerCase().includes('back-up') ||
-        (a.role?.name || '').toLowerCase().includes('back up')
-    );
-    const otherSingers = (service.assignments || []).filter((a: ScheduleAssignment) => {
-      const name = (a.role?.name || '').toLowerCase();
-      const isLeader = name.includes('leader');
-      const isBackup = name.includes('backup') || name.includes('back-up') || name.includes('back up');
-      const isSinger = name.includes('singer') || name.includes('voc') || (a.instrument?.name || '').toLowerCase().includes('vox');
-      return isSinger && !isLeader && !isBackup;
-    });
-
-    const backupNames = [...backups, ...otherSingers]
-      .map((a) => a.member?.full_name || '')
-      .filter(Boolean)
-      .slice(0, 15);
-    const leaderName = worshipLeaders.map((a) => a.member?.full_name || '').filter(Boolean)[0] || '';
+    const assignments = service.assignments || [];
+    const leaderAssignment = assignments.find((assignment) => assignment.is_leader)
+      || assignments.find((assignment) => (assignment.role?.name || '').toLowerCase().includes('leader'));
+    const devotionAssignment = assignments.find((assignment) => assignment.is_devotion);
+    const backupNames = assignments
+      .filter((assignment) => !assignment.is_leader && !assignment.is_devotion && assignment.role && isBackupRoleName(assignment.role.name))
+      .map(memberName)
+      .filter(Boolean);
+    const dateNum = new Date(service.date).getUTCDate().toString();
 
     doc.setFontSize(8);
-    doc.text(dateNum.toString(), margin, y);
-    doc.text(leaderName, margin + 20, y, { maxWidth: 35 });
+    doc.text(dateNum, margin, y);
+    doc.text(leaderAssignment ? memberName(leaderAssignment) : '', margin + 20, y, { maxWidth: 35 });
     doc.text(backupNames.join(', '), margin + 60, y, { maxWidth: 55 });
-    doc.text('', margin + 120, y);
+    doc.text(devotionAssignment ? memberName(devotionAssignment) : '', margin + 120, y, { maxWidth: 45 });
     y += 6;
     doc.line(margin, y, pageWidth - margin, y);
     y += 4;
@@ -78,132 +110,70 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
     }
   }
 
+  if (sortedServices.length === 0) {
+    y += 6;
+    doc.setFontSize(10);
+    doc.text('No services found for the selected period.', margin, y);
+    return doc;
+  }
+
   if (y < pageHeight - 70) {
-    y = y + 10;
+    y += 10;
   } else {
     doc.addPage();
     y = margin + 10;
   }
 
   doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
   doc.text(monthYear + ' Worship Team Instrumentalists', margin, y);
   y += 2;
   doc.line(margin, y, pageWidth - margin, y);
   y += 8;
 
-  // If no data, add note
-  if (sortedServices.length === 0) {
-    doc.setFontSize(10);
-    doc.text('No services found for the selected period.', margin, y + 10);
-    return doc;
-  }
-
-  // Build instrumentalist table as requested
-  // Collect all dates in order
-  const dates = sortedServices.map((s) => ({
-    date: new Date(s.date).getUTCDate(),
-    services: [s],
+  const dates = sortedServices.map((service) => ({
+    date: new Date(service.date).getUTCDate(),
+    service,
   }));
-  
-  // Define instrument rows in typical order
-  const instrumentNames = [
-    { key: 'guitar', pattern: /guitar/i },
-    { key: 'keys', pattern: /key|piano|organ/i },
-    { key: 'drums', pattern: /drum|percussion/i },
-    { key: 'bass', pattern: /bass/i },
-    { key: 'lead guitar', pattern: /lead guitar/i },
-    { key: 'acoustic', pattern: /acoustic/i },
-  ];
-  
-  const knownInstruments = [
-    'Guitar',
-    'Keys',
-    'Drums',
-    'Bass',
-    'Lead Guitar',
-    'Acoustic Guitar',
-    'Electric Guitar',
-  ];
-  
-  // Find all unique instruments from assignments
-  const allInstrumentRows = new Set<string>();
-  sortedServices.forEach((s) => {
-    (s.assignments || []).forEach((a) => {
-      const inst = a.instrument?.name || a.role?.name || '';
-      if (inst) allInstrumentRows.add(inst);
-    });
-  });
-  
-  // Build rows - prioritize common ones, then others
-  const rows: string[] = ['Guitar/s', 'Keys', 'Drums', 'Bass'];
-  // Add any other instruments
-  Array.from(allInstrumentRows).forEach((inst) => {
-    const lower = inst.toLowerCase();
-    if (!rows.some((r) => r.toLowerCase().includes(lower.split(' ')[0]))) {
-      rows.push(inst);
-    }
-  });
-  
-  // Draw header row
+  const instrumentRows = buildInstrumentRows(sortedServices);
+
   const colWidth = (pageWidth - margin * 2) / (dates.length + 1);
-  const startY = y;
-  
-  // Date header
+  const rowHeight = 6;
+
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
-  doc.text('Date', margin, y);
-  doc.rect(margin, y - 3, colWidth, 5);
-  
-  // Date columns
-  dates.forEach((d, i) => {
-    const x = margin + colWidth + i * colWidth;
-    doc.text(d.date.toString(), x + colWidth / 2 - 2, y, { align: 'center' });
-    doc.rect(x, y - 3, colWidth, 5);
+  doc.text('Date', margin + 1.5, y + 4);
+  doc.rect(margin, y, colWidth, rowHeight);
+  dates.forEach((entry, index) => {
+    const x = margin + colWidth * (index + 1);
+    doc.text(entry.date.toString(), x + colWidth / 2, y + 4, { align: 'center' });
+    doc.rect(x, y, colWidth, rowHeight);
   });
-  y += 5;
-  doc.rect(margin, y - 3, pageWidth - margin * 2, 0.5); // line
-  y += 3;
-  
+  y += rowHeight;
   doc.setFont('helvetica', 'normal');
-  
-  // Draw each row
-  rows.forEach((rowName) => {
-    doc.setFontSize(8);
-    doc.text(rowName, margin, y);
-    doc.rect(margin, y - 3, colWidth, 5);
-    
-    dates.forEach((d, i) => {
-      const x = margin + colWidth + i * colWidth;
-      // Find assignments for this instrument in this service
-      const service = d.services[0];
-      const assignments = (service.assignments || []).filter((a) => {
-        const instName = (a.instrument?.name || a.role?.name || '').toLowerCase();
-        const rowLower = rowName.toLowerCase();
-        if (rowLower === 'guitar/s') {
-          return instName.includes('guitar');
-        }
-        if (rowLower === 'keys') {
-          return instName.includes('key') || instName.includes('piano') || instName.includes('organ');
-        }
-        if (rowLower === 'drums') {
-          return instName.includes('drum') || instName.includes('percussion');
-        }
-        if (rowLower === 'bass') {
-          return instName.includes('bass');
-        }
-        return instName.includes(rowLower);
-      });
-      const names = assignments.map((a) => a.member?.full_name || '').filter(Boolean).join(', ');
-      doc.text(names, x + 2, y, { maxWidth: colWidth - 4 });
-      doc.rect(x, y - 3, colWidth, 5);
-    });
-    y += 5;
-    if (y > pageHeight - 30) {
+
+  instrumentRows.forEach((row) => {
+    if (y + rowHeight > pageHeight - margin) {
       doc.addPage();
       y = margin + 10;
     }
+    doc.text(row.label, margin + 1.5, y + 4, { maxWidth: colWidth - 3 });
+    doc.rect(margin, y, colWidth, rowHeight);
+    dates.forEach((entry, index) => {
+      const x = margin + colWidth * (index + 1);
+      const names = (entry.service.assignments || [])
+        .filter((assignment) => {
+          const instrumentName = (assignment.instrument?.name || '').trim().toLowerCase();
+          return Boolean(instrumentName) && row.matches(instrumentName);
+        })
+        .map(memberName)
+        .filter(Boolean)
+        .join(', ');
+      doc.text(names, x + 1.5, y + 4, { maxWidth: colWidth - 3 });
+      doc.rect(x, y, colWidth, rowHeight);
+    });
+    y += rowHeight;
   });
-  doc.rect(margin, y - 3, pageWidth - margin * 2, 0.5); // bottom line
 
   return doc;
 }

@@ -308,7 +308,10 @@ export default function SchedulePage() {
     setMessage('');
     try {
       const session = await withSession();
-      const payload: Record<string, unknown> = { month: month + 1, year };
+      // `month` is already 0-based (parseMonth), matching services.month and
+      // GET /api/schedule. Sending `month + 1` matched no services and produced
+      // an empty PDF.
+      const payload: Record<string, unknown> = { month, year };
       if (exportWeek !== 'all') {
         payload.week_numbers = [parseInt(exportWeek)];
       }
