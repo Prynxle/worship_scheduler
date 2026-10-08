@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Bell, ChevronRight, Menu } from 'lucide-react';
+import { ChevronRight, Menu } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { useSessionUser } from '@/contexts/session-context';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, formatLongDate } from '@/lib/utils/date-utils';
@@ -123,10 +124,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" aria-label="Notifications">
-          <Bell className="size-[18px]" />
-          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
-        </Button>
+        <NotificationBell />
         <div className="hidden h-8 w-px bg-border sm:block" />
         <div className="hidden text-right sm:block">
           {/* Non-breaking space holds the line height before mount so the header
