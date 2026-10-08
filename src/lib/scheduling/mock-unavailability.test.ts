@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { planMockUnavailability, soleQualifiedMemberIds } from './mock-unavailability';
+import { buildMockSubmissionEntries, planMockUnavailability, soleQualifiedMemberIds } from './mock-unavailability';
 import { getCurrentMonth, getMonthName, getWeeksInMonth } from '../utils/date-utils';
 
 const roster = [
@@ -167,6 +167,55 @@ describe('planMockUnavailability for the current month', () => {
     const fromJuly = planMockUnavailability(roster, 9, 2026);
 
     expect(fromJuly).toEqual(fromJanuary);
+  });
+});
+
+describe('buildMockSubmissionEntries', () => {
+  // The p_entries payload contract for the mock_month_availability RPC: one
+  // entry per active member, so the readiness gate can complete for the month
+  // even where a member must not be mocked into unavailability.
+  it('covers EVERY member, with week_number null for excluded members and the planned week otherwise', () => {
+    const built = buildMockSubmissionEntries(roster, 9, 2026, new Set(['m-2']));
+
+    // Excluded members are present, not dropped: a null week is the RPC's
+    // signal to create an EMPTY submission (a declared "no unavailability").
+    expect(built).toHaveLength(roster.length);
+    expect(built).toEqual([
+      { member_id: 'm-1', week_number: 1 },
+      { member_id: 'm-2', week_number: null },
+      { member_id: 'm-3', week_number: 3 },
+    ]);
+  });
+
+  it('keeps the rotation identical to planMockUnavailability for non-excluded members', () => {
+    const full = planMockUnavailability(rosterOf(9), 9, 2026);
+    const built = buildMockSubmissionEntries(rosterOf(9), 9, 2026, new Set(['m-3', 'm-7']));
+
+    for (const entry of built) {
+      const plannedRow = full.find((row) => row.member_id === entry.member_id);
+      expect(plannedRow).toBeDefined();
+      // Nulling an excluded week must not shift any other member's week.
+      expect(entry.week_number).toBe(
+        entry.member_id === 'm-3' || entry.member_id === 'm-7' ? null : plannedRow!.week_number
+      );
+    }
+  });
+
+  it('is deterministic and id-sorted regardless of input order', () => {
+    const first = buildMockSubmissionEntries([...roster].reverse(), 9, 2026, new Set(['m-1']));
+    const second = buildMockSubmissionEntries(roster, 9, 2026, new Set(['m-1']));
+    expect(second).toEqual(first);
+    expect(first.map((entry) => entry.member_id)).toEqual(['m-1', 'm-2', 'm-3']);
+  });
+
+  it('returns no entries for an empty roster and defaults to no exclusions', () => {
+    expect(buildMockSubmissionEntries([], 9, 2026)).toEqual([]);
+    expect(buildMockSubmissionEntries(roster, 9, 2026)).toEqual(
+      planMockUnavailability(roster, 9, 2026).map((row) => ({
+        member_id: row.member_id,
+        week_number: row.week_number,
+      }))
+    );
   });
 });
 

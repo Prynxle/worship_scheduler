@@ -30,6 +30,23 @@ describe('summarizeAvailabilityReadiness', () => {
     expect(summary.members[1]).toMatchObject({ status: 'revision_required', revision_note: 'Please confirm week three.' });
   });
 
+  it('keeps the gate closed while every submission is only submitted, not approved', () => {
+    // The mock-unavailability workflow lands here: a full set of 'submitted'
+    // responses is NOT readiness. Only approvals open the gate.
+    const summary = summarizeAvailabilityReadiness(8, 2026, 'ministry-1', 'Worship', participants, participants.map((member, index) => ({
+      id: `submission-${index}`,
+      member_id: member.id,
+      status: 'submitted' as const,
+      revision_note: null,
+    })));
+
+    expect(summary.ready).toBe(false);
+    expect(summary.submitted_count).toBe(3);
+    expect(summary.approved_count).toBe(0);
+    expect(summary.outstanding_count).toBe(3);
+    expect(summary.members.every((member) => member.status === 'submitted')).toBe(true);
+  });
+
   it('supports an explicit no-unavailability submission', () => {
     const summary = summarizeAvailabilityReadiness(8, 2026, 'ministry-1', 'Worship', participants, participants.map((member, index) => ({
       id: `submission-${index}`,

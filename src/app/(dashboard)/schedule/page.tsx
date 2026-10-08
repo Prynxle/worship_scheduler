@@ -234,7 +234,10 @@ export default function SchedulePage() {
       });
       const payload = await response.json() as { added?: number; skipped?: number; error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'Could not create mock unavailability.');
-      setMessage(`Mock unavailability updated for ${monthLabel}: ${payload.added ?? 0} added, ${payload.skipped ?? 0} skipped.`);
+      // The mock now flows through the submissions/approval workflow: the new
+      // submissions stay pending until a coordinator approves them, and only
+      // then do the mock weeks block scheduling.
+      setMessage(`Mock unavailability submitted for ${monthLabel}: ${payload.added ?? 0} added, ${payload.skipped ?? 0} skipped. The new mock submissions are pending approval in the availability review queue.`);
       await loadSchedules();
     } catch (mockError) { setError(mockError instanceof Error ? mockError.message : 'Could not create mock unavailability.'); }
     finally { setWorking(false); }
@@ -520,12 +523,12 @@ export default function SchedulePage() {
           <DialogHeader>
             <DialogTitle>{confirmAction?.kind === 'mock-unavailability' ? 'Replace mock unavailability for this month?' : confirmAction?.kind === 'regenerate' ? 'Replace this month’s draft lineups?' : confirmAction?.kind === 'revision' ? 'Create a schedule amendment?' : 'Publish this validated schedule?'}</DialogTitle>
             <DialogDescription>
-              {confirmAction?.kind === 'mock-unavailability' ? `This replaces existing mock unavailability rows for ${monthLabel}. Real member availability records are not changed.` : confirmAction?.kind === 'regenerate' ? 'Existing draft services for this ministry and month will be replaced as one transaction. Validated and published services are protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
+              {confirmAction?.kind === 'mock-unavailability' ? `This replaces this month’s mock unavailability with new submissions that stay pending until approved, just like real member submissions. Members’ own submitted availability is not changed.` : confirmAction?.kind === 'regenerate' ? 'Existing draft services for this ministry and month will be replaced as one transaction. Validated and published services are protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmAction(null)}>Cancel</Button>
-            {confirmAction?.kind === 'mock-unavailability' ? <Button onClick={() => void mockUnavailability()} disabled={working}>Replace mock rows</Button> : null}
+            {confirmAction?.kind === 'mock-unavailability' ? <Button onClick={() => void mockUnavailability()} disabled={working}>Submit mock unavailability</Button> : null}
             {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working}>Replace draft lineups</Button> : null}
             {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working}>Create amendment</Button> : null}
             {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working}>Publish schedule</Button> : null}

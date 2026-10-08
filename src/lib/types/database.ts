@@ -173,6 +173,13 @@ export interface AvailabilitySubmission {
   month: number;
   year: number;
   status: AvailabilitySubmissionStatus;
+  /**
+   * Origin of the submission. 'member' rows come from the member-driven
+   * monthly workflow; 'mock' rows are fixtures created by the
+   * mock_month_availability RPC. A current 'member' submission is never
+   * touched by the mock tool.
+   */
+  source: 'member' | 'mock';
   version: number;
   is_current: boolean;
   submitted_at: string;
