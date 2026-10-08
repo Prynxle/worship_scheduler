@@ -70,26 +70,34 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [month, setMonth] = useState(today.getMonth());
   const [year, setYear] = useState(today.getFullYear());
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [timeValue, setTimeValue] = useState('6:00');
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [meridiem, setMeridiem] = useState<'AM' | 'PM'>('PM');
   const [error, setError] = useState<string | null>(null);
   const calendarRef = useRef<CalendarRef>(null);
   const cellKeydowns = useRef(new Map<HTMLElement, (event: KeyboardEvent) => void>());
+  const eventsRequest = useRef(0);
 
   const loadEvents = useCallback(async () => {
-    const headers = await getAuthHeaders();
-    if (!headers) return;
-    const response = await fetch('/api/events', { headers });
-    if (!response.ok) {
-      setError('Could not load events. Try refreshing.');
-      return;
+    const requestId = ++eventsRequest.current;
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch('/api/events', { headers });
+      if (!response.ok) throw new Error('Could not load events. Try refreshing.');
+      const result = (await response.json()) as { events: ChurchEvent[] };
+      if (requestId !== eventsRequest.current) return;
+      setEvents(result.events);
+      setError(null);
+    } catch (loadError) {
+      if (requestId === eventsRequest.current) setError(loadError instanceof Error ? loadError.message : 'Could not load events. Try refreshing.');
+    } finally {
+      if (requestId === eventsRequest.current) setLoading(false);
     }
-    const result = (await response.json()) as { events: ChurchEvent[] };
-    setEvents(result.events);
-    setError(null);
   }, []);
 
   useEffect(() => {
@@ -156,61 +164,59 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
     setSelectedDate(toIso(today));
   }
 
-  // `saving` covers the whole click-to-response window. The Create button used to
+  // `creating` covers the whole click-to-response window. The Create button used to
   // stay live for the entire round trip, so a double-click issued two POSTs and
   // the second created a duplicate event; the server-side 4/day cap only catches
   // that on a day that is already full.
   //
-  // try/finally, not a trailing setSaving(false): the button is disabled while
-  // `saving`, so a thrown fetch (dead network, aborted request) would otherwise
+  // try/finally, not a trailing setCreating(false): the button is disabled while
+  // `creating`, so a thrown fetch (dead network, aborted request) would otherwise
   // leave the coordinator looking at a permanently spinning button with no way
   // forward. The `catch` is here for the same reason -- this is called as
   // `void addEvent()`, so nobody observes the rejection, and without it a network
   // failure is indistinguishable from the button simply doing nothing.
   async function addEvent() {
     const title = newTitle.trim();
-    if (!title || !canManage || atDayLimit || saving) return;
-    setSaving(true);
+    if (!title || !canManage || atDayLimit || creating) return;
+    setCreating(true);
+    setError(null);
     try {
       const headers = await getAuthHeaders();
-      if (!headers) {
-        setError('Your session has expired. Please sign in again.');
-        return;
-      }
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
       const response = await fetch('/api/events', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          date: selectedDate,
-          description: newDescription.trim(),
-          time: timeValue ? `${timeValue} ${meridiem}` : '',
-        }),
+        body: JSON.stringify({ title, date: selectedDate, description: newDescription.trim(), time: timeValue ? `${timeValue} ${meridiem}` : '' }),
       });
-      if (response.ok) {
-        setNewTitle('');
-        setNewDescription('');
-        setTimeValue('6:00');
-        setMeridiem('PM');
-        setDialogOpen(false);
-        await loadEvents();
-      } else {
+      if (!response.ok) {
         const result = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(result?.error ?? 'Could not add the event.');
+        throw new Error(result?.error ?? 'Could not add the event.');
       }
-    } catch {
-      setError('Could not reach the server to create this event. Check your connection and try again.');
+      setNewTitle(''); setNewDescription(''); setTimeValue('6:00'); setMeridiem('PM'); setDialogOpen(false);
+      await loadEvents();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Could not add the event.');
     } finally {
-      setSaving(false);
+      setCreating(false);
     }
   }
 
   async function deleteEvent(event: ChurchEvent) {
     if (!canManage || !window.confirm(`Delete "${event.title}"?`)) return;
-    const headers = await getAuthHeaders();
-    if (!headers) return;
-    const response = await fetch(`/api/events?id=${encodeURIComponent(event.id)}`, { method: 'DELETE', headers });
-    if (response.ok) await loadEvents();
+    if (deletingId) return;
+    setDeletingId(event.id);
+    setError(null);
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/events?id=${encodeURIComponent(event.id)}`, { method: 'DELETE', headers });
+      if (!response.ok) throw new Error('Could not delete the event.');
+      await loadEvents();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete the event.');
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   function selectDate(date: Date) {
@@ -251,7 +257,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
         <Input aria-label="Search events" placeholder="Search events" className="bg-secondary/40 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
 
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {error ? <div className="flex items-center justify-between gap-3" role="alert"><p className="text-sm text-destructive">{error}</p><Button size="sm" variant="outline" onClick={() => { setLoading(true); void loadEvents(); }}>Retry</Button></div> : null}
 
       {/* The two Cards share a row and stretch to the same height, so their bottom edges
           align. Only one of them may have a say in that height, and it is this one: the
@@ -408,8 +414,8 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                       ) : null}
                     </div>
                     {canManage ? (
-                      <Button size="icon-sm" variant="ghost" aria-label={`Delete ${event.title}`} onClick={() => void deleteEvent(event)}>
-                        <Trash2 className="size-4 text-muted-foreground" />
+                      <Button size="icon-sm" variant="ghost" aria-label={deletingId === event.id ? `Deleting ${event.title}` : `Delete ${event.title}`} onClick={() => void deleteEvent(event)} disabled={deletingId !== null}>
+                        {deletingId === event.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4 text-muted-foreground" />}
                       </Button>
                     ) : (
                       <ChevronDown className="size-4 text-muted-foreground" />
@@ -421,7 +427,11 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
                   </div>
                 </div>
               ))}
-              </div>
+            </div>
+            ) : loading ? (
+              <div aria-busy="true" aria-label="Loading events" role="status" className="space-y-3 py-2"><div className="h-16 animate-pulse rounded-xl bg-muted" /><div className="h-16 animate-pulse rounded-xl bg-muted" /><span className="sr-only">Loading events</span></div>
+            ) : error ? (
+              <div className="rounded-xl border border-dashed border-border p-6 text-center"><p className="text-sm text-muted-foreground">Events could not be loaded.</p><Button className="mt-3" size="sm" variant="outline" onClick={() => { setLoading(true); void loadEvents(); }}>Try again</Button></div>
             ) : (
               /* `flex-1` so the empty state also spans the Card rather than sitting at
                  the top with the Card's height left below it. */
@@ -436,12 +446,13 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
       </div>
 
       {canManage ? (
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { if (!creating) setDialogOpen(open); }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add an event</DialogTitle>
               <DialogDescription>Create an event for {formatDate(selectedDate, { month: 'long', day: 'numeric' })}.</DialogDescription>
             </DialogHeader>
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             <Input autoFocus placeholder="Event name" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addEvent(); }} />
             <div className="min-w-0">
               <Textarea
@@ -479,16 +490,16 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               </Select>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              {/* `saving` joins the disabled condition so the button cannot be
+              <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={creating}>Cancel</Button>
+              {/* `creating` joins the disabled condition so the button cannot be
                   pressed again while the POST is in flight, and the label states
                   the pending state instead of leaving the dialog looking idle.
                   `aria-hidden` on the icon because "Creating…" already carries
                   it to a screen reader; the spinner is the same lucide mark the
                   sign-in submit uses. */}
-              <Button onClick={() => void addEvent()} disabled={!newTitle.trim() || saving || atDayLimit}>
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                {saving ? 'Creating…' : 'Create event'}
+              <Button onClick={() => void addEvent()} disabled={!newTitle.trim() || creating || atDayLimit} aria-busy={creating}>
+                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {creating ? 'Creating…' : 'Create event'}
               </Button>
             </DialogFooter>
           </DialogContent>
