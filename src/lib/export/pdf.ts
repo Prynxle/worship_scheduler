@@ -23,11 +23,24 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   const monthYear = new Date(data.year, data.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   let y = margin + 12;
+  const logoSize = 16;
+  const logoY = margin + 2;
 
-  doc.setFontSize(14);
+  if (data.churchLogoUrl) {
+    try {
+      doc.addImage(data.churchLogoUrl, 'PNG', margin, logoY, logoSize, logoSize);
+    } catch (e) {
+      // ignore logo if it fails
+    }
+  }
+
+  doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.churchName || 'Worship Schedule', margin, y + 6);
-  y += 12;
+  const name = data.churchName || 'Worship Schedule';
+  const nameY = logoY + logoSize / 2 + 2;
+  const nameX = margin + logoSize + 4;
+  doc.text(name, nameX, nameY);
+  y = Math.max(logoY + logoSize + 6, margin + 20);
   doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
   doc.text(monthYear + ' Worship Team Singers', margin, y);

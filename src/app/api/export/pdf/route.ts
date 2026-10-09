@@ -45,11 +45,38 @@ export async function POST(request: NextRequest) {
       assignments: data.assignments.filter((a) => a.service_id === t.id),
     }));
 
+    let logoDataUrl: string | undefined;
+    if (church?.logo_url) {
+      try {
+        const res = await fetch(church.logo_url);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const b64 = Buffer.from(buf).toString('base64');
+          logoDataUrl = 'data:image/png;base64,' + b64;
+        }
+      } catch (e) {
+        logoDataUrl = undefined;
+      }
+    }
+    if (!logoDataUrl) {
+      try {
+        const fs = await import('fs');
+        const path = require('path');
+        const p = path.join(process.cwd(), 'public', 'icon-removebg-preview.png');
+        if (fs.existsSync(p)) {
+          const buf = fs.readFileSync(p);
+          logoDataUrl = 'data:image/png;base64,' + buf.toString('base64');
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     const doc = generateSchedulePDF({
       month,
       year,
       churchName: church?.name || 'Worship Schedule',
-      churchLogoUrl: church?.logo_url,
+      churchLogoUrl: logoDataUrl,
       services: servicesForPdf as any,
     });
 
