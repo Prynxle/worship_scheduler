@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { SessionProvider, type SessionUser } from '@/contexts/session-context';
+import { DashboardLoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 type SessionGuardProps = {
   children: React.ReactNode;
@@ -58,7 +59,7 @@ export function SessionGuard({ children }: SessionGuardProps) {
   }, [router]);
 
   if (isChecking) {
-    return null;
+    return <DashboardLoadingSkeleton />;
   }
 
   return <SessionProvider user={user}>{children}</SessionProvider>;

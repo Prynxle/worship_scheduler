@@ -22,6 +22,9 @@ export interface MemberFiltersProps {
   onSelectedInstrumentIdsChange: (next: string[]) => void;
   matchCount: number;
   totalCount: number;
+  optionsLoading?: boolean;
+  optionsError?: string;
+  onRetry?: () => void;
 }
 
 /**
@@ -46,6 +49,9 @@ export function MemberFilters({
   onSelectedInstrumentIdsChange,
   matchCount,
   totalCount,
+  optionsLoading = false,
+  optionsError = '',
+  onRetry,
 }: MemberFiltersProps) {
   const activeCount = selectedRoleIds.length + selectedInstrumentIds.length;
 
@@ -81,7 +87,9 @@ export function MemberFilters({
       <PopoverContent align="start" className="w-80 gap-3">
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Roles</legend>
-          {roles.length === 0 ? (
+          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse rounded bg-muted" /><span className="sr-only">Loading role filters</span></div> : optionsError ? (
+            <p className="text-xs text-destructive">{optionsError}</p>
+          ) : roles.length === 0 ? (
             <p className="text-xs text-muted-foreground">This church has no roles configured yet.</p>
           ) : (
             <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
@@ -106,7 +114,9 @@ export function MemberFilters({
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Instruments</legend>
-          {instruments.length === 0 ? (
+          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-2/3 animate-pulse rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse rounded bg-muted" /><span className="sr-only">Loading instrument filters</span></div> : optionsError ? (
+            <p className="text-xs text-destructive">{optionsError}</p>
+          ) : instruments.length === 0 ? (
             <p className="text-xs text-muted-foreground">This church has no instruments configured yet.</p>
           ) : (
             <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
@@ -147,6 +157,7 @@ export function MemberFilters({
             Clear all
           </Button>
         </div>
+        {optionsError && onRetry ? <Button type="button" size="sm" variant="outline" className="w-full" onClick={onRetry} disabled={optionsLoading}>{optionsLoading ? 'Loading filters…' : 'Retry loading filters'}</Button> : null}
       </PopoverContent>
     </Popover>
   );

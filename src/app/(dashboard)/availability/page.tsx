@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AvailabilityCalendar } from '@/components/members/availability-calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Availability, AvailabilitySubmission } from '@/lib/types/database';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/loading-skeleton';
 
 type StaffMember = { id: string; full_name: string };
 type ReadinessMember = StaffMember & { status: 'missing' | 'submitted' | 'approved' | 'revision_required'; submission_id?: string; revision_note?: string | null };
@@ -31,6 +32,7 @@ export default function AvailabilityPage() {
   const [revisionTarget, setRevisionTarget] = useState<ReadinessMember | null>(null);
   const [revisionNote, setRevisionNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [reviewingAvailabilityId, setReviewingAvailabilityId] = useState<string | null>(null);
   const [isStaff, setIsStaff] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -45,6 +47,13 @@ export default function AvailabilityPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [error, setError] = useState('');
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [readinessLoading, setReadinessLoading] = useState(true);
+  const [availabilityLoadError, setAvailabilityLoadError] = useState('');
+  const [readinessLoadError, setReadinessLoadError] = useState('');
+  const availabilityRequest = useRef(0);
+  const readinessRequest = useRef(0);
 
   // Client-side gate only, so the destructive control is not offered to a
   // member. The authority is the route: POST /api/availability/reset is
@@ -63,50 +72,57 @@ export default function AvailabilityPage() {
 
   useEffect(() => {
     async function loadMembers() {
-      const headers = await getAuthHeaders();
-      if (!headers) {
-        setError('Your session has expired. Please sign in again.');
-        return;
-      }
-      const response = await fetch('/api/members?status=active', { headers });
-      if (!response.ok) {
-        setError('Could not load members for this church.');
-        return;
-      }
-      const result = await response.json() as { members: StaffMember[] };
-      setMembers(result.members);
-      setSelectedMember((current) => current || result.members[0]?.id || '');
+      try {
+        const headers = await getAuthHeaders();
+        if (!headers) throw new Error('Your session has expired. Please sign in again.');
+        const response = await fetch('/api/members?status=active', { headers });
+        if (!response.ok) throw new Error('Could not load members for this church.');
+        const result = await response.json() as { members: StaffMember[] };
+        setMembers(result.members);
+        setSelectedMember((current) => current || result.members[0]?.id || '');
+        setError('');
+      } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Could not load members for this church.'); }
+      finally { setMembersLoading(false); }
     }
     void loadMembers();
   }, []);
 
   const loadAvailability = useCallback(async () => {
+    const requestId = ++availabilityRequest.current;
     if (!selectedMember) {
+      setAvailabilityLoading(false);
       return;
     }
-    const headers = await getAuthHeaders();
-    if (!headers) {
-      setError('Your session has expired. Please sign in again.');
-      return;
-    }
-    const response = await fetch(`/api/availability/submission?member_id=${encodeURIComponent(selectedMember)}&month=${currentMonth}&year=${currentYear}`, { headers });
-    if (!response.ok) {
-      setError('Could not load availability for this member.');
-      return;
-    }
-    const result = await response.json() as { submission: (AvailabilitySubmission & { reviewer_name?: string }) | null; availabilities: Availability[] };
-    setAvailabilities(result.availabilities);
-    setSubmission(result.submission);
+    setAvailabilityLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/availability/submission?member_id=${encodeURIComponent(selectedMember)}&month=${currentMonth}&year=${currentYear}`, { headers });
+      if (!response.ok) throw new Error('Could not load availability for this member.');
+      const result = await response.json() as { submission: (AvailabilitySubmission & { reviewer_name?: string }) | null; availabilities: Availability[] };
+      if (requestId !== availabilityRequest.current) return;
+      setAvailabilities(result.availabilities);
+      setSubmission(result.submission);
+      setAvailabilityLoadError('');
+    } catch (loadError) { if (requestId === availabilityRequest.current) { const message = loadError instanceof Error ? loadError.message : 'Could not load availability for this member.'; setAvailabilityLoadError(message); setError(message); } }
+    finally { if (requestId === availabilityRequest.current) setAvailabilityLoading(false); }
   }, [selectedMember, currentMonth, currentYear]);
 
   const loadReadiness = useCallback(async () => {
-    const headers = await getAuthHeaders();
-    if (!headers) return;
-    const response = await fetch(`/api/schedule/readiness?month=${currentMonth}&year=${currentYear}${ministryId ? `&ministry_id=${encodeURIComponent(ministryId)}` : ''}`, { headers });
-    if (!response.ok) return;
-    const result = await response.json() as ReadinessData;
-    setReadiness(result);
-    if (!ministryId) setMinistryId(result.ministry_id);
+    const requestId = ++readinessRequest.current;
+    setReadinessLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/schedule/readiness?month=${currentMonth}&year=${currentYear}${ministryId ? `&ministry_id=${encodeURIComponent(ministryId)}` : ''}`, { headers });
+      if (!response.ok) throw new Error('Could not load monthly readiness.');
+      const result = await response.json() as ReadinessData;
+      if (requestId !== readinessRequest.current) return;
+      setReadiness(result);
+      setReadinessLoadError('');
+      if (!ministryId) setMinistryId(result.ministry_id);
+    } catch (loadError) { if (requestId === readinessRequest.current) { const message = loadError instanceof Error ? loadError.message : 'Could not load monthly readiness.'; setReadinessLoadError(message); setError(message); } }
+    finally { if (requestId === readinessRequest.current) setReadinessLoading(false); }
   }, [currentMonth, currentYear, ministryId]);
 
   useEffect(() => {
@@ -145,50 +161,42 @@ export default function AvailabilityPage() {
     };
   }, [selectedMember, loadAvailability]);
 
-  const reviewRequest = useCallback(
-    async (id: string, status: 'approved' | 'rejected') => {
+  const reviewRequest = useCallback(async (id: string, status: 'approved' | 'rejected') => {
+    if (reviewingAvailabilityId) return;
+    setReviewingAvailabilityId(id);
+    setError('');
+    try {
       const headers = await getAuthHeaders();
-      if (!headers) {
-        setError('Your session has expired. Please sign in again.');
-        return;
-      }
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
       const response = await fetch('/api/availability', {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status }),
+        method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }),
       });
-      if (response.ok) {
-        setAvailabilities((current) =>
-          current.map((item) => (item.id === id ? { ...item, status } : item))
-        );
-      } else {
-        setError('Could not update that request.');
-      }
-    },
-    []
-  );
+      if (!response.ok) throw new Error('Could not update that request.');
+      setAvailabilities((current) => current.map((item) => (item.id === id ? { ...item, status } : item)));
+    } catch (reviewError) { setError(reviewError instanceof Error ? reviewError.message : 'Could not update that request.'); }
+    finally { setReviewingAvailabilityId(null); }
+  }, [reviewingAvailabilityId]);
 
   const reviewSubmission = useCallback(async (member: ReadinessMember, action: 'approved' | 'revision_required', note = '') => {
     if (!member.submission_id) return;
     setReviewing(true);
     setError('');
-    const headers = await getAuthHeaders();
-    if (!headers) { setError('Your session has expired. Please sign in again.'); setReviewing(false); return; }
-    const response = await fetch('/api/availability/submission', {
-      method: 'PUT',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: member.submission_id, action, note }),
-    });
-    if (response.ok) {
+    try {
+      const headers = await getAuthHeaders();
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch('/api/availability/submission', {
+        method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: member.submission_id, action, note }),
+      });
+      if (!response.ok) {
+        const payload = await response.json() as { error?: string };
+        throw new Error(payload.error ?? 'Could not review this monthly submission.');
+      }
       if (selectedMember === member.id) await loadAvailability();
       await loadReadiness();
       setRevisionTarget(null);
       setRevisionNote('');
-    } else {
-      const payload = await response.json() as { error?: string };
-      setError(payload.error ?? 'Could not review this monthly submission.');
-    }
-    setReviewing(false);
+    } catch (reviewError) { setError(reviewError instanceof Error ? reviewError.message : 'Could not review this monthly submission.'); }
+    finally { setReviewing(false); }
   }, [selectedMember, loadAvailability, loadReadiness]);
 
   const selectedMemberName = members.find((member) => member.id === selectedMember)?.full_name || '';
@@ -291,7 +299,7 @@ export default function AvailabilityPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Coordinator review · {monthLabel}</p><CardTitle className="mt-1 font-display text-2xl">Monthly readiness</CardTitle>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm text-muted-foreground">{readiness?.approved_count ?? 0} approved · {readiness?.outstanding_count ?? 0} outstanding</p>
+              {readinessLoading ? <Skeleton className="h-4 w-32" /> : readiness ? <p className="text-sm text-muted-foreground">{readiness.approved_count} approved · {readiness.outstanding_count} outstanding</p> : <p className="text-sm text-destructive">Readiness unavailable</p>}
               <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}><SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48"><SelectValue placeholder="Choose ministry" /></SelectTrigger><SelectContent>{(readiness?.ministries ?? []).map((ministry) => <SelectItem key={ministry.id} value={ministry.id}>{ministry.name}</SelectItem>)}</SelectContent></Select>
               {isStaff ? (
                 <Button variant="destructive" size="lg" onClick={() => { setResetMessage(''); setResetError(''); setResetOpen(true); }} disabled={resetting}>
@@ -302,7 +310,7 @@ export default function AvailabilityPage() {
           </div>
         </CardHeader>
         <CardContent className="p-4 sm:p-6">
-          {!readiness?.members.length ? <p className="text-sm text-muted-foreground">No active members with roles in this ministry are required for this month.</p> : (
+          {readinessLoading ? <div aria-busy="true" aria-label="Loading monthly readiness" role="status" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div> : !readiness ? <div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{readinessLoadError || 'Monthly readiness could not be loaded.'}</p><Button size="sm" variant="outline" onClick={() => void loadReadiness()}>Retry</Button></div> : !readiness.members.length ? <p className="text-sm text-muted-foreground">No active members with roles in this ministry are required for this month.</p> : (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {readiness.members.map((person) => (
                 <div key={person.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-border p-3">
@@ -325,8 +333,8 @@ export default function AvailabilityPage() {
 
       <div className="flex items-center gap-3">
         <Select value={selectedMember} onValueChange={(value) => value && setSelectedMember(value)}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Select member">
+          <SelectTrigger className="w-[200px]" disabled={membersLoading} aria-busy={membersLoading}>
+            <SelectValue placeholder={membersLoading ? 'Loading members…' : 'Select member'}>
               {(value: string) => members.find((member) => member.id === value)?.full_name ?? 'Select member'}
             </SelectValue>
           </SelectTrigger>
@@ -340,21 +348,21 @@ export default function AvailabilityPage() {
         </Select>
       </div>
 
-      <AvailabilityCalendar
+      {availabilityLoading ? <div aria-busy="true" aria-label="Loading member availability" role="status" className="space-y-3 rounded-xl border border-border p-5"><Skeleton className="h-6 w-48" /><div className="grid grid-cols-7 gap-2">{Array.from({ length: 35 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div></div> : availabilityLoadError ? <div role="alert" className="flex items-center justify-between rounded-xl border border-destructive/30 p-4 text-sm"><span>{availabilityLoadError}</span><Button size="sm" variant="outline" onClick={() => void loadAvailability()}>Retry</Button></div> : <AvailabilityCalendar
         memberName={selectedMemberName}
         availabilities={availabilities}
         currentMonth={currentMonth}
         currentYear={currentYear}
         onPreviousMonth={handlePreviousMonth}
         onNextMonth={handleNextMonth}
-      />
+      />}
 
       <Card>
         <CardHeader><CardTitle>Monthly submission</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-medium">{submission ? submission.status.replace('_', ' ') : 'Not submitted'}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{submission?.reviewed_at ? `Reviewed ${new Date(submission.reviewed_at).toLocaleString()}${submission.reviewer_name ? ` by ${submission.reviewer_name}` : ''}` : submission ? 'Waiting for coordinator review.' : 'Legacy absence requests do not count as a complete monthly response.'}</p>
+            {availabilityLoading ? <><Skeleton className="h-5 w-32" /><Skeleton className="mt-2 h-4 w-56" /></> : availabilityLoadError ? <p className="text-sm text-destructive">Submission status unavailable.</p> : <><p className="font-medium">{submission ? submission.status.replace('_', ' ') : 'Not submitted'}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{submission?.reviewed_at ? `Reviewed ${new Date(submission.reviewed_at).toLocaleString()}${submission.reviewer_name ? ` by ${submission.reviewer_name}` : ''}` : submission ? 'Waiting for coordinator review.' : 'Legacy absence requests do not count as a complete monthly response.'}</p></>}
             {submission?.revision_note ? <p className="mt-2 rounded-lg bg-destructive/5 p-3 text-sm text-destructive">Revision requested: {submission.revision_note}</p> : null}
           </div>
           {submission ? <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${submission.status === 'approved' ? 'bg-primary/10 text-primary' : submission.status === 'revision_required' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>{submission.status.replace('_', ' ')}</span> : null}
@@ -367,7 +375,7 @@ export default function AvailabilityPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {availabilities.length === 0 ? (
+            {availabilityLoading ? <div aria-busy="true" aria-label="Loading unavailability details" role="status" className="space-y-3"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : availabilityLoadError ? <p className="text-sm text-destructive">Availability details unavailable.</p> : availabilities.length === 0 ? (
               <p className="text-sm text-muted-foreground">No unavailability was submitted. An approved monthly submission with no entries means the member is available throughout the month.</p>
             ) : (
               availabilities.map((availability) => {
@@ -406,14 +414,17 @@ export default function AvailabilityPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => reviewRequest(availability.id, 'approved')}
+                            disabled={reviewingAvailabilityId !== null}
+                            aria-busy={reviewingAvailabilityId === availability.id}
                           >
-                            Approve
+                            {reviewingAvailabilityId === availability.id ? 'Saving…' : 'Approve'}
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             className="text-destructive hover:text-destructive"
                             onClick={() => reviewRequest(availability.id, 'rejected')}
+                            disabled={reviewingAvailabilityId !== null}
                           >
                             Reject
                           </Button>
@@ -428,18 +439,19 @@ export default function AvailabilityPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(revisionTarget)} onOpenChange={(open) => { if (!open) setRevisionTarget(null); }}>
+      <Dialog open={Boolean(revisionTarget)} onOpenChange={(open) => { if (!open && !reviewing) setRevisionTarget(null); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Request a revision</DialogTitle><DialogDescription>Tell {revisionTarget?.full_name ?? 'the member'} what needs clarification. They must submit the month again before generation can proceed.</DialogDescription></DialogHeader>
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <div className="space-y-2"><Label htmlFor="revision-note">Revision note</Label><Textarea id="revision-note" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} placeholder="For example: Please confirm whether you are available in week three." /></div>
-          <DialogFooter><Button variant="outline" onClick={() => setRevisionTarget(null)}>Cancel</Button><Button disabled={!revisionNote.trim() || reviewing || !revisionTarget} onClick={() => revisionTarget && void reviewSubmission(revisionTarget, 'revision_required', revisionNote.trim())}>Send revision request</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setRevisionTarget(null)} disabled={reviewing}>Cancel</Button><Button disabled={!revisionNote.trim() || reviewing || !revisionTarget} aria-busy={reviewing} onClick={() => revisionTarget && void reviewSubmission(revisionTarget, 'revision_required', revisionNote.trim())}>{reviewing ? 'Sending…' : 'Send revision request'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       {resetMessage ? <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">{resetMessage}</p> : null}
 
       {/* Step 1: disclosure + required note. Nothing is sent until step 2. */}
-      <Dialog open={resetOpen} onOpenChange={(open) => { if (!open) { setResetOpen(false); setResetConfirmOpen(false); } }}>
+      <Dialog open={resetOpen} onOpenChange={(open) => { if (!open && !resetting) { setResetOpen(false); setResetConfirmOpen(false); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reset unavailability for {monthLabel}</DialogTitle>
@@ -473,7 +485,7 @@ export default function AvailabilityPage() {
       </Dialog>
 
       {/* Step 2: the actual confirmation. */}
-      <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!open) setResetConfirmOpen(false); }}>
+      <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!open && !resetting) setResetConfirmOpen(false); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reset unavailability for all members in {monthLabel}?</DialogTitle>
@@ -485,7 +497,7 @@ export default function AvailabilityPage() {
               banner is behind this modal overlay. */}
           {resetError ? <p role="alert" className="text-sm text-destructive">{resetError}</p> : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setResetConfirmOpen(false); setResetOpen(true); }}>Back</Button>
+            <Button variant="outline" onClick={() => { setResetConfirmOpen(false); setResetOpen(true); }} disabled={resetting}>Back</Button>
             <Button variant="destructive" disabled={resetting} onClick={() => void resetMonthAvailability()}>
               {resetting ? `Resetting…` : `Reset ${monthLabel}`}
             </Button>

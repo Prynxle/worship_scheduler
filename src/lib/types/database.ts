@@ -173,6 +173,13 @@ export interface AvailabilitySubmission {
   month: number;
   year: number;
   status: AvailabilitySubmissionStatus;
+  /**
+   * Origin of the submission. 'member' rows come from the member-driven
+   * monthly workflow; 'mock' rows are fixtures created by the
+   * mock_month_availability RPC. A current 'member' submission is never
+   * touched by the mock tool.
+   */
+  source: 'member' | 'mock';
   version: number;
   is_current: boolean;
   submitted_at: string;
@@ -327,15 +334,27 @@ export interface AuditLog {
   user?: User;
 }
 
+/**
+ * Which audience selector produced an announcement's recipient set.
+ * Stored per notification row; NULL for every non-announcement type.
+ */
+export type AnnouncementAudience = 'church' | 'ministry' | 'role' | 'members';
+
 export interface Notification {
   id: string;
   user_id: string;
   church_id: string;
-  type: 'assignment' | 'conflict' | 'reminder' | 'schedule_published' | 'availability_reminder';
+  type: 'assignment' | 'conflict' | 'reminder' | 'schedule_published' | 'availability_reminder' | 'announcement';
   title: string;
   message: string;
   is_read: boolean;
   created_at: string;
+  created_by?: string | null;
+  audience_type?: AnnouncementAudience | null;
+  /** Shared across every recipient row of one broadcast; used for staff hard delete. */
+  announcement_id?: string;
+  /** Set when the recipient removed the item from their own feed (row stays). */
+  dismissed_at?: string | null;
 }
 
 export interface ChurchEvent {

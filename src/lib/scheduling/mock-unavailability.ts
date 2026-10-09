@@ -108,3 +108,35 @@ export function planMockUnavailability(
     }))
     .filter((row) => !excludedMemberIds.has(row.member_id));
 }
+
+export type MockSubmissionEntry = {
+  member_id: string;
+  /**
+   * The planned mock week, or null for an excluded (sole-qualified) member. A
+   * null week is a deliberate EMPTY submission -- the member declares no
+   * unavailability -- so the month can still reach full readiness without
+   * mocking the last qualified holder of a slot out of a week.
+   */
+  week_number: number | null;
+};
+
+/**
+ * Builds the `p_entries` payload for the mock_month_availability RPC: one
+ * entry per active member, excluded members included with `week_number: null`.
+ *
+ * The week assignment is EXACTLY planMockUnavailability's rotation with no
+ * exclusion filter, so a non-excluded member keeps the same week whether or
+ * not any other member is excluded, and the rotation stays deterministic
+ * (id-sorted) across runs.
+ */
+export function buildMockSubmissionEntries(
+  members: { id: string; full_name: string }[],
+  month: number,
+  year: number,
+  excludedMemberIds: ReadonlySet<string> = new Set()
+): MockSubmissionEntry[] {
+  return planMockUnavailability(members, month, year).map((row) => ({
+    member_id: row.member_id,
+    week_number: excludedMemberIds.has(row.member_id) ? null : row.week_number,
+  }));
+}
