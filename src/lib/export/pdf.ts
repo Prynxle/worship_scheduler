@@ -29,7 +29,7 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   if (data.churchLogoUrl) {
     try {
       doc.addImage(data.churchLogoUrl, 'PNG', margin, logoY, logoSize, logoSize);
-    } catch (e) {
+    } catch {
       // ignore logo if it fails
     }
   }
