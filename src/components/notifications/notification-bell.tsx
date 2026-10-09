@@ -7,42 +7,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSessionUser } from '@/contexts/session-context';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { ANNOUNCEMENT_PAGE_SIZE, formatRelativeTime, parseAnnouncementPage } from '@/lib/notifications/feed';
 import type { Notification } from '@/lib/types/database';
 import { AnnouncementDetailDialog } from './announcement-detail-dialog';
-
-const PAGE_SIZE = 20;
 
 async function authHeaders(): Promise<HeadersInit | null> {
   const { data } = await getSupabaseClient().auth.getSession();
   return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : null;
-}
-
-function formatRelativeTime(iso: string): string {
-  const timestamp = new Date(iso).getTime();
-  if (Number.isNaN(timestamp)) return '';
-  const minutes = Math.round((Date.now() - timestamp) / 60_000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function readPage(payload: unknown): { notifications: Notification[]; nextCursor: string | null; unreadCount: number } {
-  if (!payload || typeof payload !== 'object') throw new Error('The notification response was invalid.');
-  const { notifications, nextCursor, unreadCount } = payload as {
-    notifications?: unknown;
-    nextCursor?: unknown;
-    unreadCount?: unknown;
-  };
-  if (!Array.isArray(notifications)) throw new Error('The notification response was invalid.');
-  return {
-    notifications: notifications as Notification[],
-    nextCursor: typeof nextCursor === 'string' ? nextCursor : null,
-    unreadCount: typeof unreadCount === 'number' ? unreadCount : 0,
-  };
 }
 
 /** Shared row content for one notification, in both normal and select mode. */
@@ -97,13 +68,13 @@ export function NotificationBell() {
     try {
       const headers = await authHeaders();
       if (!headers) return;
-      const response = await fetch(`/api/announcements?limit=${PAGE_SIZE}`, { headers });
+      const response = await fetch(`/api/announcements?limit=${ANNOUNCEMENT_PAGE_SIZE}`, { headers });
       const payload = await response.json().catch(() => null);
       if (requestId !== requestIdRef.current) return;
       if (!response.ok) {
         throw new Error((payload as { error?: string } | null)?.error ?? 'Could not load notifications.');
       }
-      const page = readPage(payload);
+      const page = parseAnnouncementPage(payload);
       setNotifications(page.notifications);
       setNextCursor(page.nextCursor);
       setUnreadCount(page.unreadCount);
@@ -140,14 +111,14 @@ export function NotificationBell() {
       const headers = await authHeaders();
       if (!headers) return;
       const response = await fetch(
-        `/api/announcements?limit=${PAGE_SIZE}&before=${encodeURIComponent(nextCursor)}`,
+        `/api/announcements?limit=${ANNOUNCEMENT_PAGE_SIZE}&before=${encodeURIComponent(nextCursor)}`,
         { headers },
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error((payload as { error?: string } | null)?.error ?? 'Could not load notifications.');
       }
-      const page = readPage(payload);
+      const page = parseAnnouncementPage(payload);
       setNotifications((current) => [...current, ...page.notifications]);
       setNextCursor(page.nextCursor);
       setError(null);

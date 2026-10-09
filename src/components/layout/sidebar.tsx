@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { signOutLocal } from '@/lib/auth/sign-out';
 
 const navigationGroups = [
   {
@@ -73,16 +74,8 @@ export function Sidebar() {
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await getSupabaseClient().auth.signOut({ scope: 'local' });
-    } catch {
-      // Local-only sign out: ignore network errors and clear the session anyway.
+      await signOutLocal();
     } finally {
-      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('sb-')) {
-          localStorage.removeItem(key);
-        }
-      }
       router.push('/login');
       router.refresh();
       setSigningOut(false);
