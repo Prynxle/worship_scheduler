@@ -54,20 +54,20 @@ export async function POST(request: NextRequest) {
           const b64 = Buffer.from(buf).toString('base64');
           logoDataUrl = 'data:image/png;base64,' + b64;
         }
-      } catch (e) {
+      } catch {
         logoDataUrl = undefined;
       }
     }
     if (!logoDataUrl) {
       try {
         const fs = await import('fs');
-        const path = require('path');
+        const path = await import('path');
         const p = path.join(process.cwd(), 'public', 'icon-removebg-preview.png');
         if (fs.existsSync(p)) {
           const buf = fs.readFileSync(p);
           logoDataUrl = 'data:image/png;base64,' + buf.toString('base64');
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
