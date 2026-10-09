@@ -15,8 +15,6 @@ import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { AlertTriangle, CalendarDays, Check, Clock3, Download, Plus, ShieldCheck, Users } from 'lucide-react';
->>>>>>> origin/staging
-
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
 /** A position the generator or the last manual edit could not fill. */
 type UnfilledPosition = {
