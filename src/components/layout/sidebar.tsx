@@ -13,6 +13,7 @@ import {
   Download,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Music2,
   Settings2,
   UsersRound,
@@ -30,6 +31,7 @@ const navigationGroups = [
       { name: 'Members', href: '/members', icon: UsersRound },
       { name: 'Availability', href: '/availability', icon: Clock3 },
       { name: 'Ministries', href: '/ministries', icon: Music2 },
+      { name: 'Announcements', href: '/announcements', icon: Megaphone },
     ],
   },
   {

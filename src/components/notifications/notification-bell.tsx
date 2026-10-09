@@ -8,7 +8,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useSessionUser } from '@/contexts/session-context';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Notification } from '@/lib/types/database';
-import { AnnounceComposeDialog } from './announce-compose-dialog';
 import { AnnouncementDetailDialog } from './announcement-detail-dialog';
 
 const PAGE_SIZE = 20;
@@ -65,8 +64,10 @@ function ItemBody({ item }: { item: Notification }) {
 }
 
 /**
- * The header notification bell: unread badge, announcement feed panel, and --
- * for admin and coordinator accounts -- the entry point to the compose form.
+ * The header notification bell: unread badge and the announcement feed panel,
+ * including per-row select mode, soft remove, and staff hard delete. Composing
+ * a new announcement lives on the Announcements page (see the sidebar), not in
+ * this panel.
  *
  * The feed loads silently on mount so the badge is accurate without opening
  * the panel, and refreshes every time the panel opens so it cannot go stale.
@@ -77,7 +78,6 @@ export function NotificationBell() {
   const isStaff = user?.role === 'admin' || user?.role === 'coordinator';
 
   const [open, setOpen] = useState(false);
-  const [composeOpen, setComposeOpen] = useState(false);
   const [detail, setDetail] = useState<Notification | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -325,11 +325,6 @@ export function NotificationBell() {
               >
                 {selectMode ? 'Cancel' : 'Select'}
               </Button>
-              {isStaff && (
-                <Button variant="outline" size="sm" onClick={() => setComposeOpen(true)}>
-                  New announcement
-                </Button>
-              )}
             </div>
           </div>
 
@@ -434,12 +429,6 @@ export function NotificationBell() {
           )}
         </PopoverContent>
       </Popover>
-
-      <AnnounceComposeDialog
-        open={composeOpen}
-        onOpenChange={setComposeOpen}
-        onPublished={() => void load(false)}
-      />
 
       <AnnouncementDetailDialog
         announcement={detail}
