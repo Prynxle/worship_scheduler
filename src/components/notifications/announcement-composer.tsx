@@ -1,17 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Megaphone } from 'lucide-react';
+import { Check, Loader2, Megaphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -48,18 +41,17 @@ async function authHeaders(): Promise<HeadersInit | null> {
 
 type Option = { id: string; name: string };
 
-interface AnnounceComposeDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onPublished: () => void;
+interface AnnouncementComposerProps {
+  /** Called after a successful publish so a surface can refresh its feed. */
+  onPublished?: (recipients: number) => void;
 }
 
 /**
- * Compose form for a church-wide announcement. Rendered by the notification
- * bell for admin and coordinator accounts only; the route re-checks the role
- * server-side, so hiding the entry point is a convenience, not the boundary.
+ * Compose form for a church-wide announcement, rendered on the Announcements
+ * page for admin and coordinator accounts only. The route re-checks the role
+ * server-side, so the page gate is a convenience, not the boundary.
  */
-export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: AnnounceComposeDialogProps) {
+export function AnnouncementComposer({ onPublished }: AnnouncementComposerProps) {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [audience, setAudience] = useState<AnnouncementAudience | ''>('');
@@ -73,6 +65,7 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const loadOptions = useCallback(async () => {
     const headers = await authHeaders();
@@ -101,33 +94,26 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
       setMembers(membersPayload.members.map((member) => ({ id: member.id, name: member.full_name })));
       setOptionsError(null);
     } catch {
-      setOptionsError('Could not load the audience options. Close and try again.');
+      setOptionsError('Could not load the audience options. Reload the page and try again.');
     }
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     // Deferred like EventManager's mount fetch: loadOptions() writes state,
     // and the set-state-in-effect rule wants that write out of the effect.
     const timer = setTimeout(() => { void loadOptions(); }, 0);
     return () => clearTimeout(timer);
-  }, [open, loadOptions]);
+  }, [loadOptions]);
 
-  // Keep the form bounded when the dialog closes so a stale draft from a
-  // previous open is never published by accident.
-  const handleOpenChange = (next: boolean) => {
-    if (!next) {
-      setTitle('');
-      setMessage('');
-      setAudience('');
-      setMinistryId('');
-      setAppRole('');
-      setSelectedMemberIds([]);
-      setMemberSearch('');
-      setFormError(null);
-      setOptionsError(null);
-    }
-    onOpenChange(next);
+  const resetDraft = () => {
+    setTitle('');
+    setMessage('');
+    setAudience('');
+    setMinistryId('');
+    setAppRole('');
+    setSelectedMemberIds([]);
+    setMemberSearch('');
+    setFormError(null);
   };
 
   const toggleMember = (memberId: string) => {
@@ -166,10 +152,12 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
     const problem = validate();
     if (problem) {
       setFormError(problem);
+      setSuccess(null);
       return;
     }
 
     setFormError(null);
+    setSuccess(null);
     setSubmitting(true);
     try {
       const headers = await authHeaders();
@@ -184,11 +172,13 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
           audience: audiencePayload(),
         }),
       });
-      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      const payload = await response.json().catch(() => null) as { error?: string; announcement?: { recipients?: number } } | null;
       if (!response.ok) throw new Error(payload?.error ?? 'Could not publish the announcement.');
 
-      handleOpenChange(false);
-      onPublished();
+      const recipients = payload?.announcement?.recipients ?? 0;
+      resetDraft();
+      setSuccess(`Published to ${recipients} ${recipients === 1 ? 'person' : 'people'}.`);
+      onPublished?.(recipients);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Could not publish the announcement.');
     } finally {
@@ -196,18 +186,22 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Megaphone className="size-4" /> New announcement
-          </DialogTitle>
-          <DialogDescription>
-            Publish an in-app announcement to members of your church. It appears in their notification panel.
-          </DialogDescription>
-        </DialogHeader>
+  const hasDraft = Boolean(
+    title || message || audience || ministryId || appRole || memberSearch || selectedMemberIds.length,
+  );
 
+  return (
+    <Card className="card-glow">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Megaphone className="h-5 w-5 text-primary" />
+          New announcement
+        </CardTitle>
+        <CardDescription>
+          Publish an in-app announcement to members of your church. It appears in their notification panel.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="announcement-title">Title</Label>
@@ -317,10 +311,20 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
 
           {optionsError && <p className="text-sm text-destructive" role="alert">{optionsError}</p>}
           {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
+          {success && (
+            <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400" role="status">
+              <Check className="size-4" /> {success}
+            </p>
+          )}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={submitting}>
-              Cancel
+          <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { resetDraft(); setSuccess(null); }}
+              disabled={submitting || !hasDraft}
+            >
+              Clear
             </Button>
             <Button
               type="submit"
@@ -332,9 +336,9 @@ export function AnnounceComposeDialog({ open, onOpenChange, onPublished }: Annou
                 <>Publish announcement</>
               )}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </CardContent>
+    </Card>
   );
 }

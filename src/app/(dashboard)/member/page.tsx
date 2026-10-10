@@ -10,6 +10,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { Availability } from '@/lib/types/database';
 import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
 import { EventCalendar } from '@/components/events/event-calendar';
+import { AnnouncementFeed } from '@/components/notifications/announcement-feed';
 import { CalendarCheck, Clock3, X } from 'lucide-react';
 import { DashboardLoadingSkeleton, Skeleton } from '@/components/ui/loading-skeleton';
 
@@ -198,6 +199,8 @@ export default function MemberPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <AnnouncementFeed />
 
       <div className="grid gap-6 lg:grid-cols-12">
         {/* `lg:row-span-2` makes this card stretch across both rows the right column
