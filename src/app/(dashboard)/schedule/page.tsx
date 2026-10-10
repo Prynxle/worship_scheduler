@@ -14,9 +14,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
-import { AlertTriangle, CalendarDays, Check, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Clock3, Download, Plus, ShieldCheck, Users } from 'lucide-react';
 import { ScheduleGridSkeleton } from '@/components/ui/loading-skeleton';
-
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
 /** A position the generator or the last manual edit could not fill. */
 type UnfilledPosition = {
@@ -102,6 +101,9 @@ export default function SchedulePage() {
   const [workingAction, setWorkingAction] = useState<'generate' | 'mock' | 'validate' | 'publish' | 'revision' | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportWeek, setExportWeek] = useState<string>('all');
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [editingId, setEditingId] = useState('');
   const scheduleRequest = useRef(0);
@@ -311,6 +313,48 @@ export default function SchedulePage() {
     finally { setWorking(false); setWorkingAction(null); }
   }
 
+  async function exportPdf() {
+    setExportingPdf(true);
+    setError('');
+    setMessage('');
+    try {
+      const session = await withSession();
+      // `month` is already 0-based (parseMonth), matching services.month and
+      // GET /api/schedule. Sending `month + 1` matched no services and produced
+      // an empty PDF.
+      const payload: Record<string, unknown> = { month, year };
+      if (exportWeek !== 'all') {
+        const w = parseInt(exportWeek);
+        if (!Number.isNaN(w)) payload.week_numbers = [w];
+      }
+      const res = await fetch('/api/export/pdf', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to generate PDF' }));
+        throw new Error(err.error || 'Failed to generate PDF');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const weekSuffix = exportWeek !== 'all' ? `-week${exportWeek}` : '';
+      a.download = `schedule-${month + 1}-${year}${weekSuffix}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setMessage('PDF exported successfully.');
+      setExportDialogOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to export PDF');
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   const visibleCards = filteredSchedules.map((service, index) => (
     <ScheduleCard
       key={service.id}
@@ -499,7 +543,12 @@ export default function SchedulePage() {
       <section aria-label="Schedule status filters" className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Monthly lineups</p><h2 className="mt-1 font-display text-3xl font-semibold">Every service, at a glance</h2></div>
-          <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => setExportDialogOpen(true)}>
+              <Download className="mr-2 h-4 w-4" />Export PDF
+            </Button>
+            <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
+          </div>
         </div>
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>
           <TabsList className="grid h-auto w-full grid-cols-4 sm:w-[520px]">
@@ -542,6 +591,53 @@ export default function SchedulePage() {
             {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working} aria-busy={workingAction === 'generate'}>{workingAction === 'generate' ? 'Generating…' : 'Replace draft lineups'}</Button> : null}
             {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working} aria-busy={workingAction === 'revision'}>{workingAction === 'revision' ? 'Creating…' : 'Create amendment'}</Button> : null}
             {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working} aria-busy={workingAction === 'publish'}>{workingAction === 'publish' ? 'Publishing…' : 'Publish schedule'}</Button> : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export PDF</DialogTitle>
+            <DialogDescription>
+              Choose which month and week(s) to export for {monthLabel}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Month</label>
+              <Select value={selectedMonth} onValueChange={(value) => { if (value) chooseMonth(value); setExportWeek('all'); }}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select month" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, index) => {
+                    const ym = monthString(year, index);
+                    return <SelectItem key={ym} value={ym}>{new Date(year, index, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Week</label>
+              <Select value={exportWeek} onValueChange={(v: string | null) => setExportWeek(v || 'all')}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select week" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Weeks</SelectItem>
+                  {Array.from(new Set(schedules.map((s) => s.week_number))).sort((a, b) => a - b).map((w) => (
+                    <SelectItem key={w} value={w.toString()}>Week {w}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => void exportPdf()} disabled={exportingPdf || loading}>
+              <Download className="mr-2 h-4 w-4" />{exportingPdf ? 'Exporting...' : 'Export'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
