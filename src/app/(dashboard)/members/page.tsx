@@ -11,6 +11,7 @@ import { Plus, Search, Users } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { filterMembers, isFiltering } from '@/lib/members/filter';
 import { Member } from '@/lib/types/database';
+import { MemberGridSkeleton } from '@/components/ui/loading-skeleton';
 
 async function getAuthHeaders() {
   const session = (await getSupabaseClient().auth.getSession()).data.session;
@@ -28,6 +29,8 @@ export default function MembersPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [roleOptions, setRoleOptions] = useState<MemberFilterOption[]>([]);
   const [instrumentOptions, setInstrumentOptions] = useState<MemberFilterOption[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState('');
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [selectedInstrumentIds, setSelectedInstrumentIds] = useState<string[]>([]);
 
@@ -58,11 +61,13 @@ export default function MembersPage() {
   // so the filter can never offer a role this church does not have. A failure
   // here is not fatal: the roster still renders, the filters just stay empty.
   const fetchFilterOptions = useCallback(async () => {
+    setOptionsLoading(true);
+    setOptionsError('');
     try {
       const headers = await getAuthHeaders();
-      if (!headers) return;
+      if (!headers) throw new Error('Your session has expired. Please sign in again.');
       const response = await fetch('/api/members/options', { headers });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error('Could not load member filter options.');
       const result = (await response.json()) as {
         roles?: MemberFilterOption[];
         instruments?: MemberFilterOption[];
@@ -70,8 +75,9 @@ export default function MembersPage() {
       setRoleOptions(result.roles ?? []);
       setInstrumentOptions(result.instruments ?? []);
     } catch {
-      // Leave the filter lists empty rather than replacing the page error, which
-      // is reserved for the roster itself.
+      setOptionsError('Could not load role and instrument filters.');
+    } finally {
+      setOptionsLoading(false);
     }
   }, []);
 
@@ -155,6 +161,9 @@ export default function MembersPage() {
           onSelectedInstrumentIdsChange={setSelectedInstrumentIds}
           matchCount={filteredMembers.length}
           totalCount={members.length}
+          optionsLoading={optionsLoading}
+          optionsError={optionsError}
+          onRetry={fetchFilterOptions}
         />
         <Button variant="outline">
           <Users className="h-4 w-4 mr-1" />
@@ -180,9 +189,7 @@ export default function MembersPage() {
 
         <TabsContent value={activeTab} className="mt-6">
           {loading ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Loading members…
-            </p>
+            <MemberGridSkeleton />
           ) : filteredMembers.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {members.length === 0

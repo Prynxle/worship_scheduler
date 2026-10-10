@@ -93,7 +93,42 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'A valid availability id and status are required.' }, { status: 400 });
   }
 
-  const { data, error } = await getAdminClient()
+  const admin = getAdminClient();
+
+  // Resolve the target row's (member, month, year) scope BEFORE writing.
+  // Month/year are derived exactly the way POST derives them: the stamped
+  // month/year columns first, then the row's own date. A month that has a
+  // current monthly submission is governed by the submissions/approval
+  // workflow, so a direct status flip on one of its rows is refused with 409
+  // instead of silently forking the month's state.
+  const { data: target, error: targetError } = await admin
+    .from('availability')
+    .select('member_id, month, year, date')
+    .eq('id', id)
+    .eq('church_id', context.churchId)
+    .maybeSingle();
+  if (targetError) return NextResponse.json({ error: 'Could not update availability.' }, { status: 500 });
+  if (!target) return NextResponse.json({ error: 'Availability not found' }, { status: 404 });
+
+  const targetDate = target.date ? new Date(`${String(target.date).slice(0, 10)}T00:00:00Z`) : undefined;
+  const targetMonth = target.month ?? targetDate?.getUTCMonth();
+  const targetYear = target.year ?? targetDate?.getUTCFullYear();
+  if (targetMonth !== undefined && targetYear !== undefined) {
+    const { data: currentSubmission, error: submissionError } = await admin.from('availability_submissions')
+      .select('id')
+      .eq('church_id', context.churchId)
+      .eq('member_id', target.member_id)
+      .eq('month', targetMonth)
+      .eq('year', targetYear)
+      .eq('is_current', true)
+      .maybeSingle();
+    if (submissionError) return NextResponse.json({ error: 'Could not verify the monthly submission state.' }, { status: 500 });
+    if (currentSubmission) {
+      return NextResponse.json({ error: 'This month already has a complete response. Use the monthly submission review workflow instead.' }, { status: 409 });
+    }
+  }
+
+  const { data, error } = await admin
     .from('availability')
     .update({ status })
     .eq('id', id)

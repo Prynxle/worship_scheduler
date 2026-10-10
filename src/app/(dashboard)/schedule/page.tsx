@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScheduleCard } from '@/components/schedule/schedule-card';
 import { ScheduleLineupEditor, EditableAssignment } from '@/components/schedule/schedule-lineup-editor';
@@ -15,6 +15,7 @@ import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { AlertTriangle, CalendarDays, Check, Clock3, Plus, ShieldCheck, Users } from 'lucide-react';
+import { ScheduleGridSkeleton } from '@/components/ui/loading-skeleton';
 
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
 /** A position the generator or the last manual edit could not fill. */
@@ -98,12 +99,15 @@ export default function SchedulePage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [workingAction, setWorkingAction] = useState<'generate' | 'mock' | 'validate' | 'publish' | 'revision' | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [editingId, setEditingId] = useState('');
+  const scheduleRequest = useRef(0);
 
   const loadSchedules = useCallback(async () => {
+    const requestId = ++scheduleRequest.current;
     setLoading(true);
     setError('');
     try {
@@ -123,6 +127,7 @@ export default function SchedulePage() {
         instruments?: InstrumentOption[];
         error?: string;
       };
+      if (requestId !== scheduleRequest.current) return;
       if (!readinessResponse.ok) throw new Error(readinessPayload.error ?? 'Could not load availability readiness.');
       if (!scheduleResponse.ok) throw new Error(schedulePayload.error ?? 'Could not load monthly schedules.');
       setReadiness(readinessPayload);
@@ -140,9 +145,9 @@ export default function SchedulePage() {
       url.searchParams.delete('ministry_id');
       window.history.replaceState({}, '', url);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load monthly schedules.');
+      if (requestId === scheduleRequest.current) setError(loadError instanceof Error ? loadError.message : 'Could not load monthly schedules.');
     } finally {
-      setLoading(false);
+      if (requestId === scheduleRequest.current) setLoading(false);
     }
   }, [month, year, selectedMonth]);
 
@@ -194,7 +199,7 @@ export default function SchedulePage() {
   }
 
   async function generate(regenerate: boolean) {
-    setWorking(true); setError(''); setMessage(''); setConfirmAction(null);
+    setWorking(true); setWorkingAction('generate'); setError(''); setMessage('');
     try {
       const session = await withSession();
       const response = await fetch('/api/schedule', {
@@ -204,6 +209,7 @@ export default function SchedulePage() {
       });
       const payload = await response.json() as { services?: unknown[]; error?: string; readiness?: AvailabilityReadiness; unfilled_positions?: unknown[] };
       if (!response.ok) throw new Error(payload.error ?? 'Could not generate the schedule.');
+      setConfirmAction(null);
       // Report the gap count. A 201 with gaps is SUCCESS-WITH-GAPS, and the gap
       // total is the whole point of the response: without it the confirmation
       // reads "Generated 4 service lineups" for a month that silently left
@@ -220,11 +226,11 @@ export default function SchedulePage() {
       await loadSchedules();
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : 'Could not generate the schedule.');
-    } finally { setWorking(false); }
+    } finally { setWorking(false); setWorkingAction(null); }
   }
 
   async function mockUnavailability() {
-    setWorking(true); setError(''); setMessage(''); setConfirmAction(null);
+    setWorking(true); setWorkingAction('mock'); setError(''); setMessage('');
     try {
       const session = await withSession();
       const response = await fetch('/api/schedule/mock-unavailability', {
@@ -234,14 +240,18 @@ export default function SchedulePage() {
       });
       const payload = await response.json() as { added?: number; skipped?: number; error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'Could not create mock unavailability.');
-      setMessage(`Mock unavailability updated for ${monthLabel}: ${payload.added ?? 0} added, ${payload.skipped ?? 0} skipped.`);
+      // The mock now flows through the submissions/approval workflow: the new
+      // submissions stay pending until a coordinator approves them, and only
+      // then do the mock weeks block scheduling.
+      setConfirmAction(null);
+      setMessage(`Mock unavailability submitted for ${monthLabel}: ${payload.added ?? 0} added, ${payload.skipped ?? 0} skipped. The new mock submissions are pending approval in the availability review queue.`);
       await loadSchedules();
     } catch (mockError) { setError(mockError instanceof Error ? mockError.message : 'Could not create mock unavailability.'); }
-    finally { setWorking(false); }
+    finally { setWorking(false); setWorkingAction(null); }
   }
 
   async function validate(service: ScheduleItem) {
-    setWorking(true); setError(''); setMessage('');
+    setWorking(true); setWorkingAction('validate'); setError(''); setMessage('');
     try {
       const session = await withSession();
       const response = await fetch('/api/validation', {
@@ -261,11 +271,11 @@ export default function SchedulePage() {
       setMessage(notes ? `Schedule validated with ${notes} advisory finding(s).` : 'Schedule validated with no outstanding findings.');
       await loadSchedules();
     } catch (validationError) { setError(validationError instanceof Error ? validationError.message : 'Could not validate this schedule.'); }
-    finally { setWorking(false); }
+    finally { setWorking(false); setWorkingAction(null); }
   }
 
   async function publish(service: ScheduleItem) {
-    setWorking(true); setError(''); setMessage(''); setConfirmAction(null);
+    setWorking(true); setWorkingAction('publish'); setError(''); setMessage('');
     try {
       const session = await withSession();
       const response = await fetch(`/api/schedule/${encodeURIComponent(service.id)}/publish`, {
@@ -275,14 +285,15 @@ export default function SchedulePage() {
       });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'Could not publish this schedule.');
+      setConfirmAction(null);
       setMessage('Schedule published.');
       await loadSchedules();
     } catch (publishError) { setError(publishError instanceof Error ? publishError.message : 'Could not publish this schedule.'); }
-    finally { setWorking(false); }
+    finally { setWorking(false); setWorkingAction(null); }
   }
 
   async function startRevision(service: ScheduleItem) {
-    setWorking(true); setError(''); setConfirmAction(null);
+    setWorking(true); setWorkingAction('revision'); setError('');
     try {
       const session = await withSession();
       const response = await fetch(`/api/schedule/${encodeURIComponent(service.id)}/revision`, {
@@ -292,11 +303,12 @@ export default function SchedulePage() {
       });
       const payload = await response.json() as { service_id?: string; error?: string };
       if (!response.ok || !payload.service_id) throw new Error(payload.error ?? 'Could not start the schedule amendment.');
+      setConfirmAction(null);
       setMessage('A draft amendment is ready to edit. The published schedule remains in place until the amendment is published.');
       await loadSchedules();
       setEditingId(payload.service_id);
     } catch (revisionError) { setError(revisionError instanceof Error ? revisionError.message : 'Could not create the amendment.'); }
-    finally { setWorking(false); }
+    finally { setWorking(false); setWorkingAction(null); }
   }
 
   const visibleCards = filteredSchedules.map((service, index) => (
@@ -335,14 +347,14 @@ export default function SchedulePage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-              <Button type="button" variant="outline" className="h-11" disabled={working || loading} onClick={() => setConfirmAction({ kind: 'mock-unavailability' })}>Mock unavailability</Button>
+              <Button type="button" variant="outline" className="h-11" disabled={working || loading} onClick={() => setConfirmAction({ kind: 'mock-unavailability' })}>{workingAction === 'mock' ? 'Updating…' : 'Mock unavailability'}</Button>
               {schedules.length > 0 ? (
                   <Button type="button" className="h-11" disabled={working || !readiness?.ready || lockedSchedules || hasLegacySchedules} onClick={() => setConfirmAction({ kind: 'regenerate' })}>
                   <Plus className="mr-2 h-4 w-4" />Regenerate drafts
                 </Button>
               ) : (
                 <Button type="button" className="h-11" disabled={working || !readiness?.ready || monthIsPast} onClick={() => void generate(false)}>
-                  <Plus className="mr-2 h-4 w-4" />{working ? 'Generating…' : 'Generate schedule'}
+                  <Plus className="mr-2 h-4 w-4" />{workingAction === 'generate' ? 'Generating…' : 'Generate schedule'}
                 </Button>
               )}
             </div>
@@ -474,7 +486,7 @@ export default function SchedulePage() {
                 {selectedService.legacy_unscoped ? <p className="rounded-xl border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">This historical schedule has no reliable ministry assignment. It can be reviewed, but editing and regeneration stay locked until its ownership is resolved.</p> : null}
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                   {['draft', 'validated'].includes(selectedService.status) && (!monthIsPast || selectedService.revision_of) && !selectedService.legacy_unscoped ? <Button onClick={() => setEditingId(selectedService.id)}>Edit lineup</Button> : null}
-                  {selectedService.status === 'draft' && !selectedService.legacy_unscoped ? <Button variant="outline" onClick={() => void validate(selectedService)} disabled={working}><ShieldCheck className="mr-2 h-4 w-4" />Validate</Button> : null}
+                  {selectedService.status === 'draft' && !selectedService.legacy_unscoped ? <Button variant="outline" onClick={() => void validate(selectedService)} disabled={working} aria-busy={workingAction === 'validate'}><ShieldCheck className="mr-2 h-4 w-4" />{workingAction === 'validate' ? 'Validating…' : 'Validate'}</Button> : null}
                   {selectedService.status === 'validated' && !selectedService.legacy_unscoped ? <Button onClick={() => setConfirmAction({ kind: 'publish', service: selectedService })}><Check className="mr-2 h-4 w-4" />Publish</Button> : null}
                   {selectedService.status === 'published' && !selectedService.legacy_unscoped ? <Button variant="outline" onClick={() => setConfirmAction({ kind: 'revision', service: selectedService })}><Clock3 className="mr-2 h-4 w-4" />Create amendment</Button> : null}
                 </div>
@@ -497,7 +509,7 @@ export default function SchedulePage() {
             <TabsTrigger value="published">Published <span className="ml-1 text-xs text-muted-foreground">{statusCounts.published}</span></TabsTrigger>
           </TabsList>
         </Tabs>
-        {loading ? <p role="status" className="py-12 text-center text-sm text-muted-foreground">Loading {monthLabel} schedules…</p> : null}
+        {loading ? <ScheduleGridSkeleton /> : null}
         {!loading && filteredSchedules.length ? <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{visibleCards}</div> : null}
         {!loading && !filteredSchedules.length ? <Card><CardContent className="flex min-h-52 flex-col items-center justify-center text-center"><CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" /><p className="mt-3 font-medium">{schedules.length ? 'No lineups match this view' : `No schedule for ${monthLabel}`}</p><p className="mt-1 text-sm text-muted-foreground">{schedules.length ? 'Choose another status or search term.' : readiness?.ready ? 'Generate the month when you are ready to build the lineup.' : 'Review the missing availability submissions above to unlock generation.'}</p></CardContent></Card> : null}
       </section>
@@ -515,20 +527,21 @@ export default function SchedulePage() {
         onSaved={() => { setEditingId(''); setMessage('Lineup saved as a draft. Any prior validation was cleared, so validate this version before publishing.'); void loadSchedules(); }}
       />
 
-      <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}>
+      <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => { if (!open && !working) setConfirmAction(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{confirmAction?.kind === 'mock-unavailability' ? 'Replace mock unavailability for this month?' : confirmAction?.kind === 'regenerate' ? 'Replace this month’s draft lineups?' : confirmAction?.kind === 'revision' ? 'Create a schedule amendment?' : 'Publish this validated schedule?'}</DialogTitle>
             <DialogDescription>
-              {confirmAction?.kind === 'mock-unavailability' ? `This replaces existing mock unavailability rows for ${monthLabel}. Real member availability records are not changed.` : confirmAction?.kind === 'regenerate' ? 'Existing draft services for this ministry and month will be replaced as one transaction. Validated and published services are protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
+              {confirmAction?.kind === 'mock-unavailability' ? `This replaces this month’s mock unavailability with new submissions that stay pending until approved, just like real member submissions. Members’ own submitted availability is not changed.` : confirmAction?.kind === 'regenerate' ? 'Existing draft services for this ministry and month will be replaced as one transaction. Validated and published services are protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
             </DialogDescription>
           </DialogHeader>
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmAction(null)}>Cancel</Button>
-            {confirmAction?.kind === 'mock-unavailability' ? <Button onClick={() => void mockUnavailability()} disabled={working}>Replace mock rows</Button> : null}
-            {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working}>Replace draft lineups</Button> : null}
-            {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working}>Create amendment</Button> : null}
-            {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working}>Publish schedule</Button> : null}
+            <Button variant="outline" onClick={() => setConfirmAction(null)} disabled={working}>Cancel</Button>
+            {confirmAction?.kind === 'mock-unavailability' ? <Button onClick={() => void mockUnavailability()} disabled={working} aria-busy={workingAction === 'mock'}>{workingAction === 'mock' ? 'Submitting…' : 'Replace mock submissions'}</Button> : null}
+            {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working} aria-busy={workingAction === 'generate'}>{workingAction === 'generate' ? 'Generating…' : 'Replace draft lineups'}</Button> : null}
+            {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working} aria-busy={workingAction === 'revision'}>{workingAction === 'revision' ? 'Creating…' : 'Create amendment'}</Button> : null}
+            {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working} aria-busy={workingAction === 'publish'}>{workingAction === 'publish' ? 'Publishing…' : 'Publish schedule'}</Button> : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

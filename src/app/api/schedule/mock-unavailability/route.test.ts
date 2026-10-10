@@ -1,24 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Route-level contract tests for the mock-unavailability self-healing tool.
+ * Route-level contract tests for the workflow-native mock-unavailability tool.
  *
- * These mock the collaborators and assert observable behaviour: auth, body
- * parsing, month/year resolution, tenant scoping, the self-healing DELETE
- * predicate, and the per-record insert loop. No assertion here reads
+ * The collaborators are mocked and only observable behaviour is asserted:
+ * auth passthrough, body parsing, month/year resolution, tenant scoping, the
+ * member/qualification loads, the single RPC call and its arguments, the
+ * SQLSTATE -> HTTP mapping, and the response shape. No assertion here reads
  * `route.ts` source text.
  *
  * `@/lib/utils/date-utils` is deliberately NOT mocked. The current-month
  * default is the behaviour under test, so the real clock is the only honest
- * oracle; the two date tests pin it with `vi.setSystemTime` and assert the
- * values the route derives from it.
+ * oracle; the date tests pin it with `vi.setSystemTime` and assert the values
+ * the route derives from it.
  */
 
 const requireStaff = vi.fn();
 const getAdminClient = vi.fn();
 const planMockUnavailability = vi.fn();
 const soleQualifiedMemberIds = vi.fn();
+const buildMockSubmissionEntries = vi.fn();
 const from = vi.fn();
+const rpc = vi.fn();
 
 vi.mock('@/lib/auth/server', () => ({
   requireStaff: (request: Request) => requireStaff(request),
@@ -30,6 +33,9 @@ vi.mock('@/lib/scheduling/mock-unavailability', () => ({
     members: unknown, month: number, year: number, excluded: ReadonlySet<string>
   ) => planMockUnavailability(members, month, year, excluded),
   soleQualifiedMemberIds: (input: unknown) => soleQualifiedMemberIds(input),
+  buildMockSubmissionEntries: (
+    members: unknown, month: number, year: number, excluded: ReadonlySet<string>
+  ) => buildMockSubmissionEntries(members, month, year, excluded),
 }));
 
 const { POST } = await import('./route');
@@ -50,20 +56,32 @@ const planned = [
   { member_id: 'm-2', month: 2, year: 2026, week_number: 2 },
 ];
 
+/** The entries the stubbed builder hands back for the RPC payload. */
+const entries = [
+  { member_id: 'm-1', week_number: 1 },
+  { member_id: 'm-2', week_number: 2 },
+];
+
+/** What the RPC resolves to on success. */
+const counts = {
+  submissions_created: 2,
+  entries_added: 2,
+  empty_submissions: 0,
+  skipped_members: [] as string[],
+  deleted_legacy: 3,
+};
+
 type Recorded = { op: string; args: unknown[] };
 
 type Responses = {
   select?: { data?: unknown; error?: unknown };
-  delete?: { count?: number | null; error?: unknown };
-  insert?: { error?: unknown };
 };
 
 /**
- * A chainable Supabase query-builder double. Each `.from()` call hands back a
- * fresh builder, exactly as the real client does, so a chain's terminal op
- * (`select` | `delete` | `insert`) selects the response it resolves to and one
- * chain's filters can never leak into another's. Every builder method records
- * its call and returns the same builder; the builder is thenable.
+ * The same chainable Supabase query-builder double the previous suite used:
+ * each `.from()` call hands back a fresh builder whose terminal op selects
+ * the response it resolves to, so one chain's filters can never leak into
+ * another's. The `rpc` double sits alongside it on the same client double.
  */
 function createTable(name: string, responses: Responses) {
   const calls: Recorded[] = [];
@@ -87,12 +105,7 @@ function createTable(name: string, responses: Responses) {
       };
     }
     builder.then = (onFulfilled: (value: unknown) => unknown, onRejected?: (e: unknown) => unknown) => {
-      const terminal = chain.some((call) => call.op === 'delete')
-        ? responses.delete
-        : chain.some((call) => call.op === 'insert')
-          ? responses.insert
-          : responses.select;
-      return Promise.resolve(terminal ?? {}).then(onFulfilled, onRejected);
+      return Promise.resolve(responses.select ?? {}).then(onFulfilled, onRejected);
     };
     return builder;
   }
@@ -115,37 +128,25 @@ function tableCalls(name: string): Recorded[] {
   return table(name).calls;
 }
 
-/** The calls belonging to the chains that terminate in `terminal` (e.g. 'delete'). */
-function chainCalls(name: string, terminal: 'select' | 'delete' | 'insert'): Recorded[] {
-  return table(name).chains
-    .filter((chain) => chain.some((call) => call.op === terminal))
-    .flat();
+type RpcResult = { data?: unknown; error?: unknown };
+
+/** `admin.rpc(...)` returns a thenable; the route awaits it directly. */
+function resolveRpc(result: RpcResult) {
+  rpc.mockReturnValue(Promise.resolve(result));
 }
 
-/** Every filter applied to `name` within the given terminal chain, as `op:args`. */
-function filters(terminal: 'select' | 'delete' | 'insert', op: string): unknown[][] {
-  return chainCalls('availability', terminal)
-    .filter((call) => call.op === op)
-    .map((call) => call.args);
-}
-
-function insertArgs(): unknown[] {
-  return filters('insert', 'insert').map((args) => args[0]);
-}
-
-function resetTables() {
+function resetClients() {
   tables = new Map([
     ['members', createTable('members', { select: { data: members, error: null } })],
     ['member_roles', createTable('member_roles', { select: { data: [], error: null } })],
     ['member_skills', createTable('member_skills', { select: { data: [], error: null } })],
-    ['availability', createTable('availability', {
-      delete: { count: 2, error: null },
-      select: { data: [], error: null },
-      insert: { error: null },
-    })],
   ]);
   from.mockImplementation((name: string) => tables.get(name)?.newBuilder());
-  getAdminClient.mockReturnValue({ from });
+  getAdminClient.mockReturnValue({
+    from,
+    rpc: (name: string, args: unknown) => rpc(name, args),
+  });
+  resolveRpc({ data: counts, error: null });
 }
 
 function post(body: unknown): Request {
@@ -158,10 +159,11 @@ function post(body: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetTables();
+  resetClients();
   requireStaff.mockResolvedValue(auth);
   soleQualifiedMemberIds.mockReturnValue(new Set<string>());
   planMockUnavailability.mockReturnValue(planned);
+  buildMockSubmissionEntries.mockReturnValue(entries);
 });
 
 afterEach(() => {
@@ -184,6 +186,7 @@ describe('POST /api/schedule/mock-unavailability — auth', () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: 'Forbidden' });
     expect(from).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('rejects an unauthenticated caller with 401 before any database access', async () => {
@@ -193,18 +196,33 @@ describe('POST /api/schedule/mock-unavailability — auth', () => {
 
     expect(response.status).toBe(401);
     expect(getAdminClient).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/schedule/mock-unavailability — tenant and actor scoping', () => {
+  it('takes church_id from auth only, never from the request body', async () => {
+    const response = await POST(post({ month: 2, year: 2026, church_id: 'attacker-church' }) as never);
+
+    expect(response.status).toBe(201);
+    // The member load is scoped to the authenticated church ...
+    expect(tableCalls('members')).toContainEqual({ op: 'eq', args: ['church_id', 'church-1'] });
+    // ... and so is the RPC; the body-supplied tenant is inert.
+    const [, args] = rpc.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args.p_church_id).toBe('church-1');
+    expect(JSON.stringify(args)).not.toContain('attacker-church');
   });
 
-  it('takes church_id from auth only, never from the request body', async () => {
-    await POST(post({ month: 2, year: 2026, church_id: 'attacker-church' }) as never);
+  it('takes p_actor_id from the session user id, never from the body', async () => {
+    await POST(post({
+      month: 2, year: 2026,
+      userId: 'attacker-user', actor_id: 'attacker-user', p_actor_id: 'attacker-user', p_church_id: 'attacker-church',
+    }) as never);
 
-    // Every tenant-scoped chain, including the self-healing DELETE, must carry
-    // the authenticated church and must never echo the body-supplied one.
-    const scoped = ['members', 'availability'].flatMap((name) => (
-      table(name).chains.flat().filter((call) => call.op === 'eq').map((call) => call.args)
-    ));
-    expect(scoped).toContainEqual(['church_id', 'church-1']);
-    expect(JSON.stringify(scoped)).not.toContain('attacker-church');
+    const [, args] = rpc.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args.p_actor_id).toBe('user-1');
+    expect(args.p_church_id).toBe('church-1');
+    expect(JSON.stringify(args)).not.toContain('attacker-user');
   });
 });
 
@@ -221,6 +239,7 @@ describe('POST /api/schedule/mock-unavailability — body parsing', () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: message });
     expect(from).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('accepts a whitespace-only body as an empty object', async () => {
@@ -252,6 +271,7 @@ describe('POST /api/schedule/mock-unavailability — month and year validation',
     await expect(response.json()).resolves.toEqual({ error: message });
     expect(getAdminClient).not.toHaveBeenCalled();
     expect(from).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -262,6 +282,9 @@ describe('POST /api/schedule/mock-unavailability — month and year validation',
 
     expect(response.status).toBe(201);
     expect(planMockUnavailability).toHaveBeenCalledWith(members, body.month, body.year, new Set());
+    expect(rpc).toHaveBeenCalledWith('mock_month_availability', expect.objectContaining({
+      p_month: body.month, p_year: body.year,
+    }));
   });
 });
 
@@ -279,12 +302,12 @@ describe('POST /api/schedule/mock-unavailability — month resolution', () => {
 
     expect(response.status).toBe(201);
     expect(body).toMatchObject({ month: 2, year: 2026 });
-    // The planner receives the clock-derived month, not the old literal.
+    // The planner receives the clock-derived month, not the old literal ...
     expect(planMockUnavailability).toHaveBeenCalledWith(members, 2, 2026, new Set());
-    // The self-healing DELETE is scoped to the same derived month.
-    expect(filters('delete', 'eq')).toEqual(
-      expect.arrayContaining([['month', 2], ['year', 2026]]),
-    );
+    // ... and so does the RPC.
+    expect(rpc).toHaveBeenCalledWith('mock_month_availability', expect.objectContaining({
+      p_month: 2, p_year: 2026,
+    }));
   });
 
   it('tracks the clock across the 0-indexed year boundary', async () => {
@@ -332,194 +355,175 @@ describe('POST /api/schedule/mock-unavailability — month resolution', () => {
   });
 });
 
-describe('POST /api/schedule/mock-unavailability — self-healing DELETE scope', () => {
-  it('deletes only this route\'s own weekly mock rows for the authenticated church and month', async () => {
+describe('POST /api/schedule/mock-unavailability — the single RPC write', () => {
+  it('calls mock_month_availability once with session-scoped ids, the month, the reason, and the built entries', async () => {
     const response = await POST(post({ month: 2, year: 2026 }) as never);
-    const body = await response.json();
 
     expect(response.status).toBe(201);
-    expect(body).toMatchObject({ deleted: 2 });
-
-    const deletes = filters('delete', 'delete');
-    expect(deletes).toEqual([[{ count: 'exact' }]]);
-
-    // Exact-count delete; every scope column; and the reason LIKE that makes a
-    // real availability row (NULL or free-text reason) unmatchable.
-    expect(filters('delete', 'eq')).toEqual([
-      ['church_id', 'church-1'],
-      ['type', 'weekly'],
-      ['month', 2],
-      ['year', 2026],
-    ]);
-    expect(filters('delete', 'like')).toEqual([
-      ['reason', 'Mock unavailability (%'],
-    ]);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('mock_month_availability', {
+      p_church_id: 'church-1',
+      p_actor_id: 'user-1',
+      p_month: 2,
+      p_year: 2026,
+      p_reason: 'Mock unavailability (March 2026 test)',
+      p_entries: entries,
+    });
   });
 
-  it('never issues an availability delete without a church and reason scope', async () => {
+  it('never issues a direct availability delete or insert: the RPC owns the write', async () => {
     await POST(post({ month: 2, year: 2026 }) as never);
 
-    const availability = tableCalls('availability');
-    expect(availability[0]).toEqual({ op: 'delete', args: [{ count: 'exact' }] });
-    // The reason predicate is what makes this safe: without it the route would
-    // wipe real availability for the month, and without the church_id filter
-    // it would wipe another tenant's.
-    expect(availability).toContainEqual({ op: 'eq', args: ['church_id', 'church-1'] });
-    expect(availability).toContainEqual({ op: 'like', args: ['reason', 'Mock unavailability (%'] });
+    // The self-healing DELETE and the per-record insert loop are gone; the
+    // only tables the route still reads are the roster and qualifications.
+    expect(tables.has('availability')).toBe(false);
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 
-  it('reports zero deleted when the client returns a null count', async () => {
-    // The `count: 'exact'` request can come back null; the response must not
-    // leak a null where the contract promises a number.
-    const availability = createTable('availability', {
-      delete: { count: null, error: null },
-      select: { data: [], error: null },
-      insert: { error: null },
-    });
-    tables.set('availability', availability);
-
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-    const body = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(body.deleted).toBe(0);
-    // The exact-count request is still made; only the response is defaulted.
-    expect(filters('delete', 'delete')).toEqual([[{ count: 'exact' }]]);
-  });
-
-  it('stops with 500 when the self-healing delete fails, before inserting anything', async () => {
-    // Proceeding after a failed delete would double-write mock rows until the
-    // partial unique index rejected them.
-    const availability = createTable('availability', { delete: { error: { message: 'permission denied' } } });
-    tables.set('availability', availability);
-
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Could not replace existing mock unavailability.',
-    });
-    expect(availability.calls.some((call) => call.op === 'insert')).toBe(false);
-  });
-});
-
-describe('POST /api/schedule/mock-unavailability — inserts', () => {
-  it('writes one weekly row per planned record, scoped to auth and the reason prefix', async () => {
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-    const body = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(body).toMatchObject({ success: true, added: 2, skipped: 0, total_members: 2 });
-
-    const inserts = insertArgs();
-    expect(inserts).toEqual([
-      {
-        member_id: 'm-1', church_id: 'church-1', type: 'weekly', week_number: 1,
-        month: 2, year: 2026, reason: 'Mock unavailability (March 2026 test)', status: 'approved',
-      },
-      {
-        member_id: 'm-2', church_id: 'church-1', type: 'weekly', week_number: 2,
-        month: 2, year: 2026, reason: 'Mock unavailability (March 2026 test)', status: 'approved',
-      },
-    ]);
-  });
-
-  it('skips records that collide with an existing active weekly row', async () => {
-    // Mirrors the partial unique index predicate
-    // (availability_active_weekly_member_month_week_idx).
-    const availability = createTable('availability', {
-      delete: { count: 0, error: null },
-      select: { data: [{ member_id: 'm-1', week_number: 1 }], error: null },
-      insert: { error: null },
-    });
-    tables.set('availability', availability);
-
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-    const body = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(body).toMatchObject({ added: 1, skipped: 1 });
-    // Only the non-colliding member is written.
-    expect(insertArgs()).toHaveLength(1);
-    expect(insertArgs()[0]).toMatchObject({ member_id: 'm-2' });
-    // The pre-check itself is tenant- and month-scoped.
-    expect(filters('select', 'eq')).toEqual([
-      ['church_id', 'church-1'],
-      ['type', 'weekly'],
-      ['month', 2],
-      ['year', 2026],
-    ]);
-    expect(filters('select', 'in')).toEqual([['status', ['pending', 'approved']]]);
-  });
-
-  it('treats a concurrent unique-violation as a skip, not a failure', async () => {
-    const availability = createTable('availability', {
-      delete: { count: 0, error: null },
-      select: { data: [], error: null },
-      insert: { error: { code: '23505' } },
-    });
-    tables.set('availability', availability);
-
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({ added: 0, skipped: 2 });
-  });
-
-  it('fails closed with 500 on any non-unique insert error', async () => {
-    const availability = createTable('availability', {
-      delete: { count: 0, error: null },
-      select: { data: [], error: null },
-      insert: { error: { code: '23503' } },
-    });
-    tables.set('availability', availability);
-
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
-
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: 'Could not save mock unavailability.' });
-  });
-});
-
-describe('POST /api/schedule/mock-unavailability — sole-qualified exclusion', () => {
-  it('never mocks the only active holder of a required slot into unavailability', async () => {
+  it('builds p_entries for ALL active members, excluded sole-qualified members included', async () => {
     soleQualifiedMemberIds.mockReturnValue(new Set(['m-1']));
-    planMockUnavailability.mockReturnValue([planned[1]]);
 
-    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    await POST(post({ month: 2, year: 2026 }) as never);
 
-    // The exclusion set reaches the planner, so the sole Drums holder (Simone)
-    // keeps their availability and routine generation cannot fail on them.
-    expect(soleQualifiedMemberIds).toHaveBeenCalledWith({
-      memberIds: ['m-1', 'm-2'],
-      roles: [],
-      skills: [],
-    });
+    // The exclusion set reaches both the planner (for the reported records)
+    // and the entries builder (for the RPC payload) ...
     expect(planMockUnavailability).toHaveBeenCalledWith(members, 2, 2026, new Set(['m-1']));
-    expect(insertArgs()).toEqual([
-      expect.objectContaining({ member_id: 'm-2' }),
-    ]);
-    await expect(response.json()).resolves.toMatchObject({ added: 1 });
+    expect(buildMockSubmissionEntries).toHaveBeenCalledWith(members, 2, 2026, new Set(['m-1']));
+    // ... and the builder's output -- not the filtered plan -- is what the RPC
+    // receives, so excluded members still get an empty submission.
+    const [, args] = rpc.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args.p_entries).toBe(entries);
   });
 
-  it('returns 500 when member qualifications cannot be loaded', async () => {
+  it('returns 500 when member qualifications cannot be loaded and never calls the RPC', async () => {
     tables.set('member_roles', createTable('member_roles', { select: { error: { message: 'boom' } } }));
 
     const response = await POST(post({ month: 2, year: 2026 }) as never);
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: 'Could not load member qualifications.' });
-    // Fails before the self-healing delete touches anything.
-    expect(tableCalls('availability')).toHaveLength(0);
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when the active member roster cannot be loaded', async () => {
+  it('returns 500 when the active member roster cannot be loaded and never calls the RPC', async () => {
     tables.set('members', createTable('members', { select: { error: { message: 'boom' } } }));
 
     const response = await POST(post({ month: 2, year: 2026 }) as never);
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: 'Could not load members.' });
-    expect(tableCalls('availability')).toHaveLength(0);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/schedule/mock-unavailability — SQLSTATE mapping', () => {
+  const leak = 'Coordinator authorization could not be verified at users_pkey on (e1ee) for church 0000';
+  const mapped: Array<[string, number, string]> = [
+    ['22023', 400, 'invalid_parameter_value'],
+    ['42501', 403, 'insufficient_privilege'],
+    ['23505', 409, 'unique_violation'],
+    ['40P01', 503, 'deadlock_detected'],
+  ];
+
+  it.each(mapped)('maps %s to %i %s without disclosing the driver message', async (sqlstate, status, code) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    resolveRpc({ data: null, error: { code: sqlstate, message: leak, details: null, hint: null } });
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(status);
+    expect(body).toMatchObject({ code });
+    expect(JSON.stringify(body)).not.toContain(leak);
+    expect(JSON.stringify(body)).not.toContain('users_pkey');
+  });
+
+  it('fails closed with an opaque 500 and a request id for an unmapped SQLSTATE', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    resolveRpc({ data: null, error: { code: 'P0001', message: 'plpgsql: internal detail about a table' } });
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({ code: 'internal_error' });
+    expect(typeof body.request_id).toBe('string');
+    expect(JSON.stringify(body)).not.toContain('plpgsql');
+  });
+
+  it('never reports a success it cannot account for when the RPC returns no result', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    resolveRpc({ data: null, error: null });
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+
+    // The RPC is atomic and always returns one jsonb object, so a missing
+    // result is a defect. A silent 201 would let a repeat click read as done.
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ code: 'internal_error' });
+  });
+});
+
+describe('POST /api/schedule/mock-unavailability — success shape', () => {
+  it('maps the RPC counts onto the backward-compatible keys plus the new fields', async () => {
+    resolveRpc({
+      data: {
+        submissions_created: 2,
+        entries_added: 2,
+        empty_submissions: 1,
+        skipped_members: ['m-9'],
+        deleted_legacy: 3,
+      },
+      error: null,
+    });
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body).toEqual({
+      success: true,
+      // Backward-compatible keys, mapped from the RPC result: `skipped` counts
+      // the members whose own submission governs the month, and `deleted`
+      // counts the legacy rows the RPC stamped 'rejected'.
+      added: 2,
+      skipped: 1,
+      deleted: 3,
+      submissions_created: 2,
+      empty_submissions: 1,
+      skipped_members: ['m-9'],
+      excluded_sole_qualified: [],
+      total_members: 2,
+      month: 2,
+      year: 2026,
+      records: planned,
+    });
+  });
+
+  it('defaults non-numeric RPC counts to 0 so the response never carries NaN', async () => {
+    resolveRpc({ data: { skipped_members: 'not-an-array' }, error: null });
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body).toMatchObject({
+      added: 0,
+      skipped: 0,
+      deleted: 0,
+      submissions_created: 0,
+      empty_submissions: 0,
+      skipped_members: [],
+    });
+  });
+
+  it('lists the excluded sole-qualified members, sorted for determinism', async () => {
+    soleQualifiedMemberIds.mockReturnValue(new Set(['m-2', 'm-1']));
+
+    const response = await POST(post({ month: 2, year: 2026 }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body).toMatchObject({ excluded_sole_qualified: ['m-1', 'm-2'] });
   });
 });
