@@ -148,7 +148,7 @@ export default function MemberPage() {
   const ministryRoles = profile?.ministryRoles ?? [];
   const instruments = profile?.instruments ?? [];
   return (
-    <div className="mx-auto max-w-[1440px] space-y-7 pb-10">
+    <div className="mx-auto max-w-[1440px] space-y-7 pb-6 sm:pb-8">
       {/* The former page header ("Your month at a glance" plus its instructions)
           is gone. It described a page that was mostly one task, and it pushed the
           member's own details below the fold. The profile now leads the workspace

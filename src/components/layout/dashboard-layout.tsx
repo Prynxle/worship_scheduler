@@ -15,7 +15,7 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-full overflow-hidden bg-background">
       <div className="hidden lg:flex">
         <Sidebar />
       </div>

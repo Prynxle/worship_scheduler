@@ -343,6 +343,9 @@
   width: 100%;
   min-height: 100vh;
   height: 300vh;
+  /* `body` is a fixed-height flex column (h-full), so without this the hero
+     would flex-shrink to its 100vh min-height and collapse the 300vh scroll. */
+  flex-shrink: 0;
   overflow: clip;
   background: #000000;
   padding-top: calc( env(safe-area-top, 0) );
