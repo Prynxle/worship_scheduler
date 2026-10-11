@@ -37,7 +37,7 @@ export default function RootLayout({
       lang="en"
       className={`dark ${jakartaSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="h-full overflow-hidden flex flex-col">
         {children}
       </body>
     </html>
