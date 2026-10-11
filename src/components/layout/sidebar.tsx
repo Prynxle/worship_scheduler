@@ -13,6 +13,7 @@ import {
   Download,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Music2,
   Settings2,
   UsersRound,
@@ -20,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { signOutLocal } from '@/lib/auth/sign-out';
 
 const navigationGroups = [
   {
@@ -30,6 +32,7 @@ const navigationGroups = [
       { name: 'Members', href: '/members', icon: UsersRound },
       { name: 'Availability', href: '/availability', icon: Clock3 },
       { name: 'Ministries', href: '/ministries', icon: Music2 },
+      { name: 'Announcements', href: '/announcements', icon: Megaphone },
     ],
   },
   {
@@ -71,16 +74,8 @@ export function Sidebar() {
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await getSupabaseClient().auth.signOut({ scope: 'local' });
-    } catch {
-      // Local-only sign out: ignore network errors and clear the session anyway.
+      await signOutLocal();
     } finally {
-      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('sb-')) {
-          localStorage.removeItem(key);
-        }
-      }
       router.push('/login');
       router.refresh();
       setSigningOut(false);

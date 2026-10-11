@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Bell, ChevronRight, Menu } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+import { ChevronRight, LogOut, Menu } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { useSessionUser } from '@/contexts/session-context';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { signOutLocal } from '@/lib/auth/sign-out';
 import { formatLocalDate, formatLongDate } from '@/lib/utils/date-utils';
 import { formatUpcomingEventCount, getUpcomingEventsQueryStart } from '@/lib/events/upcoming';
 
@@ -98,19 +100,35 @@ function useUpcomingEventCount(enabled: boolean): number | null {
 
 export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const section = pathname.split('/').filter(Boolean).at(-1) ?? 'dashboard';
   const user = useSessionUser();
   const isMember = user?.role === 'member';
   const now = useToday();
   const upcomingEventCount = useUpcomingEventCount(isMember);
   const eventSummary = formatUpcomingEventCount(upcomingEventCount ?? 0);
+  const [signingOut, setSigningOut] = useState(false);
+
+  // Members have no sidebar, so the header carries their sign-out control.
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOutLocal();
+    } finally {
+      router.push('/login');
+      router.refresh();
+      setSigningOut(false);
+    }
+  }
 
   return (
     <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border/70 bg-background/80 px-5 backdrop-blur-xl sm:px-8">
       <div className="flex min-w-0 items-center gap-3">
-        <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" onClick={onMenuClick} aria-label="Open navigation">
-          <Menu className="size-5" />
-        </Button>
+        {onMenuClick && (
+          <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" onClick={onMenuClick} aria-label="Open navigation">
+            <Menu className="size-5" />
+          </Button>
+        )}
         <div className="min-w-0">
           <div className="mb-1 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
             <span>Workspace</span>
@@ -123,10 +141,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" aria-label="Notifications">
-          <Bell className="size-[18px]" />
-          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
-        </Button>
+        <NotificationBell />
         <div className="hidden h-8 w-px bg-border sm:block" />
         <div className="hidden text-right sm:block">
           {/* Non-breaking space holds the line height before mount so the header
@@ -136,6 +151,18 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
             ? eventSummary && <p className="text-[11px] text-muted-foreground">{eventSummary}</p>
             : <p className="text-[11px] text-muted-foreground">Planning season</p>}
         </div>
+        {isMember && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleSignOut()}
+            disabled={signingOut}
+            aria-label="Sign out"
+          >
+            <LogOut className="size-4" />
+            <span className="hidden sm:inline">{signingOut ? 'Signing out…' : 'Sign out'}</span>
+          </Button>
+        )}
       </div>
     </header>
   );
