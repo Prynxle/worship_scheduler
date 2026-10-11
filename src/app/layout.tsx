@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Geist_Mono, Fraunces } from "next/font/google";
+import { Geist_Mono, Fraunces } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const jakartaSans = Plus_Jakarta_Sans({
+const jakartaSans = localFont({
   variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+  src: [
+    {
+      path: "./fonts/plus-jakarta-sans-latin.woff2",
+      weight: "300 800",
+      style: "normal",
+    },
+  ],
 });
 
 const geistMono = Geist_Mono({
