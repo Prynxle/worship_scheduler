@@ -22,7 +22,7 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
   const standalone = pathname === '/member';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-full overflow-hidden bg-background">
       {!standalone && (
         <>
           <div className="hidden lg:flex">
