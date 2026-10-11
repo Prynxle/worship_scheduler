@@ -269,6 +269,32 @@ export interface Service {
   assignments?: ScheduleAssignment[];
 }
 
+export interface SongLineup {
+  id: string;
+  church_id: string;
+  service_id: string;
+  submitted_by_member_id: string;
+  status: 'submitted' | 'confirmed' | 'withdrawn';
+  submitted_at: string;
+  confirmed_at?: string | null;
+  withdrawn_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  songs?: SongLineupSong[];
+}
+
+export interface SongLineupSong {
+  id: string;
+  lineup_id: string;
+  title: string;
+  song_url: string;
+  musical_key: string | null;
+  chords_url: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ScheduleAssignment {
   id: string;
   service_id: string;
