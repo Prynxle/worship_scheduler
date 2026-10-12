@@ -10,6 +10,8 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { Availability } from '@/lib/types/database';
 import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
 import { EventCalendar } from '@/components/events/event-calendar';
+import { AnnouncementFeed } from '@/components/notifications/announcement-feed';
+import { SongLineupPanel, type SongService } from '@/components/schedule/song-lineup-panel';
 import { CalendarCheck, Clock3, X } from 'lucide-react';
 import { DashboardLoadingSkeleton, Skeleton } from '@/components/ui/loading-skeleton';
 
@@ -44,6 +46,9 @@ export default function MemberPage() {
   const availableWeeks = getAvailableWeeks(month, year);
   const [unavailableWeeks, setUnavailableWeeks] = useState<number[]>([]);
   const [requests, setRequests] = useState<Availability[]>([]);
+  const [songServices, setSongServices] = useState<SongService[]>([]);
+  const [loadingSongs, setLoadingSongs] = useState(true);
+  const [songError, setSongError] = useState('');
   const [submission, setSubmission] = useState<MonthlySubmission | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -97,9 +102,29 @@ export default function MemberPage() {
     }
   }, [member, month, year]);
 
+  const loadSongServices = useCallback(async () => {
+    if (!member) return;
+    setLoadingSongs(true);
+    setSongError('');
+    try {
+      const session = (await getSupabaseClient().auth.getSession()).data.session;
+      if (!session) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`/api/song-lineups?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const result = await response.json() as { services?: SongService[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not load song lineups.');
+      setSongServices(result.services ?? []);
+    } catch (loadError) { setSongError(loadError instanceof Error ? loadError.message : 'Could not load song lineups.'); }
+    finally { setLoadingSongs(false); }
+  }, [member, month, year]);
+
   // Refresh server state when the member or selected month changes.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadSubmission(); }, [loadSubmission]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void loadSongServices(); }, 0);
+    return () => clearTimeout(timer);
+  }, [loadSongServices]);
 
   useEffect(() => {
     if (!member) return;
@@ -148,7 +173,7 @@ export default function MemberPage() {
   const ministryRoles = profile?.ministryRoles ?? [];
   const instruments = profile?.instruments ?? [];
   return (
-    <div className="mx-auto max-w-[1440px] space-y-7 pb-10">
+    <div className="mx-auto max-w-[1440px] space-y-7 pb-6 sm:pb-8">
       {/* The former page header ("Your month at a glance" plus its instructions)
           is gone. It described a page that was mostly one task, and it pushed the
           member's own details below the fold. The profile now leads the workspace
@@ -198,6 +223,13 @@ export default function MemberPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <AnnouncementFeed />
+
+      <section aria-labelledby="song-lineups-heading" className="space-y-4">
+        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Assigned services</p><h2 id="song-lineups-heading" className="mt-1 font-display text-2xl font-semibold">Weekly worship songs</h2><p className="mt-1 text-sm text-muted-foreground">Lineups are shared with members assigned to the same service as soon as the worship leader submits them.</p></div>
+        {loadingSongs ? <div role="status" aria-busy="true" className="rounded-xl border border-border p-5 text-sm text-muted-foreground">Loading your service lineups…</div> : songError ? <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{songError}</p> : songServices.length ? <div className="grid gap-4 lg:grid-cols-2">{songServices.map((service) => <SongLineupPanel key={service.service_id} service={service} onRefresh={() => void loadSongServices()} />)}</div> : <p className="rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">No service assignments for {monthName(month)} {year}.</p>}
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-12">
         {/* `lg:row-span-2` makes this card stretch across both rows the right column

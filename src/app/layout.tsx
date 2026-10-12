@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Geist_Mono, Fraunces } from "next/font/google";
+import { Geist_Mono, Fraunces } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const jakartaSans = Plus_Jakarta_Sans({
+const jakartaSans = localFont({
   variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+  src: [
+    {
+      path: "./fonts/plus-jakarta-sans-latin.woff2",
+      weight: "300 800",
+      style: "normal",
+    },
+  ],
 });
 
 const geistMono = Geist_Mono({
@@ -37,7 +43,7 @@ export default function RootLayout({
       lang="en"
       className={`dark ${jakartaSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="h-full overflow-hidden flex flex-col">
         {children}
       </body>
     </html>

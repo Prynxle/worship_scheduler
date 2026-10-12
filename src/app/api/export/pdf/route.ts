@@ -40,11 +40,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No published or validated schedule found for the selected period.' }, { status: 400 });
     }
 
-    const servicesForPdf = transformed.map((t) => ({
-      ...t,
-      assignments: data.assignments.filter((a) => a.service_id === t.id),
-    }));
-
     let logoDataUrl: string | undefined;
     if (church?.logo_url) {
       try {
@@ -77,7 +72,7 @@ export async function POST(request: NextRequest) {
       year,
       churchName: church?.name || 'Worship Schedule',
       churchLogoUrl: logoDataUrl,
-      services: servicesForPdf as any,
+      services: transformed,
     });
 
     const pdfBuffer = doc.output('arraybuffer');
