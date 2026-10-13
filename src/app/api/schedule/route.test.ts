@@ -509,6 +509,23 @@ describe('POST /api/schedule — persistence', () => {
     expect(rpc).toHaveBeenCalledWith('persist_month_schedule', expect.objectContaining({ p_replace_existing: true }));
   });
 
+  it('preserves submitted songs by refusing to regenerate their schedule weeks', async () => {
+    loadScheduleData.mockResolvedValue({
+      services: [service()], assignments: [], monthlyAssignments: [], members: [], roles: [], instruments: [], rules: [], config: {},
+    });
+    const query = { select: vi.fn(), eq: vi.fn(), in: vi.fn() };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    query.in.mockResolvedValue({ data: [{ service_id: 'service-week-1' }], error: null });
+    from.mockReturnValue(query);
+
+    const response = await POST(post({ month: 9, year: 2026, week_numbers: [1], regenerate: true }) as never);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ service_ids: ['service-week-1'] });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('never writes services or assignments directly from the route', async () => {
     // The regression this guards: the pre-merge writer deleted and re-inserted
     // services/assignments row-by-row with no transaction.
