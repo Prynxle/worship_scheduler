@@ -22,7 +22,11 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
   const standalone = pathname === '/member';
 
   return (
-    <div className="flex h-full overflow-hidden bg-background">
+    // h-dvh pins the shell to the dynamic viewport so `main` scrolls internally
+    // regardless of the root body's scroll behavior (the landing page must
+    // scroll the document; the dashboard must not). dvh also tracks mobile
+    // browser chrome, avoiding the bottom overflow 100vh causes.
+    <div className="flex h-dvh overflow-hidden bg-background">
       {!standalone && (
         <>
           <div className="hidden lg:flex">
