@@ -184,6 +184,17 @@ export async function POST(request: NextRequest) {
     }
 
     const replaceable = new Set(data.services.filter((service) => selected.has(service.week_number)).map((service) => service.id));
+    if (body?.regenerate === true && replaceable.size) {
+      const { data: submittedLineups, error: lineupError } = await getAdminClient()
+        .from('song_lineups')
+        .select('service_id')
+        .eq('church_id', auth.churchId)
+        .in('service_id', [...replaceable]);
+      if (lineupError) throw new ApiError(500, 'Could not verify song submissions before regeneration.', 'lineup_check_failed');
+      if (submittedLineups?.length) {
+        return NextResponse.json({ error: 'These weeks have submitted song lineups and cannot be regenerated because that would erase the songs.', service_ids: submittedLineups.map((lineup) => lineup.service_id) }, { status: 409 });
+      }
+    }
     // `monthlyAssignments`, never `assignments`: the monthly-limit ledger (Rule 2)
     // must count every non-archived service in the month, including a legacy
     // ministry-unscoped one that `assignments` filters out.
