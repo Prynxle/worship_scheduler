@@ -43,7 +43,10 @@ export default function RootLayout({
       lang="en"
       className={`dark ${jakartaSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="h-full overflow-hidden flex flex-col">
+      {/* Scrollable root body: the landing page drives its 300vh Three.js
+          journey from document scroll. Fixed-viewport containment belongs to
+          the dashboard shell, not the root layout. */}
+      <body className="min-h-full flex flex-col">
         {children}
       </body>
     </html>

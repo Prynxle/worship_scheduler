@@ -29,6 +29,7 @@ const navigationGroups = [
     items: [
       { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Schedule', href: '/schedule', icon: CalendarDays },
+      { name: 'Line Up Songs', href: '/line-up-songs', icon: Music2 },
       { name: 'Members', href: '/members', icon: UsersRound },
       { name: 'Availability', href: '/availability', icon: Clock3 },
       { name: 'Ministries', href: '/ministries', icon: Music2 },
@@ -101,9 +102,10 @@ export function Sidebar() {
         </Link>
 
         <nav className="flex flex-1 flex-col gap-7" aria-label="Main navigation">
-          {!isStaff ? (
-            <Link href="/member" className="rounded-xl bg-primary/[0.11] px-3 py-2.5 text-sm font-medium text-primary">My workspace</Link>
-          ) : null}
+          {!isStaff ? <div className="flex flex-col gap-1">
+            <Link href="/member" className="rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground">My workspace</Link>
+            <Link href="/line-up-songs" className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors', pathname === '/line-up-songs' ? 'bg-primary/[0.11] font-medium text-primary' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground')}><Music2 className="size-[18px]" aria-hidden="true" />Line Up Songs</Link>
+          </div> : null}
           {/* Staff only. Members get the calendar inside their workspace
               (/member), where it renders read-only, so a separate Events tab
               would duplicate it. Admins and coordinators need this page because
