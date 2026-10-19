@@ -132,9 +132,11 @@ export default function MemberPage() {
     const channel = supabase.channel(`monthly-availability-${member.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'availability', filter: `member_id=eq.${member.id}` }, () => { void loadSubmission(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'availability_submissions', filter: `member_id=eq.${member.id}` }, () => { void loadSubmission(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lineups' }, () => { void loadSongServices(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'song_lineup_songs' }, () => { void loadSongServices(); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [member, loadSubmission]);
+  }, [member, loadSubmission, loadSongServices]);
 
   async function submitMonth() {
     setError(''); setMessage(''); setSubmitting(true);
@@ -227,8 +229,8 @@ export default function MemberPage() {
       <AnnouncementFeed />
 
       <section aria-labelledby="song-lineups-heading" className="space-y-4">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Assigned services</p><h2 id="song-lineups-heading" className="mt-1 font-display text-2xl font-semibold">Weekly worship songs</h2><p className="mt-1 text-sm text-muted-foreground">Lineups are shared with members assigned to the same service as soon as the worship leader submits them.</p></div>
-        {loadingSongs ? <div role="status" aria-busy="true" className="rounded-xl border border-border p-5 text-sm text-muted-foreground">Loading your service lineups…</div> : songError ? <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{songError}</p> : songServices.length ? <div className="grid gap-4 lg:grid-cols-2">{songServices.map((service) => <SongLineupPanel key={service.service_id} service={service} onRefresh={() => void loadSongServices()} />)}</div> : <p className="rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">No service assignments for {monthName(month)} {year}.</p>}
+        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Assigned services</p><h2 id="song-lineups-heading" className="mt-1 font-display text-2xl font-semibold">Weekly worship songs</h2><p className="mt-1 text-sm text-muted-foreground">Songs submitted by your service’s worship leader appear here automatically.</p></div>
+        {loadingSongs ? <div role="status" aria-busy="true" className="rounded-xl border border-border p-5 text-sm text-muted-foreground">Loading your service lineups…</div> : songError ? <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{songError}</p> : songServices.length ? <div className="grid gap-4 lg:grid-cols-2">{songServices.map((service) => <SongLineupPanel key={`${service.service_id}-${service.lineup?.updated_at ?? 'empty'}-${service.is_leader}`} service={service} onRefresh={() => void loadSongServices()} />)}</div> : <p className="rounded-xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">No service assignments for {monthName(month)} {year}.</p>}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-12">

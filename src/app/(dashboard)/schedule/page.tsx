@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScheduleCard } from '@/components/schedule/schedule-card';
 import { ScheduleLineupEditor, EditableAssignment } from '@/components/schedule/schedule-lineup-editor';
-import { SongLineupPanel, type SongService } from '@/components/schedule/song-lineup-panel';
 import { RecentExports } from '@/components/exports/recent-exports';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -94,7 +93,6 @@ export default function SchedulePage() {
   const { year, month } = parseMonth(selectedMonth);
   const [readiness, setReadiness] = useState<AvailabilityReadiness | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [songServices, setSongServices] = useState<SongService[]>([]);
   const [members, setMembers] = useState<RosterMember[]>([]);
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [instruments, setInstruments] = useState<InstrumentOption[]>([]);
@@ -123,10 +121,9 @@ export default function SchedulePage() {
       if (!session) throw new Error('Your session has expired. Please sign in again.');
       const headers = { Authorization: `Bearer ${session.access_token}` };
       const query = `month=${month}&year=${year}`;
-      const [readinessResponse, scheduleResponse, songResponse] = await Promise.all([
+      const [readinessResponse, scheduleResponse] = await Promise.all([
         fetch(`/api/schedule/readiness?${query}`, { headers }),
         fetch(`/api/schedule?${query}`, { headers }),
-        fetch(`/api/song-lineups?${query}`, { headers }),
       ]);
       const readinessPayload = await readinessResponse.json() as AvailabilityReadiness & { error?: string };
       const schedulePayload = await scheduleResponse.json() as {
@@ -136,14 +133,11 @@ export default function SchedulePage() {
         instruments?: InstrumentOption[];
         error?: string;
       };
-      const songPayload = await songResponse.json() as { services?: SongService[]; error?: string };
       if (requestId !== scheduleRequest.current) return;
       if (!readinessResponse.ok) throw new Error(readinessPayload.error ?? 'Could not load availability readiness.');
       if (!scheduleResponse.ok) throw new Error(schedulePayload.error ?? 'Could not load monthly schedules.');
-      if (!songResponse.ok) throw new Error(songPayload.error ?? 'Could not load song lineups.');
       setReadiness(readinessPayload);
       setSchedules(schedulePayload.services ?? []);
-      setSongServices(songPayload.services ?? []);
       setMembers(schedulePayload.members ?? []);
       setRoles(schedulePayload.roles ?? []);
       setInstruments(schedulePayload.instruments ?? []);
@@ -373,22 +367,15 @@ export default function SchedulePage() {
     }
   }
 
-  const visibleCards = filteredSchedules.map((service, index) => {
-    const songs = songServices.find((item) => item.service_id === service.id);
-    const songService: SongService = songs ?? {
-      service_id: service.id, date: service.date, week_number: service.week_number,
-      leader_name: service.leader_name, instrumentalists: service.instrumentalists,
-      backups: service.backup_singers.map((person) => person.name), lineup: null,
-    };
-    return <div key={service.id} className="space-y-3">
+  const visibleCards = filteredSchedules.map((service, index) => (
+    <div key={service.id}>
       <ScheduleCard
         {...service}
         index={index}
         onView={() => setSelectedDate(service.date)}
       />
-      {!service.legacy_unscoped ? <SongLineupPanel service={songService} canReview onRefresh={() => void loadSchedules()} /> : null}
-    </div>;
-  });
+    </div>
+  ));
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-7 pb-10">
@@ -620,7 +607,7 @@ export default function SchedulePage() {
           <DialogHeader>
             <DialogTitle>{confirmAction?.kind === 'mock-unavailability' ? 'Replace mock unavailability for this month?' : confirmAction?.kind === 'regenerate' ? 'Replace this month’s draft lineups?' : confirmAction?.kind === 'revision' ? 'Create a schedule amendment?' : 'Publish this validated schedule?'}</DialogTitle>
             <DialogDescription>
-              {confirmAction?.kind === 'mock-unavailability' ? `This replaces this month’s mock unavailability with new submissions that stay pending until approved, just like real member submissions. Members’ own submitted availability is not changed.` : confirmAction?.kind === 'regenerate' ? 'Existing draft services for this ministry and month will be replaced as one transaction. Validated and published services are protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
+              {confirmAction?.kind === 'mock-unavailability' ? `This replaces this month’s mock unavailability with new submissions that stay pending until approved, just like real member submissions. Members’ own submitted availability is not changed.` : confirmAction?.kind === 'regenerate' ? 'Draft services will be replaced in one transaction. Weeks with submitted song lineups are protected so their song links are not lost. Validated and published services are also protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
             </DialogDescription>
           </DialogHeader>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
