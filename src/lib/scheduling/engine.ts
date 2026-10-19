@@ -445,8 +445,8 @@ export class SchedulingEngine {
       if (!['pending', 'approved'].includes(availability.status)) return false;
       if (isWeeklyUnavailable(availability, weekNumber, this.context.month, this.context.year)) return true;
       if (availability.type === 'recurring' && availability.week_number === weekNumber &&
-        (availability.month === undefined || availability.month === this.context.month) &&
-        (availability.year === undefined || availability.year === this.context.year)) return true;
+        (availability.month == null || availability.month === this.context.month) &&
+        (availability.year == null || availability.year === this.context.year)) return true;
       const target = new Date(`${date}T00:00:00`);
       if (availability.type === 'date' && availability.date) return this.sameDate(availability.date, date);
       if (['vacation', 'temporary_leave', 'emergency_leave', 'recurring'].includes(availability.type) && availability.date) {
