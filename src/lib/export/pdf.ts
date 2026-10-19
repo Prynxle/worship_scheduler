@@ -10,8 +10,38 @@ export interface ScheduleForExport {
   services: (TransformedService & { assignments: Array<Record<string, unknown>> })[];
 }
 
+/** Body text size and the vertical rhythm used to size rows to their content. */
+const CELL_FONT_SIZE = 8;
+const CELL_LINE_HEIGHT = 3.5;
+const CELL_PADDING = 2.5;
+
 function formatMemberNames(names: string[]): string {
   return names.filter(Boolean).join(', ');
+}
+
+/**
+ * Split a cell's text into the lines it will actually occupy.
+ *
+ * Sizing rows from this measurement is what stops a long name from wrapping
+ * into the row below: jsPDF's `maxWidth` wraps text but never grows the row, so
+ * the wrap and the row height have to be driven from one place.
+ */
+function cellLines(doc: jsPDF, text: string, maxWidth: number): string[] {
+  if (!text) return [];
+  const lines = doc.splitTextToSize(text, Math.max(maxWidth, 1)) as unknown;
+  if (Array.isArray(lines)) return lines as string[];
+  return [String(lines)];
+}
+
+/** The height a row needs so that its tallest cell is fully visible. */
+function rowHeightFor(lineCounts: number[]): number {
+  return Math.max(1, ...lineCounts) * CELL_LINE_HEIGHT + CELL_PADDING;
+}
+
+function drawCell(doc: jsPDF, lines: string[], x: number, y: number): void {
+  lines.forEach((line, index) => {
+    doc.text(line, x, y + CELL_LINE_HEIGHT * (index + 1) - 1);
+  });
 }
 
 export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
@@ -19,6 +49,7 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 12;
+  const contentWidth = pageWidth - margin * 2;
 
   const monthYear = new Date(data.year, data.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -36,12 +67,8 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
 
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
-  const name = data.churchName || 'Worship Schedule';
-  const nameY = logoY + logoSize / 2 + 2;
-  const nameX = margin + logoSize + 4;
-  doc.text(name, nameX, nameY);
+  doc.text(data.churchName || 'Worship Schedule', margin + logoSize + 4, logoY + logoSize / 2 + 2);
   y = Math.max(logoY + logoSize + 6, margin + 20);
-  doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
   doc.text(monthYear + ' Worship Team Singers', margin, y);
   y += 2;
@@ -51,12 +78,19 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
 
   const sortedServices = [...data.services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  // Fixed singer/instrumentalist sheet columns. Widths are the wrap widths, and
+  // the row height is derived from the wrap so a long name can never bleed into
+  // the next row or off the page.
+  const columns = [
+    { x: margin, width: 18, header: 'Date' },
+    { x: margin + 20, width: 38, header: 'Worship Leader' },
+    { x: margin + 60, width: 56, header: 'Back-Up' },
+    { x: margin + 118, width: 46, header: 'Devotion' },
+  ];
+
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text('Date', margin, y);
-  doc.text('Worship Leader', margin + 20, y);
-  doc.text('Back-Up', margin + 60, y);
-  doc.text('Devotion', margin + 120, y);
+  for (const column of columns) doc.text(column.header, column.x, y);
   y += 2;
   doc.line(margin, y, pageWidth - margin, y);
   y += 5;
@@ -68,19 +102,24 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
     const devotionName = service.devotion_name || '';
     const dateNum = new Date(service.date).getUTCDate().toString();
 
-    doc.setFontSize(8);
-    doc.text(dateNum, margin, y);
-    if (leaderName) doc.text(leaderName, margin + 20, y, { maxWidth: 35 });
-    if (backupNames.length) doc.text(formatMemberNames(backupNames), margin + 60, y, { maxWidth: 55 });
-    if (devotionName) doc.text(devotionName, margin + 120, y, { maxWidth: 45 });
-    y += 6;
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 4;
+    doc.setFontSize(CELL_FONT_SIZE);
+    const cells = [
+      cellLines(doc, dateNum, columns[0].width),
+      cellLines(doc, leaderName, columns[1].width),
+      cellLines(doc, formatMemberNames(backupNames), columns[2].width),
+      cellLines(doc, devotionName, columns[3].width),
+    ];
+    const rowHeight = rowHeightFor(cells.map((cell) => cell.length));
 
-    if (y > pageHeight - 40) {
+    if (y + rowHeight > pageHeight - margin) {
       doc.addPage();
       y = margin + 10;
     }
+
+    cells.forEach((lines, index) => drawCell(doc, lines, columns[index].x, y));
+    y += rowHeight;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 3;
   }
 
   if (sortedServices.length === 0) {
@@ -90,11 +129,14 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
     return doc;
   }
 
-  if (y < pageHeight - 70) {
-    y += 10;
-  } else {
+  // Instrumentalists section: a new page only when the heading could not fit
+  // with at least one row beneath it, so a heading never lands alone at the
+  // bottom of a page.
+  if (y + rowHeightFor([1]) + 20 > pageHeight - margin) {
     doc.addPage();
     y = margin + 10;
+  } else {
+    y += 10;
   }
 
   doc.setFontSize(12);
@@ -126,31 +168,26 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
     }
   }
 
-  const colWidth = (pageWidth - margin * 2) / (dates.length + 1);
-  const rowHeight = 6;
+  const colWidth = contentWidth / (dates.length + 1);
+  const cellWidth = Math.max(colWidth - 3, 6);
+  const headerRowHeight = CELL_LINE_HEIGHT + CELL_PADDING;
 
-  doc.setFontSize(8);
+  doc.setFontSize(CELL_FONT_SIZE);
   doc.setFont('helvetica', 'bold');
-  doc.text('Date', margin + 1.5, y + 4);
-  doc.rect(margin, y, colWidth, rowHeight);
+  doc.text('Date', margin + 1.5, y + CELL_LINE_HEIGHT + 0.5);
+  doc.rect(margin, y, colWidth, headerRowHeight);
   dates.forEach((entry, index) => {
     const x = margin + colWidth * (index + 1);
-    doc.text(entry.date.toString(), x + colWidth / 2, y + 4, { align: 'center' });
-    doc.rect(x, y, colWidth, rowHeight);
+    doc.text(entry.date.toString(), x + colWidth / 2, y + CELL_LINE_HEIGHT + 0.5, { align: 'center' });
+    doc.rect(x, y, colWidth, headerRowHeight);
   });
-  y += rowHeight;
+  y += headerRowHeight;
   doc.setFont('helvetica', 'normal');
 
   instrumentRowLabels.forEach((rowLabel) => {
-    if (y + rowHeight > pageHeight - margin) {
-      doc.addPage();
-      y = margin + 10;
-    }
-    doc.text(rowLabel, margin + 1.5, y + 4, { maxWidth: colWidth - 3 });
-    doc.rect(margin, y, colWidth, rowHeight);
     const rowLower = rowLabel.toLowerCase();
-    dates.forEach((entry, index) => {
-      const x = margin + colWidth * (index + 1);
+    const labelLines = cellLines(doc, rowLabel, cellWidth);
+    const cellCells = dates.map((entry) => {
       const names = (entry.service.instrumentalists || [])
         .filter((player) => {
           const inst = (player.instrument || '').toLowerCase();
@@ -163,7 +200,22 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
         .map((player) => player.name)
         .filter((n) => n !== 'Unassigned')
         .join(', ');
-      doc.text(names, x + 1.5, y + 4, { maxWidth: colWidth - 3 });
+      return cellLines(doc, names, cellWidth);
+    });
+
+    const rowHeight = rowHeightFor([labelLines.length, ...cellCells.map((cell) => cell.length)]);
+    if (y + rowHeight > pageHeight - margin) {
+      doc.addPage();
+      y = margin + 10;
+    }
+
+    doc.setFontSize(CELL_FONT_SIZE);
+    doc.setFont('helvetica', 'normal');
+    drawCell(doc, labelLines, margin + 1.5, y);
+    doc.rect(margin, y, colWidth, rowHeight);
+    cellCells.forEach((lines, index) => {
+      const x = margin + colWidth * (index + 1);
+      drawCell(doc, lines, x + 1.5, y);
       doc.rect(x, y, colWidth, rowHeight);
     });
     y += rowHeight;

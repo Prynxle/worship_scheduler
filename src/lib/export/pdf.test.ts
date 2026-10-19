@@ -98,3 +98,81 @@ describe('generateSchedulePDF', () => {
     expect(pdf).toContain('No published or validated schedule found for the selected period.');
   });
 });
+
+const LONG_NAME = 'Severino Alexander Maximilliano Constantinople Villaflor';
+
+/** A service in the shape the export route actually feeds the generator. */
+function transformed(
+  id: string,
+  day: number,
+  week: number,
+  opts: { leader?: string; backups?: string[]; devotion?: string; instrumentalists?: { instrument: string; name: string }[] } = {},
+): ScheduleForExport['services'][number] {
+  return {
+    id,
+    church_id: CHURCH_ID,
+    date: `2026-10-${String(day).padStart(2, '0')}`,
+    week_number: week,
+    leader_name: opts.leader ?? 'Unassigned',
+    backup_singers: (opts.backups ?? []).map((name) => ({ name })),
+    instrumentalists: opts.instrumentalists ?? [],
+    devotion_name: opts.devotion,
+    assignments: [],
+    status: 'validated',
+    schedule_version: 1,
+    conflict_count: 0,
+  } as unknown as ScheduleForExport['services'][number];
+}
+
+describe('generateSchedulePDF layout', () => {
+  it('fits a short month on one page with no trailing blank page', () => {
+    const doc = generateSchedulePDF({
+      month: 9,
+      year: 2026,
+      churchName: 'JOHIA Bankers',
+      services: [
+        transformed('s1', 4, 1, {
+          leader: 'Dhon Obniala',
+          backups: ['Beng Matubang', 'Heidi Herrera'],
+          devotion: 'Lom Del Luna',
+          instrumentalists: [{ instrument: 'Piano', name: 'Zedrick Espiritu' }],
+        }),
+      ],
+    });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('sizes rows to wrapped long names and paginates instead of overlapping', () => {
+    const short = Array.from({ length: 10 }, (_, index) =>
+      transformed(`short-${index}`, index + 1, index + 1, { leader: 'Feng Lim', backups: ['Beng Matubang'], devotion: 'Lom Del Luna' }),
+    );
+    const long = Array.from({ length: 10 }, (_, index) =>
+      transformed(`long-${index}`, index + 1, index + 1, {
+        leader: LONG_NAME,
+        backups: [LONG_NAME, LONG_NAME, LONG_NAME, LONG_NAME],
+        devotion: LONG_NAME,
+        instrumentalists: [{ instrument: 'Guitar', name: LONG_NAME }],
+      }),
+    );
+
+    const shortDoc = generateSchedulePDF({ month: 9, year: 2026, churchName: 'JOHIA Bankers', services: short });
+    const longDoc = generateSchedulePDF({ month: 9, year: 2026, churchName: 'JOHIA Bankers', services: long });
+
+    // Rows grow with the wrapped lines, so the same month needs more pages --
+    // which is only true if the row height is driven by the wrap measurement.
+    expect(shortDoc.getNumberOfPages()).toBe(1);
+    expect(longDoc.getNumberOfPages()).toBeGreaterThan(shortDoc.getNumberOfPages());
+  });
+
+  it('renders an extra instrument row label without duplicating a mapped one', () => {
+    const doc = generateSchedulePDF({
+      month: 9,
+      year: 2026,
+      churchName: 'JOHIA Bankers',
+      services: [transformed('s1', 4, 1, { instrumentalists: [{ instrument: 'Violin', name: 'Pia Santos' }] })],
+    });
+    const pdf = Buffer.from(doc.output('arraybuffer') as ArrayBuffer).toString('latin1');
+    expect(pdf).toContain('Violin');
+  });
+});
+

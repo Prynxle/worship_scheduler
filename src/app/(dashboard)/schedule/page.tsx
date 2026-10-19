@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ScheduleCard } from '@/components/schedule/schedule-card';
 import { ScheduleLineupEditor, EditableAssignment } from '@/components/schedule/schedule-lineup-editor';
 import { RecentExports } from '@/components/exports/recent-exports';
+import { downloadBlob } from '@/lib/export/download-blob';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -348,15 +349,8 @@ export default function SchedulePage() {
         throw new Error(err.error || 'Failed to generate PDF');
       }
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const weekSuffix = exportWeek !== 'all' ? `-week${exportWeek}` : '';
-      a.download = `schedule-${month + 1}-${year}${weekSuffix}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      downloadBlob(blob, `schedule-${month + 1}-${year}${weekSuffix}.pdf`);
       setMessage('PDF exported successfully.');
       setExportsRefreshKey((key) => key + 1);
       setExportDialogOpen(false);

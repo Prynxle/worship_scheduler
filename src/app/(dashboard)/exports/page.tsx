@@ -1,42 +1,43 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ExportOptions } from '@/components/exports/export-options';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Download, Calendar } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { downloadBlob } from '@/lib/export/download-blob';
 
-function saveBlob(blob: Blob, filename: string) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(url);
-  document.body.removeChild(a);
+/** A month with at least one validated or published service, and its weeks. */
+interface ExportPeriod {
+  month: number;
+  year: number;
+  weeks: number[];
+}
+
+/**
+ * The picker's option value. The year is part of it, so two different years'
+ * "September" can never collapse into the same selection, and the submitted
+ * `{ month, year }` is read straight off the chosen period rather than from a
+ * separate, independently-editable year state.
+ */
+function periodValue(month: number, year: number) {
+  return `${year}-${month}`;
+}
+
+function periodLabel(month: number, year: number) {
+  return new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
 export default function ExportsPage() {
   const [isExporting, setIsExporting] = useState(false);
-  const [month, setMonth] = useState<string>('1');
-  const [year, setYear] = useState<string>(new Date().getFullYear().toString());
-  const [week, setWeek] = useState<string>('all');
-  const months = useMemo(() => {
-    const current = new Date();
-    const items = [];
-    for (let i = -12; i <= 12; i++) {
-      const d = new Date(current.getFullYear(), current.getMonth() + i, 1);
-      items.push({
-        month: d.getMonth() + 1,
-        year: d.getFullYear(),
-        label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-      });
-    }
-    return items;
-  }, []);
+  const [periods, setPeriods] = useState<ExportPeriod[]>([]);
+  const [loadingPeriods, setLoadingPeriods] = useState(true);
+  const [periodsError, setPeriodsError] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState('');
+  const [week, setWeek] = useState('all');
+  const [error, setError] = useState('');
 
   async function authHeaders(): Promise<Record<string, string>> {
     const { data } = await getSupabaseClient().auth.getSession();
@@ -46,43 +47,61 @@ export default function ExportsPage() {
     return headers;
   }
 
-  useEffect(() => {
-    const current = new Date();
-    const cur = months.find((m) => m.month === current.getMonth() + 1 && m.year === current.getFullYear());
-    if (cur && month === '1') {
-      setTimeout(() => {
-        setMonth(cur.month.toString());
-        setYear(cur.year.toString());
-      }, 0);
+  const loadPeriods = useCallback(async () => {
+    try {
+      const response = await fetch('/api/export/periods', { headers: await authHeaders() });
+      if (!response.ok) throw new Error('Could not load the months available for export.');
+      const body = (await response.json()) as { periods?: ExportPeriod[] };
+      setPeriods(body.periods ?? []);
+      setPeriodsError('');
+    } catch (e) {
+      setPeriodsError(e instanceof Error ? e.message : 'Could not load the months available for export.');
+    } finally {
+      setLoadingPeriods(false);
     }
-  }, [months, month, year]);
+  }, []);
+
+  // Nothing stateful runs before the first await, so this stays lint-clean.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadPeriods(); }, [loadPeriods]);
+
+  // The newest exportable month is the default, DERIVED rather than stored, so
+  // seeding it needs no set-state-in-effect.
+  const activePeriodValue = useMemo(() => {
+    if (selectedPeriod) return selectedPeriod;
+    const newest = periods[periods.length - 1];
+    return newest ? periodValue(newest.month, newest.year) : '';
+  }, [periods, selectedPeriod]);
+
+  const activePeriod = useMemo(
+    () => periods.find((period) => periodValue(period.month, period.year) === activePeriodValue) ?? null,
+    [periods, activePeriodValue],
+  );
 
   async function handleExportPDF() {
+    if (!activePeriod) return;
     setIsExporting(true);
+    setError('');
     try {
       const payload: Record<string, unknown> = {
-        // The picker stores a 1-based month; the API and `services.month` are
-        // 0-based, exactly like GET /api/schedule.
-        month: parseInt(month) - 1,
-        year: parseInt(year),
+        // `period.month` is already 0-based, matching `services.month` and
+        // `POST /api/export/pdf`.
+        month: activePeriod.month,
+        year: activePeriod.year,
       };
-      if (week !== 'all') payload.week_numbers = [parseInt(week)];
+      if (week !== 'all') payload.week_numbers = [parseInt(week, 10)];
       const res = await fetch('/api/export/pdf', {
         method: 'POST',
         headers: await authHeaders(),
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const error = await res.json().catch(() => ({ error: 'Failed to generate PDF' }));
-        console.error('Export failed:', error);
-        alert(error.error || 'Failed to generate PDF');
-        return;
+        const body = await res.json().catch(() => ({ error: 'Failed to generate PDF' }));
+        throw new Error(body.error || 'Failed to generate PDF');
       }
-      const blob = await res.blob();
-      saveBlob(blob, 'schedule-' + month + '-' + year + '.pdf');
-    } catch (err) {
-      console.error('Export error:', err);
-      alert('Failed to generate PDF');
+      downloadBlob(await res.blob(), `schedule-${activePeriod.month + 1}-${activePeriod.year}.pdf`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate PDF');
     } finally {
       setIsExporting(false);
     }
@@ -98,12 +117,7 @@ export default function ExportsPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <ExportOptions
-          isExporting={isExporting}
-          onExportPDF={handleExportPDF}
-          onExportImage={() => {}}
-          onExportPrint={() => {}}
-        />
+        <ExportOptions isExporting={isExporting} onExportPDF={handleExportPDF} />
 
         <Card className="card-glow">
           <CardHeader>
@@ -113,55 +127,72 @@ export default function ExportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground">Month</label>
-              <Select value={month} onValueChange={(v: string | null) => setMonth(v || month)}>
-                <SelectTrigger className="mt-1.5 w-full">
-                  <SelectValue placeholder="Select month" />
-                </SelectTrigger>
-                <SelectContent>
-                  {months.map((m) => (
-                    <SelectItem key={m.year + '-' + m.month} value={m.month.toString()}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {loadingPeriods ? (
+              <p className="text-sm text-muted-foreground">Loading available months…</p>
+            ) : periodsError ? (
+              <p className="text-sm text-destructive" role="alert">{periodsError}</p>
+            ) : periods.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No validated or published schedules yet. Validate a month on the Schedule page and it will appear here.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Month</label>
+                  <Select
+                    value={activePeriodValue}
+                    onValueChange={(value: string | null) => {
+                      if (value) {
+                        setSelectedPeriod(value);
+                        // The weeks belong to the month, so a stale week choice
+                        // must not survive a month change.
+                        setWeek('all');
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="mt-1.5 w-full">
+                      <SelectValue placeholder="Select month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {periods.map((period) => (
+                        <SelectItem key={periodValue(period.month, period.year)} value={periodValue(period.month, period.year)}>
+                          {periodLabel(period.month, period.year)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div>
-              <label className="text-sm font-medium text-foreground">Week</label>
-              <Select value={week} onValueChange={(v: string | null) => setWeek(v || week)}>
-                <SelectTrigger className="mt-1.5 w-full">
-                  <SelectValue placeholder="Select week" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Weeks</SelectItem>
-                  <SelectItem value="1">Week 1</SelectItem>
-                  <SelectItem value="2">Week 2</SelectItem>
-                  <SelectItem value="3">Week 3</SelectItem>
-                  <SelectItem value="4">Week 4</SelectItem>
-                  <SelectItem value="5">Week 5</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Week</label>
+                  <Select value={week} onValueChange={(value: string | null) => setWeek(value || 'all')}>
+                    <SelectTrigger className="mt-1.5 w-full">
+                      <SelectValue placeholder="Select week" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Weeks</SelectItem>
+                      {(activePeriod?.weeks ?? []).map((w) => (
+                        <SelectItem key={w} value={w.toString()}>Week {w}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Format</label>
-              <Select value="a4" onValueChange={() => {}}>
-                <SelectTrigger className="mt-1.5 w-full">
-                  <SelectValue placeholder="Select format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="a4">A4 Portrait</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <span className="text-sm font-medium text-foreground">Format</span>
+                  <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
+                    A4 Portrait (PDF)
+                  </div>
+                </div>
 
-            <Button className="w-full" onClick={handleExportPDF} disabled={isExporting}>
-              <Download className="h-4 w-4 mr-1" />
-              {isExporting ? 'Generating...' : 'Generate Export'}
-            </Button>
+                {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+
+                <Button className="w-full" onClick={handleExportPDF} disabled={isExporting}>
+                  <Download className="h-4 w-4 mr-1" />
+                  {isExporting ? 'Generating…' : 'Generate Export'}
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

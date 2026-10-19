@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { downloadBlob } from '@/lib/export/download-blob';
 import type { ChurchExport } from '@/lib/types/database';
 import { Download, FileText } from 'lucide-react';
 
@@ -20,17 +21,6 @@ function weekLabel(weeks: number[] | null) {
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-function saveBlob(blob: Blob, filename: string) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(url);
-  document.body.removeChild(a);
 }
 
 async function sessionHeaders(): Promise<Record<string, string>> {
@@ -77,7 +67,7 @@ export function RecentExports({ refreshKey = 0 }: { refreshKey?: number }) {
         const body = await response.json().catch(() => ({ error: 'Failed to download export' }));
         throw new Error(body.error || 'Failed to download export');
       }
-      saveBlob(await response.blob(), item.filename);
+      downloadBlob(await response.blob(), item.filename);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to download export');
     } finally {
