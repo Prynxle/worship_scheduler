@@ -5,8 +5,19 @@ import { ExportOptions } from '@/components/exports/export-options';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Calendar, FileText, Image as ImageIcon } from 'lucide-react';
+import { Download, Calendar } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabase/client';
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
 
 export default function ExportsPage() {
   const [isExporting, setIsExporting] = useState(false);
@@ -26,6 +37,14 @@ export default function ExportsPage() {
     }
     return items;
   }, []);
+
+  async function authHeaders(): Promise<Record<string, string>> {
+    const { data } = await getSupabaseClient().auth.getSession();
+    const token = data.session?.access_token;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
 
   useEffect(() => {
     const current = new Date();
@@ -48,17 +67,9 @@ export default function ExportsPage() {
         year: parseInt(year),
       };
       if (week !== 'all') payload.week_numbers = [parseInt(week)];
-      const { data } = await getSupabaseClient().auth.getSession();
-      const token = data.session?.access_token;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
       const res = await fetch('/api/export/pdf', {
         method: 'POST',
-        headers,
+        headers: await authHeaders(),
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -68,14 +79,7 @@ export default function ExportsPage() {
         return;
       }
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'schedule-' + month + '-' + year + '.pdf';
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      saveBlob(blob, 'schedule-' + month + '-' + year + '.pdf');
     } catch (err) {
       console.error('Export error:', err);
       alert('Failed to generate PDF');
@@ -161,15 +165,6 @@ export default function ExportsPage() {
           </CardContent>
         </Card>
       </div>
-
-      <Card className="card-glow">
-        <CardHeader>
-          <CardTitle>Recent Exports</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2"></div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

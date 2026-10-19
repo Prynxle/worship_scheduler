@@ -22,6 +22,27 @@ export interface ChurchSettings {
   enable_leader_rotation: boolean;
 }
 
+/**
+ * One generated schedule export, persisted server-side so the Exports page can
+ * list real files and re-download them. `file_data_base64` is intentionally
+ * absent here: the stored bytes never leave the server through the list API;
+ * they are only streamed by the download route.
+ */
+export interface ChurchExport {
+  id: string;
+  church_id: string;
+  created_by: string;
+  /** 0-based month, matching `services.month` and POST /api/export/pdf. */
+  month: number;
+  year: number;
+  /** Week numbers included, or null when the export covers the whole month. */
+  week_numbers: number[] | null;
+  format: string;
+  filename: string;
+  file_size: number;
+  created_at: string;
+}
+
 export interface Department {
   id: string;
   church_id: string;
@@ -267,6 +288,30 @@ export interface Service {
   created_at: string;
   updated_at: string;
   assignments?: ScheduleAssignment[];
+}
+
+/**
+ * Month-level pipeline record (migration `20261012100000_month_schedule_workflow`).
+ *
+ * The TRUTHFUL month status is derived from the month's services at read time
+ * (`month_derive_status` in SQL, `deriveMonthStatus` in
+ * `src/lib/scheduling/month-workflow.ts`); this row records audit facts (who
+ * published, when) and the last transition for display.
+ */
+export type MonthScheduleStatus = 'draft' | 'validated' | 'published';
+
+export interface MonthSchedule {
+  id: string;
+  church_id: string;
+  ministry_id: string;
+  month: number;
+  year: number;
+  status: MonthScheduleStatus;
+  published_by?: string | null;
+  published_at?: string | null;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SongLineup {

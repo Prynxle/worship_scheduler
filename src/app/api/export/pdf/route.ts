@@ -76,9 +76,31 @@ export async function POST(request: NextRequest) {
     });
 
     const pdfBuffer = doc.output('arraybuffer');
+    const fileBuffer = Buffer.from(pdfBuffer as ArrayBuffer);
     const filename = 'schedule-' + (month + 1) + '-' + year + '.pdf';
 
-    return new NextResponse(Buffer.from(pdfBuffer as ArrayBuffer), {
+    // Persist the generated file so the Exports page can list and re-download
+    // it. Non-fatal: if recording fails the direct download still works; the
+    // error is logged so the gap stays observable. The file is stored as an
+    // explicit base64 string (PostgREST does not decode JSON base64 into
+    // bytea), mirroring the base64 logo handling above.
+    try {
+      await admin.from('church_exports').insert({
+        church_id: auth.churchId,
+        created_by: auth.userId,
+        month,
+        year,
+        week_numbers: weekFilter ? Array.from(weekFilter) : null,
+        format: 'pdf',
+        filename,
+        file_size: fileBuffer.byteLength,
+        file_data_base64: fileBuffer.toString('base64'),
+      });
+    } catch (recordError) {
+      console.error('Failed to record schedule export:', recordError);
+    }
+
+    return new NextResponse(fileBuffer, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="' + filename + '"',

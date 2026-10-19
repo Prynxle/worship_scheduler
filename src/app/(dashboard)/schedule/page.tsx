@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ScheduleCard } from '@/components/schedule/schedule-card';
 import { ScheduleLineupEditor, EditableAssignment } from '@/components/schedule/schedule-lineup-editor';
 import { SongLineupPanel, type SongService } from '@/components/schedule/song-lineup-panel';
+import { RecentExports } from '@/components/exports/recent-exports';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { activeMonthServices, isServiceValidatedForVersion, serviceNeedsValidation, summarizeMonth } from '@/lib/scheduling/month-workflow';
+import { validationFailureMessage } from '@/lib/scheduling/validation-feedback';
 import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
 import { AlertTriangle, CalendarDays, Check, Clock3, Download, Plus, ShieldCheck, Users } from 'lucide-react';
 import { ScheduleGridSkeleton } from '@/components/ui/loading-skeleton';
@@ -106,6 +109,7 @@ export default function SchedulePage() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportWeek, setExportWeek] = useState<string>('all');
+  const [exportsRefreshKey, setExportsRefreshKey] = useState(0);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [editingId, setEditingId] = useState('');
   const scheduleRequest = useRef(0);
@@ -184,6 +188,13 @@ export default function SchedulePage() {
   const monthIsPast = year < today.getFullYear() || (year === today.getFullYear() && month < today.getMonth());
   const lockedSchedules = schedules.some((item) => item.status !== 'draft');
   const hasLegacySchedules = schedules.some((item) => item.legacy_unscoped);
+  // The month pipeline status is DERIVED from the month's services (mirror of
+  // `month_derive_status` in SQL): any edit bumps a schedule_version and the
+  // month falls back to 'draft' automatically.
+  const monthPipeline = useMemo(
+    () => summarizeMonth(activeMonthServices(schedules.filter((service) => !service.legacy_unscoped))),
+    [schedules],
+  );
   const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -267,13 +278,13 @@ export default function SchedulePage() {
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ service_id: service.id, expected_version: service.schedule_version }),
       });
-      const payload = await response.json() as { error?: string; summary?: { warnings: number; suggestions: number }; unfilled_positions?: UnfilledPosition[] };
+      const payload = await response.json() as { error?: string; results?: { severity: 'critical' | 'warning' | 'suggestion'; message: string }[]; summary?: { warnings: number; suggestions: number }; unfilled_positions?: UnfilledPosition[] };
       if (!response.ok) {
-        // A 422 body carries the authoritative gap list. Surfacing only the
-        // generic message would leave the coordinator guessing which position to
-        // fill, and would hide the whole point of the partial-generation work.
-        const gaps = payload.unfilled_positions ?? [];
-        throw new Error(gaps.length ? `Cannot validate yet: ${gaps.length} position(s) still unfilled (${gaps.map((gap) => gap.role_name).join(', ')}). Fill them in the lineup first.` : payload.error ?? 'Could not validate this schedule.');
+        // The 422 body carries both the authoritative gap list and the critical
+        // results. Availability and monthly-limit conflicts produce no gap, so
+        // reading only `unfilled_positions` hid the reason behind a generic
+        // message. `validationFailureMessage` prefers the critical messages.
+        throw new Error(validationFailureMessage(payload));
       }
       const notes = (payload.summary?.warnings ?? 0) + (payload.summary?.suggestions ?? 0);
       setMessage(notes ? `Schedule validated with ${notes} advisory finding(s).` : 'Schedule validated with no outstanding findings.');
@@ -353,6 +364,7 @@ export default function SchedulePage() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       setMessage('PDF exported successfully.');
+      setExportsRefreshKey((key) => key + 1);
       setExportDialogOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to export PDF');
@@ -372,10 +384,7 @@ export default function SchedulePage() {
       <ScheduleCard
         {...service}
         index={index}
-        onEdit={(!monthIsPast || service.revision_of) && ['draft', 'validated'].includes(service.status) && !service.legacy_unscoped ? () => setEditingId(service.id) : undefined}
-        onValidate={service.status === 'draft' && !service.legacy_unscoped ? () => void validate(service) : undefined}
-        onPublish={service.status === 'validated' && !service.legacy_unscoped ? () => setConfirmAction({ kind: 'publish', service }) : undefined}
-        onAmend={service.status === 'published' && !service.legacy_unscoped ? () => setConfirmAction({ kind: 'revision', service }) : undefined}
+        onView={() => setSelectedDate(service.date)}
       />
       {!service.legacy_unscoped ? <SongLineupPanel service={songService} canReview onRefresh={() => void loadSchedules()} /> : null}
     </div>;
@@ -542,12 +551,6 @@ export default function SchedulePage() {
                 <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Back Up</p><div className="flex flex-wrap gap-2">{selectedService.backup_singers.length ? selectedService.backup_singers.map((member, index) => <Badge key={`${member.name}-${index}`} variant="secondary" className="h-7 px-3 font-normal">{member.name}</Badge>) : <span className="text-sm text-muted-foreground">No backup singers assigned</span>}</div></div>
                 <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Instrumentalist</p><div className="space-y-2">{selectedService.instrumentalists.map((player, index) => <div key={`${player.instrument}-${index}`} className="flex justify-between gap-4 border-b border-border/70 pb-2 text-sm"><span className="text-muted-foreground">{player.instrument}</span><span className="font-medium text-right">{player.name}</span></div>)}{selectedService.devotion_name ? <div className="flex justify-between gap-4 text-sm"><span className="text-muted-foreground">Devotion</span><span className="font-medium">{selectedService.devotion_name}</span></div> : null}</div></div>
                 {selectedService.legacy_unscoped ? <p className="rounded-xl border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">This historical schedule has no reliable ministry assignment. It can be reviewed, but editing and regeneration stay locked until its ownership is resolved.</p> : null}
-                <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-                  {['draft', 'validated'].includes(selectedService.status) && (!monthIsPast || selectedService.revision_of) && !selectedService.legacy_unscoped ? <Button onClick={() => setEditingId(selectedService.id)}>Edit lineup</Button> : null}
-                  {selectedService.status === 'draft' && !selectedService.legacy_unscoped ? <Button variant="outline" onClick={() => void validate(selectedService)} disabled={working} aria-busy={workingAction === 'validate'}><ShieldCheck className="mr-2 h-4 w-4" />{workingAction === 'validate' ? 'Validating…' : 'Validate'}</Button> : null}
-                  {selectedService.status === 'validated' && !selectedService.legacy_unscoped ? <Button onClick={() => setConfirmAction({ kind: 'publish', service: selectedService })}><Check className="mr-2 h-4 w-4" />Publish</Button> : null}
-                  {selectedService.status === 'published' && !selectedService.legacy_unscoped ? <Button variant="outline" onClick={() => setConfirmAction({ kind: 'revision', service: selectedService })}><Clock3 className="mr-2 h-4 w-4" />Create amendment</Button> : null}
-                </div>
               </div>
             ) : <div className="flex min-h-64 flex-col items-center justify-center text-center"><CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" /><p className="mt-3 font-medium">No service on this date</p><p className="mt-1 max-w-xs text-sm text-muted-foreground">Choose a marked service date to review the full lineup and schedule status.</p></div>}
           </CardContent>
@@ -557,13 +560,33 @@ export default function SchedulePage() {
       <section aria-label="Schedule status filters" className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Monthly lineups</p><h2 className="mt-1 font-display text-3xl font-semibold">Every service, at a glance</h2></div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            {monthPipeline.total > 0 ? (
+              <>
+                <Badge variant={monthPipeline.status === 'published' ? 'default' : monthPipeline.status === 'validated' ? 'secondary' : 'outline'} className="h-10 gap-1.5 capitalize" title={`Month status is derived from the ${monthPipeline.total} active ${monthPipeline.total === 1 ? 'service' : 'services'}`}>
+                  <span className="relative flex h-2 w-2"><span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /><span className={`relative inline-flex h-2 w-2 rounded-full ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /></span>
+                  {monthPipeline.status ?? 'empty'}
+                </Badge>
+                <span className="text-xs tabular-nums text-muted-foreground">{monthPipeline.counts.published} published · {monthPipeline.counts.validated} validated · {monthPipeline.counts.draft} draft</span>
+              </>
+            ) : null}
             <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => setExportDialogOpen(true)}>
               <Download className="mr-2 h-4 w-4" />Export PDF
             </Button>
+            {selectedService && !selectedService.legacy_unscoped ? (
+              <>
+                {['draft', 'validated'].includes(selectedService.status) && (!monthIsPast || selectedService.revision_of) ? <Button type="button" className="h-10" onClick={() => setEditingId(selectedService.id)}>Edit lineup</Button> : null}
+                {serviceNeedsValidation(selectedService) ? <Button type="button" variant="outline" className="h-10" disabled={working} aria-busy={workingAction === 'validate'} onClick={() => void validate(selectedService)}><ShieldCheck className="mr-2 h-4 w-4" />{workingAction === 'validate' ? 'Validating…' : 'Validate'}</Button> : isServiceValidatedForVersion(selectedService) ? <Button type="button" className="h-10" onClick={() => setConfirmAction({ kind: 'publish', service: selectedService })}><Check className="mr-2 h-4 w-4" />Publish</Button> : selectedService.status === 'published' ? <Button type="button" variant="outline" className="h-10" onClick={() => setConfirmAction({ kind: 'revision', service: selectedService })}><Clock3 className="mr-2 h-4 w-4" />Create amendment</Button> : null}
+              </>
+            ) : null}
             <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
           </div>
         </div>
+        {monthPipeline.incomplete.length > 0 ? (
+          <p role="status" className="flex items-center gap-2 rounded-xl border border-[oklch(0.70_0.08_80)]/35 bg-[oklch(0.70_0.08_80)]/5 px-4 py-2.5 text-sm text-[oklch(0.52_0.09_62)]">
+            <AlertTriangle className="h-4 w-4 shrink-0" />{monthPipeline.incomplete.length} {monthPipeline.incomplete.length === 1 ? 'service still has' : 'services still have'} unfilled positions ({monthPipeline.incomplete.map((item) => `Week ${item.week_number}`).join(', ')}). Gaps must be filled before a service can be validated or published.
+          </p>
+        ) : null}
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>
           <TabsList className="grid h-auto w-full grid-cols-4 sm:w-[520px]">
             <TabsTrigger value="all">All <span className="ml-1 text-xs text-muted-foreground">{statusCounts.all}</span></TabsTrigger>
@@ -575,6 +598,8 @@ export default function SchedulePage() {
         {loading ? <ScheduleGridSkeleton /> : null}
         {!loading && filteredSchedules.length ? <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{visibleCards}</div> : null}
         {!loading && !filteredSchedules.length ? <Card><CardContent className="flex min-h-52 flex-col items-center justify-center text-center"><CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" /><p className="mt-3 font-medium">{schedules.length ? 'No lineups match this view' : `No schedule for ${monthLabel}`}</p><p className="mt-1 text-sm text-muted-foreground">{schedules.length ? 'Choose another status or search term.' : readiness?.ready ? 'Generate the month when you are ready to build the lineup.' : 'Review the missing availability submissions above to unlock generation.'}</p></CardContent></Card> : null}
+
+        <RecentExports refreshKey={exportsRefreshKey} />
       </section>
 
       <ScheduleLineupEditor

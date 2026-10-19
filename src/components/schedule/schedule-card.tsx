@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Calendar, Edit, Eye, MoreVertical, AlertTriangle } from 'lucide-react';
+import { Eye, MoreVertical, AlertTriangle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,11 +25,7 @@ interface ScheduleCardProps {
   status: 'draft' | 'validated' | 'published' | 'archived';
   conflict_count: number;
   index?: number;
-  onEdit?: () => void;
   onView?: () => void;
-  onValidate?: () => void;
-  onPublish?: () => void;
-  onAmend?: () => void;
   legacy_unscoped?: boolean;
 }
 
@@ -44,11 +40,7 @@ export function ScheduleCard({
   status,
   conflict_count,
   index = 0,
-  onEdit,
   onView,
-  onValidate,
-  onPublish,
-  onAmend,
   legacy_unscoped = false,
 }: ScheduleCardProps) {
   const getStatusColor = (status: string) => {
@@ -91,32 +83,10 @@ export function ScheduleCard({
                   <MoreVertical className="h-4 w-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={onView}>
+                  <DropdownMenuItem onClick={onView} disabled={!onView}>
                     <Eye className="mr-2 h-4 w-4" />
                     View
                   </DropdownMenuItem>
-                    <DropdownMenuItem onClick={onEdit} disabled={!onEdit}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit
-                  </DropdownMenuItem>
-                  {status === 'draft' && (
-                    <DropdownMenuItem onClick={onValidate} disabled={!onValidate}>
-                      <Calendar className="mr-2 h-4 w-4" />
-                      Validate
-                    </DropdownMenuItem>
-                  )}
-                  {status === 'validated' && (
-                    <DropdownMenuItem onClick={onPublish} disabled={!onPublish}>
-                      <Calendar className="mr-2 h-4 w-4" />
-                      Publish
-                    </DropdownMenuItem>
-                  )}
-                  {status === 'published' && (
-                    <DropdownMenuItem onClick={onAmend} disabled={!onAmend}>
-                      <Edit className="mr-2 h-4 w-4" />
-                      Create amendment
-                    </DropdownMenuItem>
-                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
