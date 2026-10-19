@@ -56,8 +56,12 @@ export function ScheduleCard({
     }
   };
 
+  // interactive={false}: the header owns the week's actions menu. The hover tilt
+  // moves the surface out from under the pointer mid-press, so a press starting
+  // on the [...] trigger and ending on the card fires `click` on the card instead
+  // of the trigger and the menu never opened. Same fix as member-card.tsx.
   return (
-    <TiltCard tilt={5} glare={true} delay={Math.min(index, 8) * 0.06}>
+    <TiltCard tilt={5} glare={true} interactive={false} delay={Math.min(index, 8) * 0.06}>
       <Card className="card-glow cursor-default w-full">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">

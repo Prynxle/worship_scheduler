@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getMonthIndex, getWeeksInMonth, formatLongDate } from './date-utils';
+import { getCurrentWeekNumber, getWeekDateRange, getAvailableWeeks, getMonthIndex, getWeeksInMonth, formatLongDate, isMonthBefore } from './date-utils';
 
 describe('getCurrentWeekNumber (database first-Sunday semantics)', () => {
   it('treats dates before the first Sunday of the month as week 1', () => {
@@ -107,5 +107,50 @@ describe('getMonthIndex (0-based, matching services.month)', () => {
   it('is independent of the day of the month', () => {
     expect(getMonthIndex(new Date(2026, 8, 1))).toBe(8);
     expect(getMonthIndex(new Date(2026, 8, 30))).toBe(8);
+  });
+});
+
+describe('isMonthBefore (mirrors the SQL editable-window boundary)', () => {
+  // October 2026 is the current month; mid-month so an earlier day in the SAME
+  // month must still be editable.
+  const now = new Date(2026, 9, 19);
+
+  it('treats an earlier month in the same year as past', () => {
+    expect(isMonthBefore(8, 2026, now)).toBe(true); // September
+    expect(isMonthBefore(0, 2026, now)).toBe(true); // January
+  });
+
+  it('treats the current month as NOT past, regardless of the day', () => {
+    // The exact bug: a service dated Oct 4 was still offered as editable while
+    // the month was current, so the boundary must ignore the day.
+    expect(isMonthBefore(9, 2026, now)).toBe(false);
+  });
+
+  it('treats later months and future years as not past', () => {
+    expect(isMonthBefore(10, 2026, now)).toBe(false); // November
+    expect(isMonthBefore(11, 2026, now)).toBe(false); // December
+    expect(isMonthBefore(0, 2027, now)).toBe(false); // next January
+  });
+
+  it('treats any month of an earlier year as past', () => {
+    expect(isMonthBefore(11, 2025, now)).toBe(true); // December of last year
+    expect(isMonthBefore(0, 2025, now)).toBe(true);
+  });
+
+  it('agrees with the month-start comparison the database uses', () => {
+    // date_trunc('month', d) < date_trunc('month', CURRENT_DATE) for each case.
+    const cases: Array<[number, number, boolean]> = [
+      [9, 2026, false],
+      [8, 2026, true],
+      [10, 2026, false],
+      [11, 2025, true],
+      [0, 2027, false],
+    ];
+    for (const [month, year, expected] of cases) {
+      const serviceMonthStart = new Date(year, month, 1);
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      expect(serviceMonthStart.getTime() < currentMonthStart.getTime()).toBe(expected);
+      expect(isMonthBefore(month, year, now)).toBe(expected);
+    }
   });
 });

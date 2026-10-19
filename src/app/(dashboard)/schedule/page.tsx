@@ -17,7 +17,7 @@ import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { activeMonthServices, isServiceValidatedForVersion, serviceNeedsValidation, summarizeMonth } from '@/lib/scheduling/month-workflow';
 import { validationFailureMessage } from '@/lib/scheduling/validation-feedback';
-import { formatLocalDate, getWeeksInMonth, getWeekDate } from '@/lib/utils/date-utils';
+import { formatLocalDate, getWeeksInMonth, getWeekDate, isMonthBefore } from '@/lib/utils/date-utils';
 import { AlertTriangle, CalendarDays, Check, Clock3, Download, Plus, ShieldCheck, Users } from 'lucide-react';
 import { ScheduleGridSkeleton } from '@/components/ui/loading-skeleton';
 type ScheduleStatus = 'draft' | 'validated' | 'published' | 'archived';
@@ -180,7 +180,10 @@ export default function SchedulePage() {
 
   const selectedService = schedules.find((item) => item.date === selectedDate);
   const editingService = schedules.find((item) => item.id === editingId);
-  const monthIsPast = year < today.getFullYear() || (year === today.getFullYear() && month < today.getMonth());
+  // Month-granular, matching `replace_service_assignments`/`persist_month_schedule`:
+  // a service earlier in the CURRENT month is still editable, so only a whole past
+  // month locks the controls. See `isMonthBefore`.
+  const monthIsPast = isMonthBefore(month, year, today);
   const lockedSchedules = schedules.some((item) => item.status !== 'draft');
   const hasLegacySchedules = schedules.some((item) => item.legacy_unscoped);
   // The month pipeline status is DERIVED from the month's services (mirror of

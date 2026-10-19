@@ -131,6 +131,21 @@ export function getCurrentMonth(): { month: number; year: number } {
   return { month: getMonthIndex(now), year: now.getFullYear() };
 }
 
+/**
+ * Whether a 0-based (month, year) falls before the month containing `now`.
+ *
+ * The single UI-side mirror of the database's editable-window boundary:
+ * `replace_service_assignments` and `persist_month_schedule` treat a service as
+ * read-only only when its MONTH precedes the current month
+ * (`date_trunc('month', date) < date_trunc('month', CURRENT_DATE)`). A service
+ * earlier in the CURRENT month stays editable, so this must stay month-granular.
+ * Comparing the service DATE against today here would re-introduce the
+ * mismatch that let the UI offer an edit the server then refused.
+ */
+export function isMonthBefore(month: number, year: number, now: Date = new Date()): boolean {
+  return year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
+}
+
 export function getUpcomingWeeks(count: number = 4): { weekNumber: number; date: Date }[] {
   const now = new Date();
   const weeks: { weekNumber: number; date: Date }[] = [];
