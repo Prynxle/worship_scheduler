@@ -1,116 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { generateSchedulePDF, type ScheduleForExport } from '@/lib/export/pdf';
-import type { ScheduleAssignment, Service } from '@/lib/types/database';
+import { CELL_COLORS, generateSchedulePDF, instrumentRows, type ScheduleForExport } from '@/lib/export/pdf';
 
-const CHURCH_ID = 'church-1';
+type ExportService = ScheduleForExport['services'][number];
 
-function service(overrides: Partial<Service> & Pick<Service, 'id' | 'date' | 'week_number'>): Service {
-  return {
-    church_id: CHURCH_ID,
-    month: 9,
-    year: 2026,
-    service_type: 'sunday',
-    status: 'draft',
-    created_at: '2026-10-01T00:00:00.000Z',
-    updated_at: '2026-10-01T00:00:00.000Z',
-    ...overrides,
-  } as Service;
-}
-
-function assignment(
-  serviceId: string,
-  opts: { member?: string; role?: string; instrument?: string; isLeader?: boolean; isDevotion?: boolean },
-): ScheduleAssignment {
-  return {
-    id: `${serviceId}-${opts.member ?? 'x'}-${opts.instrument ?? opts.role ?? 'r'}`,
-    service_id: serviceId,
-    member_id: opts.member ?? 'm',
-    role_id: opts.role ?? 'role',
-    is_leader: opts.isLeader ?? false,
-    is_devotion: opts.isDevotion ?? false,
-    status: 'confirmed',
-    created_at: '2026-10-01T00:00:00.000Z',
-    updated_at: '2026-10-01T00:00:00.000Z',
-    member: opts.member ? ({ id: `member-${opts.member}`, full_name: opts.member } as ScheduleAssignment['member']) : undefined,
-    role: opts.role ? ({ id: `role-${opts.role}`, name: opts.role } as ScheduleAssignment['role']) : undefined,
-    instrument: opts.instrument ? ({ id: `instrument-${opts.instrument}`, name: opts.instrument } as ScheduleAssignment['instrument']) : undefined,
-  } as ScheduleAssignment;
-}
-
-function render(data: ScheduleForExport): string {
-  const doc = generateSchedulePDF(data as unknown as Record<string, unknown>);
-  return Buffer.from(doc.output('arraybuffer') as ArrayBuffer).toString('latin1');
-}
-
-const week1 = service({ id: 'svc-1', date: '2026-10-04', week_number: 1 });
-const week2 = service({ id: 'svc-2', date: '2026-10-11', week_number: 2 });
-
-function fixture(): ScheduleForExport {
-  const services: (Service & { assignments: ScheduleAssignment[] })[] = [
-    {
-      ...week1,
-      assignments: [
-        assignment(week1.id, { member: 'Dhon Obniala', role: 'Worship Leader', isLeader: true }),
-        assignment(week1.id, { member: 'Heidi Herrera', role: 'Back Up' }),
-        assignment(week1.id, { member: 'Beng Matubang', role: 'Back Up' }),
-        assignment(week1.id, { member: 'Leander Simone', role: 'Instrumentalist', instrument: 'Drums' }),
-        assignment(week1.id, { member: 'Zedrick Espiritu', role: 'Instrumentalist', instrument: 'Piano' }),
-        assignment(week1.id, { member: 'Mat Banawa', role: 'Instrumentalist', instrument: 'Guitar' }),
-        assignment(week1.id, { member: 'Caleb Obniala', role: 'Instrumentalist', instrument: 'Bass' }),
-        assignment(week1.id, { member: 'Pia Santos', role: 'Devotion Leader', isDevotion: true }),
-      ],
-    },
-    {
-      ...week2,
-      assignments: [
-        assignment(week2.id, { member: 'Feng Lim', role: 'Worship Leader', isLeader: true }),
-        assignment(week2.id, { member: 'Kass Reyes', role: 'Instrumentalist', instrument: 'Keyboard' }),
-      ],
-    },
-  ];
-  return { month: 9, year: 2026, churchName: 'JOHIA Bankers', services };
-}
-
-describe('generateSchedulePDF', () => {
-  it('renders the selected 0-based month, not the previous one', () => {
-    const pdf = render(fixture());
-    expect(pdf).toContain('October 2026');
-    expect(pdf).not.toContain('September 2026');
-  });
-
-  it('renders singers, backups, devotion, and instrumentalists from the assignments', () => {
-    const pdf = render(fixture());
-    expect(pdf).toBeTruthy();
-    expect(pdf.length).toBeGreaterThan(0);
-  });
-
-  it('maps real instrument names onto the fixed rows without adding duplicates', () => {
-    const pdf = render(fixture());
-    // "Piano" and "Keyboard" belong to the "Keys" row, so their raw instrument
-    // names must never surface as extra row labels.
-    expect(pdf).toContain('Keys');
-    expect(pdf).not.toContain('Piano');
-    expect(pdf).not.toContain('Keyboard');
-  });
-
-  it('does not crash and notes the empty period when there are no services', () => {
-    const pdf = render({ month: 9, year: 2026, churchName: 'JOHIA Bankers', services: [] });
-    expect(pdf).toContain('No published or validated schedule found for the selected period.');
-  });
-});
-
-const LONG_NAME = 'Severino Alexander Maximilliano Constantinople Villaflor';
-
-/** A service in the shape the export route actually feeds the generator. */
+/**
+ * A service in the shape the export route actually feeds the generator.
+ *
+ * This matters: the generator reads `instrumentalists` / `backup_singers` /
+ * `leader_name`, which only exist after `transformServiceAssignments`. A
+ * fixture of raw `Service` rows (with `assignments`) exercises none of that, so
+ * the row-label logic has to be tested through this shape or not at all.
+ */
 function transformed(
   id: string,
   day: number,
   week: number,
   opts: { leader?: string; backups?: string[]; devotion?: string; instrumentalists?: { instrument: string; name: string }[] } = {},
-): ScheduleForExport['services'][number] {
+): ExportService {
   return {
     id,
-    church_id: CHURCH_ID,
+    church_id: 'church-1',
     date: `2026-10-${String(day).padStart(2, '0')}`,
     week_number: week,
     leader_name: opts.leader ?? 'Unassigned',
@@ -121,8 +30,137 @@ function transformed(
     status: 'validated',
     schedule_version: 1,
     conflict_count: 0,
-  } as unknown as ScheduleForExport['services'][number];
+  } as unknown as ExportService;
 }
+
+function render(data: ScheduleForExport): string {
+  const doc = generateSchedulePDF(data);
+  return Buffer.from(doc.output('arraybuffer') as ArrayBuffer).toString('latin1');
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+/**
+ * Every background fill the content stream requests, as 0-1 RGB triples.
+ *
+ * Both operators matter: jsPDF emits distinct components through `rg`, but an
+ * equal-component fill -- the grey `#E1E1E1` body cells -- comes out as the
+ * single-component grayscale `g` instead.
+ */
+function pdfFillColors(pdf: string): number[][] {
+  const fills = (pdf.match(/[0-9.]+ [0-9.]+ [0-9.]+ rg/g) ?? []).map((operator) => operator.split(' rg')[0].split(' ').map(Number));
+  for (const operator of pdf.match(/[0-9.]+ g/g) ?? []) {
+    const gray = Number(operator.split(' g')[0]);
+    fills.push([gray, gray, gray]);
+  }
+  return fills;
+}
+
+/** True when some cell in the PDF is shaded with the given color, to within 1/255. */
+function pdfShades(pdf: string, color: { r: number; g: number; b: number }): boolean {
+  const target = [color.r, color.g, color.b].map((value) => value / 255);
+  return pdfFillColors(pdf).some((fill) => fill.every((value, index) => Math.abs(value - target[index]) < 0.01));
+}
+
+const LONG_NAME = 'Severino Alexander Maximilliano Constantinople Villaflor';
+
+describe('instrumentRows', () => {
+  it('folds real instrument names into the fixed rows instead of duplicating one', () => {
+    const services = [
+      transformed('s1', 4, 1, {
+        instrumentalists: [
+          { instrument: 'Guitar', name: 'Mat Banawa' },
+          { instrument: 'Piano', name: 'Zedrick Espiritu' },
+          { instrument: 'Keyboard', name: 'Kass Reyes' },
+          { instrument: 'Drums', name: 'Leander Simone' },
+          { instrument: 'Bass', name: 'Caleb Obniala' },
+        ],
+      }),
+    ];
+
+    // `Guitar` must fold into `Guitar/s` rather than being appended as a second
+    // guitar row, and `Piano`/`Keyboard` must fold into `Keys`.
+    expect(instrumentRows(services).map((row) => row.label)).toEqual(['Guitar/s', 'Keys', 'Drums', 'Bass']);
+  });
+
+  it('appends one row per genuinely unmapped instrument, without repeats', () => {
+    const services = [
+      transformed('s1', 4, 1, { instrumentalists: [{ instrument: 'Violin', name: 'Pia Santos' }] }),
+      transformed('s2', 11, 2, {
+        instrumentalists: [
+          { instrument: 'Violin', name: 'Pia Santos' },
+          { instrument: 'Cello', name: 'Beng Matubang' },
+        ],
+      }),
+    ];
+
+    expect(instrumentRows(services).map((row) => row.label)).toEqual(['Guitar/s', 'Keys', 'Drums', 'Bass', 'Violin', 'Cello']);
+  });
+
+  it('lets exactly one row claim a mapped instrument', () => {
+    const rows = instrumentRows([transformed('s1', 4, 1, { instrumentalists: [{ instrument: 'Guitar', name: 'Mat Banawa' }] })]);
+    const claimants = rows.filter((row) => row.matches('Guitar'));
+
+    expect(claimants).toHaveLength(1);
+    expect(claimants[0].label).toBe('Guitar/s');
+    // Matching is case- and whitespace-insensitive, so a stray ' guitar ' cannot
+    // slip past the row that owns it.
+    expect(rows.filter((row) => row.matches('  guitar '))).toHaveLength(1);
+  });
+});
+
+describe('generateSchedulePDF', () => {
+  it('renders the selected 0-based month, not the previous one', () => {
+    const pdf = render({
+      month: 9,
+      year: 2026,
+      churchName: 'JOHIA Bankers',
+      services: [transformed('s1', 4, 1, { leader: 'Dhon Obniala' })],
+    });
+
+    expect(pdf).toContain('October 2026');
+    expect(pdf).not.toContain('September 2026');
+  });
+
+  it('draws the singers as the same date-by-role matrix as the instrumentalists', () => {
+    const doc = generateSchedulePDF({
+      month: 9,
+      year: 2026,
+      churchName: 'JOHIA Bankers',
+      services: [
+        transformed('s1', 4, 1, {
+          leader: 'Dhon Obniala',
+          backups: ['Heidi Herrera', 'Beng Matubang'],
+          devotion: 'Pia Santos',
+          instrumentalists: [
+            { instrument: 'Guitar', name: 'Mat Banawa' },
+            { instrument: 'Drums', name: 'Leander Simone' },
+          ],
+        }),
+      ],
+    });
+    const pdf = Buffer.from(doc.output('arraybuffer') as ArrayBuffer).toString('latin1');
+
+    expect(pdf).toContain('Worship Leader');
+    expect(pdf).toContain('Back-Up');
+    expect(pdf).toContain('Devotion');
+    expect(pdf).toContain('Dhon Obniala');
+    expect(pdf).toContain('Heidi Herrera');
+    expect(pdf).toContain('Pia Santos');
+
+    // Exactly one guitar row label is drawn. A duplicate row would make this 2.
+    expect(pdf).toContain('Guitar/s');
+    expect(countOccurrences(pdf, 'Guitar')).toBe(1);
+    expect(pdf).toContain('Drums');
+  });
+
+  it('does not crash and notes the empty period when there are no services', () => {
+    const pdf = render({ month: 9, year: 2026, churchName: 'JOHIA Bankers', services: [] });
+    expect(pdf).toContain('No published or validated schedule found for the selected period.');
+  });
+});
 
 describe('generateSchedulePDF layout', () => {
   it('fits a short month on one page with no trailing blank page', () => {
@@ -139,14 +177,19 @@ describe('generateSchedulePDF layout', () => {
         }),
       ],
     });
+
     expect(doc.getNumberOfPages()).toBe(1);
   });
 
   it('sizes rows to wrapped long names and paginates instead of overlapping', () => {
-    const short = Array.from({ length: 10 }, (_, index) =>
+    // Well beyond a real month, on purpose: both matrices now hold only a
+    // handful of rows, so the wrapped-name rows have to be stacked deep enough
+    // to cross a page boundary before the difference is observable.
+    const SERVICES = 20;
+    const short = Array.from({ length: SERVICES }, (_, index) =>
       transformed(`short-${index}`, index + 1, index + 1, { leader: 'Feng Lim', backups: ['Beng Matubang'], devotion: 'Lom Del Luna' }),
     );
-    const long = Array.from({ length: 10 }, (_, index) =>
+    const long = Array.from({ length: SERVICES }, (_, index) =>
       transformed(`long-${index}`, index + 1, index + 1, {
         leader: LONG_NAME,
         backups: [LONG_NAME, LONG_NAME, LONG_NAME, LONG_NAME],
@@ -165,14 +208,47 @@ describe('generateSchedulePDF layout', () => {
   });
 
   it('renders an extra instrument row label without duplicating a mapped one', () => {
-    const doc = generateSchedulePDF({
+    const pdf = render({
       month: 9,
       year: 2026,
       churchName: 'JOHIA Bankers',
       services: [transformed('s1', 4, 1, { instrumentalists: [{ instrument: 'Violin', name: 'Pia Santos' }] })],
     });
-    const pdf = Buffer.from(doc.output('arraybuffer') as ArrayBuffer).toString('latin1');
+
     expect(pdf).toContain('Violin');
+    expect(pdf).toContain('Pia Santos');
   });
 });
 
+describe('generateSchedulePDF cell colors', () => {
+  it('shades the label column, the day numbers, and every name cell in both tables', () => {
+    const pdf = render({
+      month: 9,
+      year: 2026,
+      churchName: 'JOHIA Bankers',
+      services: [
+        transformed('s1', 4, 1, {
+          leader: 'Dhon Obniala',
+          backups: ['Heidi Herrera'],
+          devotion: 'Pia Santos',
+          instrumentalists: [{ instrument: 'Guitar', name: 'Mat Banawa' }],
+        }),
+        transformed('s2', 11, 2, { instrumentalists: [{ instrument: 'Violin', name: 'Pia Santos' }] }),
+      ],
+    });
+
+    // All three fills appear, and they come from the shared renderer, so the
+    // singers matrix and the instrumentalists matrix are shaded identically.
+    expect(pdfShades(pdf, CELL_COLORS.label)).toBe(true);
+    expect(pdfShades(pdf, CELL_COLORS.date)).toBe(true);
+    expect(pdfShades(pdf, CELL_COLORS.body)).toBe(true);
+  });
+
+  it('leaves the empty period unshaded, because it draws no table', () => {
+    const pdf = render({ month: 9, year: 2026, churchName: 'JOHIA Bankers', services: [] });
+
+    expect(pdfShades(pdf, CELL_COLORS.label)).toBe(false);
+    expect(pdfShades(pdf, CELL_COLORS.date)).toBe(false);
+    expect(pdfShades(pdf, CELL_COLORS.body)).toBe(false);
+  });
+});
