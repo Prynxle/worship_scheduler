@@ -362,15 +362,6 @@
   pointer-events: none;
 }
 
-@media (max-width: 768px) {
-  .hero-title {
-    font-size: clamp(3.5rem, 16vw, 6rem);
-  }
-  .hero-subtitle {
-    font-size: clamp(0.875rem, 2vw, 1.25rem);
-  }
-}
-
 .side-menu {
   position: absolute;
   top: 2rem;
@@ -457,8 +448,18 @@
   font-size: clamp(6rem, 13vw, 11rem);
   font-weight: 900;
   line-height: 0.9;
+  white-space: nowrap;
   transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s ease;
   max-width: 90vw;
+}
+
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: clamp(3.5rem, 16vw, 6rem);
+  }
+  .hero-subtitle {
+    font-size: clamp(0.875rem, 2vw, 1.25rem);
+  }
 }
 
 .hero-title:hover {
