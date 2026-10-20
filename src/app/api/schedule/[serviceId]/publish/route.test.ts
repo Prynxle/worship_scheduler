@@ -249,6 +249,17 @@ describe('POST /api/schedule/[serviceId]/publish', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('refuses a row marked validated but with no recorded version', async () => {
+    // The production shape: status promoted to 'validated' outside the app,
+    // validated_version left NULL. NULL never equals schedule_version.
+    serviceQuery.maybeSingle.mockResolvedValue({ data: service({ validated_version: null }), error: null });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(409);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('refuses a schedule that is not in the validated state', async () => {
     serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'draft', validated_version: undefined }), error: null });
 

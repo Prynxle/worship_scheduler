@@ -282,8 +282,38 @@ describe('POST /api/validation', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('only validates a draft schedule', async () => {
+  it('refuses to validate a published schedule', async () => {
     serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'published' }), error: null });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(409);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('re-validates a `validated` row whose stamp has drifted, so it is not a dead end', async () => {
+    // An edit bumped schedule_version; validate used to refuse on the raw status.
+    serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'validated', schedule_version: 3, validated_version: 2 }), error: null });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('validate_service_schedule', expect.objectContaining({ p_service_id: 'service-week-1', p_expected_version: 3 }));
+  });
+
+  it('re-validates a `validated` row that was never stamped (validated_version NULL)', async () => {
+    // The production shape: status promoted to 'validated' outside the app.
+    serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'validated', schedule_version: 3, validated_version: null }), error: null });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalled();
+  });
+
+  it('refuses to re-validate a row already stamped for its current version', async () => {
+    // Nothing to re-validate; matches `validate_service_schedule` in SQL.
+    serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'validated', schedule_version: 3, validated_version: 3 }), error: null });
 
     const response = await callPost();
 

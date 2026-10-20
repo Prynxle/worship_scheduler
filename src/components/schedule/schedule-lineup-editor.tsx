@@ -130,6 +130,10 @@ export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVe
           <DialogTitle>Adjust service lineup</DialogTitle>
           <DialogDescription>Changes are checked against availability, ministry roles, assignment limits, and service requirements before they are saved.</DialogDescription>
         </DialogHeader>
+        {/* Rendered at the top of the dialog, not beside the footer: the body
+            scrolls inside max-h-[90vh], so a refused save reported at the bottom
+            could sit below the fold and read as "nothing happened". */}
+        {error ? <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
         <div className="space-y-3">
           {rows.map((row, index) => (
             <div key={row.key} className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
@@ -195,7 +199,6 @@ export function ScheduleLineupEditor({ open, onOpenChange, serviceId, scheduleVe
             <Textarea id="schedule-override-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required when recording an override, and when saving a lineup with fairness or rotation warnings." aria-describedby={reasonMissing ? 'schedule-override-reason-required' : undefined} />
             {reasonMissing ? <p id="schedule-override-reason-required" className="text-sm text-destructive">Give a reason for the override. It is stored with the change as an audit record.</p> : null}
           </div>
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => requestClose(false)} disabled={saving}>Cancel</Button>

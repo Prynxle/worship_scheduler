@@ -41,6 +41,12 @@ describe('isWeeklyUnavailable', () => {
     expect(isWeeklyUnavailable(legacy, 2, 0, 2000)).toBe(true);
   });
 
+  it('still matches legacy records without month or year (null)', () => {
+    const legacy = weeklyRecord({ month: null, year: null });
+    expect(isWeeklyUnavailable(legacy, 2, 9, 2026)).toBe(true);
+    expect(isWeeklyUnavailable(legacy, 2, 0, 2000)).toBe(true);
+  });
+
   it('ignores non-weekly records', () => {
     const record = weeklyRecord({ type: 'vacation', month: undefined, year: undefined });
     expect(isWeeklyUnavailable(record, 2, 9, 2026)).toBe(false);
