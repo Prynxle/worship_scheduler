@@ -3,6 +3,7 @@ import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
+import { serviceNeedsValidation } from '@/lib/scheduling/month-workflow';
 import { Service } from '@/lib/types/database';
 
 export async function POST(request: NextRequest) {
@@ -15,7 +16,12 @@ export async function POST(request: NextRequest) {
     const { data: service, error: serviceError } = await admin.from('services').select('*').eq('id', body.service_id).eq('church_id', auth.churchId).maybeSingle<Service>();
     if (serviceError) return NextResponse.json({ error: 'Could not load service.' }, { status: 500 });
     if (!service) return NextResponse.json({ error: 'Service not found.' }, { status: 404 });
-    if (service.status !== 'draft' || !service.ministry_id) return NextResponse.json({ error: 'Only a ministry-scoped draft schedule can be validated.' }, { status: 409 });
+    // A draft, or a `validated` row whose stamp no longer matches its current
+    // version (an edit re-opens validation; a row marked validated without ever
+    // running the validator is the same drifted state). Anything else — notably
+    // published — cannot be validated here. `validate_service_schedule` re-checks
+    // this in SQL.
+    if (!serviceNeedsValidation(service) || !service.ministry_id) return NextResponse.json({ error: 'Only a ministry-scoped draft or version-drifted schedule can be validated.' }, { status: 409 });
     if ((service.schedule_version ?? 1) !== body.expected_version) return NextResponse.json({ error: 'The schedule changed. Refresh before validating.' }, { status: 409 });
     const data = await loadScheduleData(auth.churchId, service.month, service.year, service.ministry_id);
     const assignments = data.assignments.filter((assignment) => assignment.service_id === service.id);

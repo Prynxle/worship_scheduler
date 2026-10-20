@@ -389,7 +389,7 @@ export default function AvailabilityPage() {
                       <div className="text-sm text-muted-foreground">
                         {availability.type === 'weekly'
                           ? `Week ${availability.week_number}${
-                              availability.month !== undefined && availability.year !== undefined
+                              availability.month != null && availability.year != null
                                 ? ` · ${new Date(availability.year, availability.month).toLocaleString('en-US', { month: 'long' })} ${availability.year}`
                                 : ''
                             }`

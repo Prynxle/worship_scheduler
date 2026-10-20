@@ -40,7 +40,6 @@ const navigationGroups = [
     label: 'Insights',
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-      { name: 'Exports', href: '/exports', icon: Download },
     ],
   },
 ];

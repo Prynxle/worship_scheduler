@@ -96,8 +96,8 @@ export class ScheduleValidator {
           return true;
         }
         if (a.type === 'recurring' && a.week_number === this.context.service.week_number &&
-          (a.month === undefined || a.month === this.context.service.month) &&
-          (a.year === undefined || a.year === this.context.service.year)) {
+          (a.month == null || a.month === this.context.service.month) &&
+          (a.year == null || a.year === this.context.service.year)) {
           return true;
         }
         if (a.type === 'date' && a.date) {

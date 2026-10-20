@@ -3,6 +3,7 @@ import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
+import { isServiceValidatedForVersion } from '@/lib/scheduling/month-workflow';
 import { Service } from '@/lib/types/database';
 
 export async function POST(request: NextRequest, context: { params: Promise<{ serviceId: string }> }) {
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
       .eq('id', serviceId).eq('church_id', auth.churchId).maybeSingle<Service>();
     if (serviceError) return NextResponse.json({ error: 'Could not load the schedule.' }, { status: 500 });
     if (!service) return NextResponse.json({ error: 'Schedule not found.' }, { status: 404 });
-    if (service.status !== 'validated' || !service.ministry_id || service.validated_version !== service.schedule_version) {
+    if (!isServiceValidatedForVersion(service) || !service.ministry_id) {
       return NextResponse.json({ error: 'Only a schedule validated for its current version can be published.' }, { status: 409 });
     }
     if (service.schedule_version !== body.expected_version) return NextResponse.json({ error: 'The schedule changed. Refresh before publishing.' }, { status: 409 });

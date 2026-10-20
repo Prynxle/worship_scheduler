@@ -14,7 +14,7 @@ export function isWeeklyUnavailable(
   return (
     record.type === 'weekly' &&
     record.week_number === weekNumber &&
-    (record.month === undefined || record.month === month) &&
-    (record.year === undefined || record.year === year)
+    (record.month == null || record.month === month) &&
+    (record.year == null || record.year === year)
   );
 }
