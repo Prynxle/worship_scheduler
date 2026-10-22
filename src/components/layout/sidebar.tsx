@@ -33,7 +33,6 @@ const navigationGroups = [
       { name: 'Members', href: '/members', icon: UsersRound },
       { name: 'Availability', href: '/availability', icon: Clock3 },
       { name: 'Ministries', href: '/ministries', icon: Music2 },
-      { name: 'Announcements', href: '/announcements', icon: Megaphone },
     ],
   },
   {
@@ -111,19 +110,34 @@ export function Sidebar() {
               event create/delete lives in the calendar's dialog and trash button,
               which the member copy hides via canManage={false}. */}
           {isStaff ? (
-            <Link
-              href="/events"
-              className={cn(
-                'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-                pathname === '/events' || pathname.startsWith('/events/')
-                  ? 'bg-primary/[0.11] font-medium text-primary'
-                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
-              )}
-            >
-              {(pathname === '/events' || pathname.startsWith('/events/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
-              <CalendarPlus2 className="size-[18px] text-muted-foreground group-hover:text-primary" />
-              <span>Events</span>
-            </Link>
+            <div className="flex flex-col gap-1">
+              <Link
+                href="/events"
+                className={cn(
+                  'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                  pathname === '/events' || pathname.startsWith('/events/')
+                    ? 'bg-primary/[0.11] font-medium text-primary'
+                    : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                )}
+              >
+                {(pathname === '/events' || pathname.startsWith('/events/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
+                <CalendarPlus2 className="size-[18px] text-muted-foreground group-hover:text-primary" />
+                <span>Events</span>
+              </Link>
+              <Link
+                href="/announcements"
+                className={cn(
+                  'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                  pathname === '/announcements' || pathname.startsWith('/announcements/')
+                    ? 'bg-primary/[0.11] font-medium text-primary'
+                    : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                )}
+              >
+                {(pathname === '/announcements' || pathname.startsWith('/announcements/')) && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />}
+                <Megaphone className={cn('size-[18px]', pathname === '/announcements' || pathname.startsWith('/announcements/') ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
+                <span>Announcements</span>
+              </Link>
+            </div>
           ) : null}
           {isStaff ? navigationGroups.map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
