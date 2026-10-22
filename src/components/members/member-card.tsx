@@ -57,10 +57,29 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
     >
       <Card className="card-glow group/member cursor-default w-full">
         <CardContent className="p-4">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
+          {/*
+            The header has to survive a phone-width card, where the identity
+            block and the Edit control compete for the same few hundred pixels.
+            Three rules keep them apart:
+
+              - `gap-3` on the row, so the identity block and the Edit button
+                never sit flush against each other.
+              - `min-w-0` on the identity block. A flex item's automatic minimum
+                size is its content width, so without this the card's minimum
+                width was the width of the longest word in the longest member
+                name plus the nickname, and on a 320px phone the card was
+                wider than the screen -- the right-hand edge, Edit button
+                included, was cut off.
+              - the name and the nickname share one text flow. As two separate
+                flex items they competed for the same column: the name was
+                squeezed to three lines while the nickname floated beside it at
+                mid-height, which reads as overlapping text. As one flow the
+                nickname simply wraps with the name.
+          */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
               {/* Avatar with gradient ring that intensifies on hover */}
-              <div className="relative rounded-full bg-gradient-to-br from-primary via-accent to-[oklch(0.55_0.040_50)] p-[2px] transition-transform duration-200 group-hover/member:scale-105">
+              <div className="relative shrink-0 rounded-full bg-gradient-to-br from-primary via-accent to-[oklch(0.55_0.040_50)] p-[2px] transition-transform duration-200 group-hover/member:scale-105">
                 <div className="rounded-full bg-card">
                   <Avatar className="h-14 w-14 rounded-full">
                     <AvatarImage src={member.avatar_url ?? undefined} />
@@ -70,14 +89,14 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
                   </Avatar>
                 </div>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-foreground">{member.full_name}</h3>
+              <div className="min-w-0 flex-1">
+                <h3 className="break-words font-semibold text-foreground">
+                  {member.full_name}
                   {member.nickname && (
-                    <span className="text-sm text-muted-foreground">({member.nickname})</span>
+                    <span className="ml-1 text-sm font-normal text-muted-foreground">({member.nickname})</span>
                   )}
-                </div>
-                <div className="flex items-center gap-2 mt-1">
+                </h3>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge className={getStatusColor(member.status)}>
                     {member.status}
                   </Badge>
@@ -99,7 +118,10 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
               onClick={onEdit}
               aria-label={`Edit ${member.full_name}`}
               // Sits above TiltCard's z-10 glare overlay so the control never
-              // shares its hit area with a decorative layer.
+              // shares its hit area with a decorative layer. `shrink-0` keeps
+              // the control at its full width: it is the one thing on the row
+              // that must not be squeezed, and the identity block is what
+              // gives way instead.
               className="relative z-20 shrink-0"
             >
               <Edit className="mr-1.5 h-3.5 w-3.5" />
@@ -136,7 +158,9 @@ export function MemberCard({ member, onEdit, index = 0 }: MemberCardProps) {
               </div>
             )}
 
-            <div className="flex items-center justify-between text-sm">
+            {/* Wraps: the assignment count and the last scheduled date must not
+                be forced onto one line when the card is narrow. */}
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
               <span className="text-muted-foreground">
                 Assignments: {member.total_assignments}/{member.max_monthly_assignments}
               </span>

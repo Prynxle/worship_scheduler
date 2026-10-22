@@ -128,8 +128,13 @@ export default function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      {/*
+        `gap-3` keeps the title block off the Add Member button, and
+        `min-w-0 flex-1` lets the title block shrink instead of pushing the
+        button past the edge of a phone screen.
+      */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h2 className="text-2xl font-bold text-foreground">Members</h2>
           <p className="text-muted-foreground">Manage your ministry team members</p>
         </div>
@@ -139,8 +144,14 @@ export default function MembersPage() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
+      {/*
+        The toolbar wraps: on a phone the search box takes the full width of
+        the row and the two buttons drop to the line below it. Sharing one
+        line squeezed the search field down to a couple of characters, which
+        left the placeholder unreadable and the field unusable.
+      */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full min-w-0 sm:max-w-md sm:flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <Input
             placeholder="Search members..."
@@ -199,7 +210,14 @@ export default function MembersPage() {
                   : 'No members match this search.'}
             </p>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {/*
+                `grid-cols-1` is not decoration. Without an explicit template the
+                implicit column is sized `auto`, whose minimum is the card's
+                content width, so on a 320px phone the track stayed wider than the
+                screen and the right edge of every card, Edit button included,
+                was cut off. `minmax(0, 1fr)` lets the track shrink.
+              */}
               {filteredMembers.map((member, i) => (
                 <MemberCard
                   key={member.id}
