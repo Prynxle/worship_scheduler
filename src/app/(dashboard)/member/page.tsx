@@ -12,6 +12,7 @@ import { getAvailableWeeks, getWeekDateRange } from '@/lib/utils/date-utils';
 import { EventCalendar } from '@/components/events/event-calendar';
 import { AnnouncementFeed } from '@/components/notifications/announcement-feed';
 import { SongLineupPanel, type SongService } from '@/components/schedule/song-lineup-panel';
+import { MemberProfileCard } from '@/components/members/member-profile-card';
 import { CalendarCheck, Clock3, X } from 'lucide-react';
 import { DashboardLoadingSkeleton, Skeleton } from '@/components/ui/loading-skeleton';
 
@@ -177,54 +178,15 @@ export default function MemberPage() {
   return (
     <div className="mx-auto max-w-[1440px] space-y-7 pb-6 sm:pb-8">
       {/* The former page header ("Your month at a glance" plus its instructions)
-          is gone. It described a page that was mostly one task, and it pushed the
-          member's own details below the fold. The profile now leads the workspace
-          and spans the full grid, laid out as a horizontal strip so the name,
-          phone, ministry roles and instruments read across one band instead of
-          stacking in a tall side column. */}
-      <Card>
-        <CardContent className="flex flex-wrap items-start gap-x-8 gap-y-4 p-5 sm:p-6">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Member workspace</p>
-            <h1 className="mt-1.5 font-display text-2xl font-semibold">{profile?.fullName ?? member.full_name}</h1>
-            {member.phone ? <p className="mt-1.5 text-sm text-muted-foreground">{member.phone}</p> : null}
-          </div>
-          {ministryRoles.length ? (
-            <div className="min-w-0">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ministry role</h2>
-              <ul className="mt-2 flex flex-wrap gap-2">
-                {ministryRoles.map((name) => (
-                  <li key={name}>
-                    <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {instruments.length ? (
-            <div className="min-w-0">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instrument</h2>
-              <ul className="mt-2 flex flex-wrap gap-2">
-                {instruments.map((name) => (
-                  <li key={name}>
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {/* A member with no role or instrument row is a real state, so it is
-              stated rather than rendered as an empty list. The previous build
-              hardcoded "Worship team member" here, which read as a role on every
-              profile regardless of the truth. */}
-          {!ministryRoles.length && !instruments.length ? (
-            <div className="min-w-0">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Ministry role &amp; instrument</h2>
-              <p className="mt-2 text-sm text-muted-foreground">Nothing recorded yet — ask the coordinator to update your profile.</p>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+          is gone: it described a page that was mostly one task, and it pushed the
+          member's own details below the fold. The profile card leads the workspace
+          instead; its own layout contract lives in the component. */}
+      <MemberProfileCard
+        fullName={profile?.fullName ?? member.full_name}
+        phone={member.phone}
+        ministryRoles={ministryRoles}
+        instruments={instruments}
+      />
 
       <AnnouncementFeed />
 
