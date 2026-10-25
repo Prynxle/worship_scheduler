@@ -53,7 +53,7 @@ export function transformServiceAssignments(service: Service, assignments: Sched
     leader_name: leader?.full_name ?? 'Unassigned',
     leader_avatar: leader?.avatar_url,
     backup_singers: own
-      .filter((assignment) => !assignment.is_leader && assignment.role && isBackupRoleName(assignment.role.name))
+      .filter((assignment) => !assignment.is_leader && !assignment.is_devotion && assignment.role && isBackupRoleName(assignment.role.name))
       .map((assignment) => ({ name: assignment.member?.full_name ?? 'Unassigned', avatar: assignment.member?.avatar_url })),
     instrumentalists: own
       .filter((assignment) => assignment.instrument)
