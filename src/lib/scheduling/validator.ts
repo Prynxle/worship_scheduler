@@ -229,7 +229,7 @@ export class ScheduleValidator {
 
   private checkBackupCount(): ValidationResult[] {
     const results: ValidationResult[] = [];
-    const backups = this.context.existing_assignments.filter(isBackupAssignment);
+    const backups = this.context.existing_assignments.filter((assignment) => isBackupAssignment(assignment, this.context.all_members));
     const { min: minRequired, max: maxAllowed } = backupRuleNumbers(this.context);
 
     if (backups.length < minRequired) {
@@ -296,8 +296,6 @@ export class ScheduleValidator {
     for (const assignment of this.context.existing_assignments) {
       const member = this.context.all_members.find((m) => m.id === assignment.member_id);
       if (!member) continue;
-
-      if (assignment.is_devotion) continue;
 
       if (assignment.is_leader) {
         const hasLeaderRole = member.roles?.some((r) => r.role && isWorshipLeaderRoleName(r.role.name));

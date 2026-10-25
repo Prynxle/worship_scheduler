@@ -50,7 +50,7 @@ export function unfilledFrom(context: ScheduleContext, assignments: ScheduleAssi
     gaps.push(gap({ ...base, role_name: LEADER_ROLE_NAME, required_slots: 1, message: `No worship leader assigned for week ${service.week_number}.` }));
   }
   const { min } = backupRuleNumbers(context);
-  const backupCount = assignments.filter(isBackupAssignment).length;
+  const backupCount = assignments.filter((assignment) => isBackupAssignment(assignment, context.all_members)).length;
   if (backupCount < min) {
     gaps.push(gap({ ...base, role_name: BACKUP_ROLE_NAME, required_slots: min - backupCount, message: `Only ${backupCount} of ${min} backup singers assigned for week ${service.week_number}.` }));
   }

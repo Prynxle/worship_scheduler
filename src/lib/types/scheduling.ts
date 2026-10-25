@@ -201,7 +201,7 @@ export interface GeneratedService {
   backup_singers: Member[];
   instrumentalists: InstrumentAssignment[];
   devotion: Member | null;
-  /** Generic persisted role for this devotion assignment; qualification is universal. */
+  /** The member's existing lineup role, retained when devotion is added to it. */
   devotion_role?: Role | null;
   conflicts: ValidationResult[];
   /**

@@ -54,21 +54,19 @@ describe('assignmentRows', () => {
     expect(() => assignmentRows(service, generated, 'user')).toThrow(UnresolvableRoleError);
   });
 
-  it('persists devotion as a marked assignment without requiring a member role', () => {
-    const devotionMember: Member = { ...guitarist, id: 'devotion-member', roles: [] };
-    const backupRole: Role = { ...instrumentalistRole, id: 'role-back-up', name: 'Back Up' };
+  it('marks devotion on the lined-up member assignment while preserving its role and instrument', () => {
     const rows = assignmentRows(service, {
       ...generatedWithGuitarist,
-      instrumentalists: [],
-      devotion: devotionMember,
-      devotion_role: backupRole,
+      devotion: guitarist,
     }, 'user');
 
     expect(rows).toEqual([expect.objectContaining({
-      member_id: devotionMember.id,
-      role_id: backupRole.id,
+      member_id: guitarist.id,
+      role_id: instrumentalistRole.id,
+      instrument_id: guitar.id,
       is_devotion: true,
     })]);
+    expect(rows).toHaveLength(1);
   });
 });
 
