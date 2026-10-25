@@ -30,6 +30,7 @@ export class SchedulingEngine {
   private readonly scorer: FairnessScorer;
   private readonly memberState: Map<string, TemporaryMemberState>;
   private readonly serviceStates = new Map<number, ServiceState>();
+  private readonly devotionByWeek = new Map<number, Member>();
   private readonly failures: SchedulingFailure[] = [];
   /**
    * Positions the search could not fill, per week, with why each candidate was
@@ -74,6 +75,7 @@ export class SchedulingEngine {
       }]);
     }
     this.fillOptional(slots.filter((slot) => slot.optional));
+    this.assignDevotions(weeks);
     const assignments = [...this.serviceStates.values()].flatMap((service) => service.choices);
     const services = weeks.map((weekNumber) => this.toGeneratedService(weekNumber, assignments));
     await this.validateGeneratedServices(services, assignments);
@@ -255,7 +257,8 @@ export class SchedulingEngine {
         backupIndex += 1;
         slots.push({ id: `${weekNumber}:backup:${backupIndex}`, weekNumber, date, kind: 'backup', roleName: 'Backup', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false, optional: false });
       } else if (position.kind === 'devotion') {
-        slots.push({ id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion', role: this.findRoleByPredicate(isBackupRoleName), isLeader: false, optional: false });
+        // Devotion is chosen after the week's lineup is assembled so only an
+        // already-lined-up member can receive it.
       } else {
         const instrument = position.instrument!;
         for (let index = 0; index < position.required_slots; index += 1) {
@@ -320,16 +323,40 @@ export class SchedulingEngine {
     }
   }
 
+  /** Devotion is a duty of a member already assigned to that week's lineup. */
+  private assignDevotions(weeks: number[]): void {
+    for (const weekNumber of weeks) {
+      const date = formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year));
+      const perWeek = { ...this.context, service: { ...this.context.service, week_number: weekNumber, date } };
+      if (!requiredPositions(perWeek).some((position) => position.kind === 'devotion')) continue;
+      const devotionSlot: AssignmentSlot = {
+        id: `${weekNumber}:devotion`, weekNumber, date, kind: 'devotion', roleName: 'Devotion',
+        isLeader: false, optional: false,
+      };
+
+      const lineup = this.getServiceState(weekNumber).choices;
+      const candidates = [...new Map(lineup.map((choice) => [choice.member.id, choice.member])).values()];
+      const ranked = this.rankCandidates(devotionSlot, candidates, this.cooldownWeeks());
+      const selected = ranked[0]?.member;
+      if (selected) {
+        this.devotionByWeek.set(weekNumber, selected);
+      } else {
+        this.gaps.push(this.createFailure(devotionSlot, this.context.all_members.map((member) => ({ member, reason: 'not lined up for this week' }))));
+      }
+    }
+  }
+
   private toGeneratedService(weekNumber: number, assignments: AssignmentChoice[]): GeneratedService {
     const choices = assignments.filter((choice) => choice.slot.weekNumber === weekNumber);
+    const devotion = this.devotionByWeek.get(weekNumber) ?? null;
     return {
       week_number: weekNumber,
       date: choices[0]?.slot.date ?? formatLocalDate(getWeekDate(weekNumber, this.context.month, this.context.year)),
       leader: choices.find((choice) => choice.slot.kind === 'leader')?.member ?? null,
       backup_singers: choices.filter((choice) => choice.slot.kind === 'backup').map((choice) => choice.member),
       instrumentalists: choices.filter((choice) => choice.slot.kind === 'instrument' && choice.slot.instrument).map((choice) => ({ instrument: choice.slot.instrument!, member: choice.member, is_fallback: false })),
-      devotion: choices.find((choice) => choice.slot.kind === 'devotion')?.member ?? null,
-      devotion_role: choices.find((choice) => choice.slot.kind === 'devotion')?.slot.role ?? null,
+      devotion,
+      devotion_role: choices.find((choice) => choice.member.id === devotion?.id)?.slot.role ?? null,
       conflicts: [],
       // Always an array, never absent: the persistence and read layers must not
       // each have to decide what a missing gap list means.
@@ -407,7 +434,7 @@ export class SchedulingEngine {
       id: `generated-${service.week_number}-${index}`, service_id: this.context.service.id, member_id: choice.member.id,
       role_id: choice.slot.role?.id ?? `generated-${choice.slot.roleName.toLowerCase().replace(/\s+/g, '-')}`,
       instrument_id: choice.slot.instrument?.id, is_leader: choice.slot.isLeader,
-      is_devotion: choice.slot.kind === 'devotion', status: 'pending',
+      is_devotion: this.devotionByWeek.get(service.week_number)?.id === choice.member.id, status: 'pending',
       created_at: service.date, updated_at: service.date, member: choice.member, role: choice.slot.role, instrument: choice.slot.instrument,
     }));
   }
