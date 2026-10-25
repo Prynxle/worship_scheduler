@@ -92,14 +92,12 @@ function resolveAssignments(generated: GeneratedService): ResolvedAssignment[] {
   const add = (member: Member | null, role: Role | undefined, instrumentId: string | null, isLeader = false) => {
     if (!member) return;
     if (!role) throw new UnresolvableRoleError(member.full_name);
-    const isDevotion = !isLeader && member === generated.devotion;
+    const isDevotion = member.id === generated.devotion?.id;
     resolved.push({ memberId: member.id, roleId: role.id, instrumentId, isLeader, isDevotion });
   };
   add(generated.leader, roleFor(generated.leader, (role) => isWorshipLeaderRoleName(role.name)), null, true);
   for (const member of generated.backup_singers) add(member, roleFor(member, (role) => isBackupRoleName(role.name)), null);
   for (const item of generated.instrumentalists) add(item.member, instrumentRoleFor(item.member, item.instrument), item.instrument.id);
-  add(generated.devotion, generated.devotion_role ?? (generated.devotion ?
-    roleFor(generated.devotion, (role) => role.is_active) : undefined), null);
   return resolved;
 }
 

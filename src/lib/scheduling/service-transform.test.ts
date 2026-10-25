@@ -53,13 +53,13 @@ function assignment(id: string, memberId: string, isDevotion = false): ScheduleA
 }
 
 describe('transformServiceAssignments', () => {
-  it('does not display devotion assignments with the generic backup role as backups', () => {
+  it('preserves the assigned backup role while identifying the member selected for devotion', () => {
     const result = transformServiceAssignments(service, [
       assignment('devotion-assignment', 'Devotion member', true),
       assignment('backup-assignment', 'Backup member'),
     ]);
 
-    expect(result.backup_singers.map((member) => member.name)).toEqual(['Backup member']);
+    expect(result.backup_singers.map((member) => member.name)).toEqual(['Devotion member', 'Backup member']);
     expect(result.devotion_name).toBe('Devotion member');
   });
 });

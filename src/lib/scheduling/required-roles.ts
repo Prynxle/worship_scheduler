@@ -140,16 +140,19 @@ export function backupRuleNumbers(context: ScheduleContext): { min: number; max:
  * complete. Exported so the validator uses this definition rather than keeping
  * its own copy.
  */
-export function isBackupAssignment(assignment: ScheduleAssignment): boolean {
+export function isBackupAssignment(assignment: ScheduleAssignment, members: Member[] = []): boolean {
   if (assignment.is_leader) return false;
-  if (assignment.is_devotion) return false;
   if (assignment.instrument_id) return false;
-  return !assignment.role || isBackupRoleName(assignment.role.name);
+  if (!assignment.role) return !assignment.is_devotion;
+  if (!isBackupRoleName(assignment.role.name)) return false;
+  if (!assignment.is_devotion) return true;
+  const member = members.find((candidate) => candidate.id === assignment.member_id);
+  return member?.roles?.some((role) => role.role_id === assignment.role_id || (role.role && isBackupRoleName(role.role.name))) ?? false;
 }
 
 /** Shared with the validator so "is this the Devotion slot?" has one answer. */
 export function isDevotionAssignment(assignment: ScheduleAssignment): boolean {
-  return !assignment.is_leader && assignment.is_devotion === true;
+  return assignment.is_devotion === true;
 }
 
 /** Devotion is enabled by ministry configuration; it is not a member role. */
