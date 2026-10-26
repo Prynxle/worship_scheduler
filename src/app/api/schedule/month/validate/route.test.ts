@@ -139,6 +139,37 @@ describe('POST /api/schedule/month/validate', () => {
     expect(finalValidateService.mock.calls[0][0]).toMatchObject({ id: 'scoped' });
   });
 
+  it('refuses the month before validating any draft when one is a stale future draft (GH #97)', async () => {
+    loadScheduleData.mockResolvedValue({
+      services: [storedService({ id: 'stale', date: '2099-05-03', availability_reset_at: '2026-10-26T12:00:00Z' })],
+      assignments: [], members: [], roles: [], instruments: [], rules: [], config: {}, monthlyAssignments: [],
+    });
+    rpcReturns({ ok: true });
+
+    const response = await callPost();
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+    // The pre-check must beat both the validator and the RPC: a per-service 422
+    // about a lineup the coordinator cannot validate anyway is a dead end.
+    expect(finalValidateService).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('ignores a reset stamp on a week that has already passed', async () => {
+    loadScheduleData.mockResolvedValue({
+      services: [storedService({ id: 'past', date: '2020-01-05', availability_reset_at: '2026-10-26T12:00:00Z' })],
+      assignments: [], members: [], roles: [], instruments: [], rules: [], config: {}, monthlyAssignments: [],
+    });
+    rpcReturns({ ok: true, month_status: 'validated', validated: ['past'], already_validated: [], skipped_published: [] });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(200);
+    expect(finalValidateService).toHaveBeenCalled();
+  });
+
   it('refuses the whole month with 422 when any draft has a critical', async () => {
     finalValidateService.mockResolvedValue(outcome({
       results: [{ check: 'leader_count_missing', severity: 'critical' }] as never[],

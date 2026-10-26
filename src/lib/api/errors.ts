@@ -60,6 +60,21 @@ const SQLSTATE_TO_HTTP: Record<string, { status: number; code: string; message: 
   W0001: { status: 409, code: 'protected_service', message: 'Published or validated services cannot be regenerated.' },
   W0002: { status: 403, code: 'tenant_mismatch', message: 'You are not permitted to modify this church schedule.' },
   W0003: { status: 422, code: 'rule_violation', message: 'The generated schedule violated a scheduling rule.' },
+  // W0004 (GH #97): the month's availability was reset after this schedule was
+  // generated, so the draft is out of date and must not be validated,
+  // published or edited until the month is regenerated. The per-operation
+  // routes (`/api/validation`, `/api/schedule/month/validate`,
+  // `/api/schedule/[serviceId]/publish`, `/api/schedule/[serviceId]/assignments`,
+  // `/api/song-lineups`) pre-check and emit their own precise wording, so this
+  // entry is the neutral backstop. The CODE is the part every layer must agree
+  // on byte for byte; the availability-reset route keeps its own table because
+  // its copy is availability-flavoured and must not be shared.
+  W0004: { status: 409, code: 'schedule_pending_regeneration', message: 'The availability for this month was reset. Regenerate the schedule after availability is approved again.' },
+  // W0005: the reset itself was refused because a future draft week already owns
+  // a submitted song lineup, and regenerating that week would erase the songs.
+  // Only `reset_month_availability` raises it; the copy here is identical to the
+  // one in the availability-reset route's own table.
+  W0005: { status: 409, code: 'availability_reset_song_lineups_pending', message: 'This month has draft weeks with submitted song lineups. Those weeks cannot be regenerated without erasing the songs, so availability cannot be reset for this month. Choose a month without submitted songs.' },
   '23P01': { status: 422, code: 'exclusion_violation', message: 'The generated schedule contained a conflicting assignment.' },
   '55000': { status: 409, code: 'object_not_in_prerequisite_state', message: "This month's schedule is not in a state that can be generated or replaced." },
   '42501': { status: 403, code: 'insufficient_privilege', message: 'Your account is not authorized to modify this church schedule.' },

@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
 import { loadAvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { activeMonthServices, finalValidateService, type MonthTransitionResult } from '@/lib/scheduling/month-workflow';
 import { ValidationResult, UnfilledPosition } from '@/lib/types/scheduling';
-import { ApiError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
+import { ApiError, jsonError, toErrorResponse, type ErrorContext } from '@/lib/api/errors';
 import { parseMonthYear, readJsonObject, rpcErrorResponse } from '../shared';
+
+/**
+ * `schedule_pending_regeneration`: the month's availability was reset after one
+ * of its drafts was generated. This has to be a route PRE-CHECK: a 422 about a
+ * lineup would otherwise win, and `rpcErrorResponse`
+ * (`../shared.ts:47-51`) never emits a `code`, so the refusal needs to be
+ * decided here to reach the caller with a stable one.
+ */
+const STALE_MONTH_MESSAGE = 'The availability for this month was reset. Regenerate the schedule after availability is approved again before validating it.';
 
 /**
  * POST /api/schedule/month/validate
@@ -48,6 +58,13 @@ export async function POST(request: NextRequest) {
     const active = activeMonthServices(
       data.services.filter((service) => service.ministry_id === readiness.ministry_id)
     );
+    // BEFORE the validator loop and before the 422. A stamped, future-dated
+    // draft makes the whole month unvalidatable, so reporting a per-service
+    // critical first would describe a lineup the coordinator cannot fix yet.
+    // `validate_month_schedule` re-asserts this as W0004 inside its transaction.
+    if (active.some((service) => isStaleDraft(service))) {
+      return jsonError(409, 'schedule_pending_regeneration', STALE_MONTH_MESSAGE);
+    }
     const drafts = active.filter((service) => service.status === 'draft');
     if (drafts.length === 0) {
       return NextResponse.json(

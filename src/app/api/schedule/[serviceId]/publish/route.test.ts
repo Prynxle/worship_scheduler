@@ -269,6 +269,45 @@ describe('POST /api/schedule/[serviceId]/publish', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('refuses a stamped, future-dated schedule before the validated-version gate (GH #97)', async () => {
+    // A stamped row may still be a draft. Without this check it would be
+    // refused with "only a validated schedule can be published", which hides
+    // the real reason and gives the coordinator no next step.
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ status: 'draft', availability_reset_at: '2026-10-26T12:00:00Z', date: '2099-05-03' }),
+      error: null,
+    });
+
+    const response = await callPost();
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('ignores a reset stamp on a week that has already passed', async () => {
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ availability_reset_at: '2026-10-26T12:00:00Z', date: '2020-01-05' }),
+      error: null,
+    });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalled();
+  });
+
+  it('maps a W0004 from publish_service_schedule to the same 409', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: 'W0004', message: 'Availability for this month was reset' } });
+
+    const response = await callPost();
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+  });
+
   it('rejects a stale expected_version', async () => {
     const response = await callPost({ expected_version: 1 });
 

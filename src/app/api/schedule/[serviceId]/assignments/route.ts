@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
+import { jsonError } from '@/lib/api/errors';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, hasActiveOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { ScheduleAssignment, Service, ServiceActiveOverrides } from '@/lib/types/database';
+
+/** Fixed copy, byte-identical to the other stale-schedule refusals. */
+const STALE_EDIT_MESSAGE = 'The availability for this month was reset. This schedule is out of date and cannot be edited until it is regenerated.';
 
 type AssignmentInput = { member_id: string; role_id: string; instrument_id: string | null; is_leader: boolean; is_devotion?: boolean };
 
@@ -64,6 +69,10 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ser
       .eq('id', serviceId).eq('church_id', auth.churchId).maybeSingle<Service>();
     if (serviceError) return NextResponse.json({ error: 'Could not load the schedule.' }, { status: 500 });
     if (!service) return NextResponse.json({ error: 'Schedule not found.' }, { status: 404 });
+    // Before the status gate: a refused edit must not reach
+    // `replace_service_assignments`, because that call bumps
+    // `schedule_version` and that bump is not rolled back by a later refusal.
+    if (isStaleDraft(service)) return jsonError(409, 'schedule_pending_regeneration', STALE_EDIT_MESSAGE);
     if (!['draft', 'validated'].includes(service.status) || !service.ministry_id) return NextResponse.json({ error: 'Only ministry-scoped draft or validated schedules can be edited. Create an amendment for a published schedule.' }, { status: 409 });
     if ((service.schedule_version ?? 1) !== body.expected_version) return NextResponse.json({ error: 'The schedule changed. Refresh before saving.' }, { status: 409 });
 

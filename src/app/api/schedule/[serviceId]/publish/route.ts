@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
+import { jsonError } from '@/lib/api/errors';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { isServiceValidatedForVersion } from '@/lib/scheduling/month-workflow';
 import { Service } from '@/lib/types/database';
+
+/**
+ * `schedule_pending_regeneration`: the month's availability was reset after
+ * this schedule was generated. Fixed copy, byte-identical to the other
+ * lifecycle routes that refuse the same state.
+ */
+const STALE_SCHEDULE_MESSAGE = 'The availability for this month was reset. Regenerate the schedule after availability is approved again before publishing it.';
 
 export async function POST(request: NextRequest, context: { params: Promise<{ serviceId: string }> }) {
   const auth = await requireStaff(request);
@@ -18,6 +27,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
       .eq('id', serviceId).eq('church_id', auth.churchId).maybeSingle<Service>();
     if (serviceError) return NextResponse.json({ error: 'Could not load the schedule.' }, { status: 500 });
     if (!service) return NextResponse.json({ error: 'Schedule not found.' }, { status: 404 });
+    // BEFORE the validated-for-version gate on purpose: a stamped draft is
+    // already refused by that gate with "only a validated schedule can be
+    // published", which would hide the real reason. The stale refusal comes
+    // first so every stamped service reports the same code and copy, whatever
+    // its status.
+    if (isStaleDraft(service)) return jsonError(409, 'schedule_pending_regeneration', STALE_SCHEDULE_MESSAGE);
     if (!isServiceValidatedForVersion(service) || !service.ministry_id) {
       return NextResponse.json({ error: 'Only a schedule validated for its current version can be published.' }, { status: 409 });
     }
@@ -51,7 +66,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ se
       p_actor_id: auth.userId,
       p_expected_version: body.expected_version,
     });
-    if (error) return NextResponse.json({ error: error.message }, { status: error.code === '42501' ? 403 : 409 });
+    if (error) {
+      // W0004 is `publish_service_schedule` re-asserting the stale refusal above.
+      if (error.code === 'W0004') return jsonError(409, 'schedule_pending_regeneration', STALE_SCHEDULE_MESSAGE);
+      return NextResponse.json({ error: error.message }, { status: error.code === '42501' ? 403 : 409 });
+    }
     return NextResponse.json({ status: 'published', published_by: auth.userId, published_at: new Date().toISOString(), results, overridden_checks, active_overrides: service.active_overrides ?? {} });
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
