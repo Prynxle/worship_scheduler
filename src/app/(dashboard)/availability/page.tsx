@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { AvailabilityCalendar } from '@/components/members/availability-calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,13 @@ export default function AvailabilityPage() {
   const [resetNote, setResetNote] = useState('');
   const [resetting, setResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  /**
+   * The month whose drafts the successful reset invalidated, as `YYYY-MM`, or
+   * `''`. Stored rather than derived from the picker because the coordinator can
+   * change month after resetting, and the success banner must keep pointing at
+   * the month that was actually reset.
+   */
+  const [resetLinkMonth, setResetLinkMonth] = useState('');
   // Separate from the page-level `error`: the reset dialog renders in a portal,
   // so a page-level banner sits behind the modal overlay and the coordinator
   // would see a dead button and no reason for it. Sharing one state would also
@@ -207,6 +215,7 @@ export default function AvailabilityPage() {
     setResetting(true);
     setError('');
     setResetMessage('');
+    setResetLinkMonth('');
     setResetError('');
     // try/finally, not a trailing setResetting(false): the destructive button is
     // disabled while `resetting`, so a thrown fetch (dead network, aborted
@@ -233,17 +242,27 @@ export default function AvailabilityPage() {
         availability_reset?: number;
         unscoped_availability_reset?: number;
         remaining_blocking_dates?: number;
+        draft_services_invalidated?: number;
       };
       if (response.ok) {
         setResetConfirmOpen(false);
         setResetOpen(false);
         setResetNote('');
         const remaining = payload.remaining_blocking_dates ?? 0;
+        const invalidated = payload.draft_services_invalidated ?? 0;
+        // The reset does not delete lineups: it stamps the month's future drafts
+        // as out of date, and every write path refuses them until regeneration.
+        // Say so, because "cleared" alone reads as if the schedules were erased
+        // or, worse, as if they are still usable.
+        const invalidatedNote = invalidated > 0
+          ? ` ${invalidated} future-dated draft week(s) are now out of date and cannot be validated, published or edited until the month is regenerated. Nothing was deleted.`
+          : '';
+        setResetLinkMonth(payload.reset ? `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}` : '');
         // The counts are always reported. A repeat click returns `reset: false`
         // with zeros and must not read as "done".
         setResetMessage(
           payload.reset
-            ? `${monthLabel}: ${payload.submissions_reset ?? 0} monthly submission(s) returned for revision, ${payload.availability_reset ?? 0} submitted unavailability entr(ies) cleared, ${payload.unscoped_availability_reset ?? 0} unscoped absence request(s) cleared. Every affected member must submit the month again and be re-approved before it can be scheduled.${remaining > 0 ? ` ${remaining} unavailability entr(ies) are not tied to this month and can still block it.` : ''}`
+            ? `${monthLabel}: ${payload.submissions_reset ?? 0} monthly submission(s) returned for revision, ${payload.availability_reset ?? 0} submitted unavailability entr(ies) cleared, ${payload.unscoped_availability_reset ?? 0} unscoped absence request(s) cleared.${invalidatedNote} Every affected member must submit the month again and be re-approved before it can be scheduled.${remaining > 0 ? ` ${remaining} unavailability entr(ies) are not tied to this month and can still block it.` : ''}`
             : remaining > 0
               // Never the bare "nothing to reset" line while a blocker survives:
               // that would be false, and the coordinator has no other screen
@@ -448,7 +467,12 @@ export default function AvailabilityPage() {
         </DialogContent>
       </Dialog>
 
-      {resetMessage ? <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">{resetMessage}</p> : null}
+      {resetMessage ? (
+        <div role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">
+          <p>{resetMessage}</p>
+          {resetLinkMonth ? <Link href={`/line-up-songs?month=${resetLinkMonth}`} className="mt-2 inline-block font-medium text-primary underline underline-offset-4">Open that month&apos;s song lineups</Link> : null}
+        </div>
+      ) : null}
 
       {/* Step 1: disclosure + required note. Nothing is sent until step 2. */}
       <Dialog open={resetOpen} onOpenChange={(open) => { if (!open && !resetting) { setResetOpen(false); setResetConfirmOpen(false); } }}>
@@ -465,8 +489,9 @@ export default function AvailabilityPage() {
             <li><span className="font-medium text-foreground">Recorded unavailability stops blocking scheduling</span> for the month. No record is deleted, and the reset itself is written to the review history.</li>
             <li><span className="font-medium text-foreground">Every affected member must submit the month again and be re-approved</span> by a coordinator. Until then the month is not ready to generate.</li>
             <li>A member who never submitted is <span className="font-medium text-foreground">not</span> unblocked by this action. They still owe a submission.</li>
-            <li>Any existing draft schedule for the month may need to be regenerated, because it was built from the unavailability this action clears.</li>
+            <li><span className="font-medium text-foreground">Future-dated draft weeks are marked out of date.</span> Nothing is deleted, but each one can no longer be validated, published or edited until the month is regenerated, because it was built from the unavailability this action clears. Weeks that have already passed keep their lineup.</li>
             <li>A month that already has a <span className="font-medium text-foreground">validated or published</span> schedule is refused. Draft and archived services do not block the reset.</li>
+            <li>A month whose <span className="font-medium text-foreground">future-dated draft weeks already have submitted song lineups</span> is refused too, because those weeks cannot be regenerated without erasing the songs.</li>
             {/* A limitation, not a claim that this dialog handled them. The
                 availability page reads a month-FILTERED endpoint, so no screen
                 in the app lists these rows and none is named here. */}

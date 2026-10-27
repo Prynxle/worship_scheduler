@@ -291,6 +291,48 @@ describe('POST /api/validation', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('refuses a stale, future-dated draft before running the validator (GH #97)', async () => {
+    // The month's availability was reset after this draft was generated. The
+    // refusal must come before the validator and the RPC: a 422 about lineup
+    // details would describe a schedule that cannot be validated at all.
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ availability_reset_at: '2026-10-26T12:00:00Z', date: '2099-05-03' }),
+      error: null,
+    });
+
+    const response = await callPost();
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(loadScheduleData).not.toHaveBeenCalled();
+  });
+
+  it('ignores a reset stamp on a week that has already passed', async () => {
+    // Regeneration only reaches future weeks, so a past stamp can never be
+    // cleared; honouring it would permanently lock that service.
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ availability_reset_at: '2026-10-26T12:00:00Z', date: '2020-01-05' }),
+      error: null,
+    });
+
+    const response = await callPost();
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalled();
+  });
+
+  it('maps a W0004 from validate_service_schedule to the same 409', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: 'W0004', message: 'Availability for this month was reset' } });
+
+    const response = await callPost();
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+  });
+
   it('re-validates a `validated` row whose stamp has drifted, so it is not a dead end', async () => {
     // An edit bumped schedule_version; validate used to refuse on the raw status.
     serviceQuery.maybeSingle.mockResolvedValue({ data: service({ status: 'validated', schedule_version: 3, validated_version: 2 }), error: null });

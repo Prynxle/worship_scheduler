@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, getAuthContext, isStaff } from '@/lib/auth/server';
+import { jsonError as apiJsonError } from '@/lib/api/errors';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
+import { formatLocalDate } from '@/lib/utils/date-utils';
 import { parseHttpUrl, verifyReachableHttpUrl } from '@/lib/song-lineups/urls';
 import { checkRateLimit } from '@/lib/api/rate-limit';
+
+/**
+ * `schedule_pending_regeneration`: the month's availability was reset after
+ * this service's draft was generated, so the schedule is out of date. Fixed
+ * copy, shared with the other lifecycle routes byte for byte.
+ */
+const STALE_SERVICE_MESSAGE = 'The availability for this month was reset. This schedule is out of date and does not accept songs until it is regenerated.';
 
 type SongInput = { title: string; song_url: string; musical_key?: string | null; chords_url?: string | null };
 
@@ -36,7 +46,13 @@ export async function GET(request: NextRequest) {
   if (!Number.isInteger(month) || month < 0 || month > 11 || !Number.isInteger(year) || year < 2000 || year > 2100) return jsonError('Month and year are required.', 400);
 
   const admin = getAdminClient();
-  let serviceQuery = admin.from('services').select('id, date, week_number, status').eq('church_id', auth.churchId).eq('month', month).eq('year', year).neq('status', 'archived');
+  // Exactly the complement of `isStaleDraft`: a service is hidden only while its
+  // stamp is a live, future-dated invalidation. Once the date passes the stamp can
+  // no longer be cleared by regeneration, so the week becomes readable again — the
+  // same scope every write guard and `isStaleDraft` already applies. PostgREST
+  // ANDs this top-level `or` with the `.eq()`/`.neq()` filters above. The date is
+  // server-generated, never client input, so it adds no injection surface.
+  let serviceQuery = admin.from('services').select('id, date, week_number, status').eq('church_id', auth.churchId).eq('month', month).eq('year', year).neq('status', 'archived').or(`availability_reset_at.is.null,date.lt.${formatLocalDate(new Date())}`);
   if (!isStaff(auth.role)) {
     const { data: assignments, error } = await admin.from('schedule_assignments').select('service_id').eq('member_id', auth.memberId!);
     if (error) return jsonError('Could not load your assigned services.', 500);
@@ -87,15 +103,28 @@ export async function POST(request: NextRequest) {
   if (!songs) return jsonError('Add at least two songs with a title and valid HTTP or HTTPS URL.', 400);
 
   const admin = getAdminClient();
-  const { data: assignment, error: assignmentError } = await admin.from('schedule_assignments').select('service_id, member_id, is_leader, service:services(church_id)').eq('service_id', body.service_id).eq('member_id', auth.memberId).eq('is_leader', true).maybeSingle();
+  const { data: assignment, error: assignmentError } = await admin.from('schedule_assignments').select('service_id, member_id, is_leader, service:services(church_id, availability_reset_at, date)').eq('service_id', body.service_id).eq('member_id', auth.memberId).eq('is_leader', true).maybeSingle();
   if (assignmentError) return jsonError('Could not verify your worship leader assignment.', 500);
-  if (!assignment || firstRelation(assignment.service)?.church_id !== auth.churchId) return jsonError('You are not assigned to lead this service.', 403);
+  const assignedService = firstRelation(assignment?.service);
+  if (!assignment || assignedService?.church_id !== auth.churchId) return jsonError('You are not assigned to lead this service.', 403);
+  // `date` travels with the stamp so the predicate can apply its date scope: a
+  // stamp on a week that has already passed is ignored everywhere, because
+  // regeneration cannot reach a past week and would never clear it.
+  if (isStaleDraft({
+    availability_reset_at: assignedService?.availability_reset_at ?? null,
+    date: assignedService?.date ?? '',
+  })) {
+    return apiJsonError(409, 'schedule_pending_regeneration', STALE_SERVICE_MESSAGE);
+  }
 
   if (!(await Promise.all(songs.map((song) => verifyReachableHttpUrl(song.song_url)))).every(Boolean)) return jsonError('A song link could not be verified as reachable. Check the URL and try again.', 400);
   const { data: lineupId, error } = await admin.rpc('save_song_lineup', {
     p_church_id: auth.churchId, p_service_id: body.service_id, p_member_id: auth.memberId, p_songs: songs,
   });
   if (error || !lineupId) {
+    // W0004 is `save_song_lineup` re-asserting the same stale-schedule refusal in
+    // SQL, so both layers answer with the same 409 and the same code.
+    if (error?.code === 'W0004') return apiJsonError(409, 'schedule_pending_regeneration', STALE_SERVICE_MESSAGE);
     return jsonError(error?.code === '42501' ? 'You cannot edit this lineup.' : 'Could not save the song lineup.', error?.code === '42501' ? 403 : 500);
   }
   return NextResponse.json({ lineup_id: lineupId, status: 'submitted' }, { status: 201 });

@@ -5,6 +5,7 @@ import { SongLineupPanel, type SongService } from '@/components/schedule/song-li
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { parseMonthParam } from '@/lib/song-lineups/month-param';
 import { Music2 } from 'lucide-react';
 
 function currentMonth() {
@@ -21,6 +22,14 @@ export default function LineUpSongsPage() {
   const requestNumber = useRef(0);
   const [year, month] = monthValue.split('-').map(Number);
   const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  // Seed the month from `?month=YYYY-MM` once, so the availability reset's
+  // success link opens the month whose drafts it just invalidated instead of
+  // whatever month the page opens on. Read in an effect, not during render:
+  // the server render has no `window`, and a lazy initialiser reading it would
+  // render a different month than the server and break hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setMonthValue((current) => parseMonthParam(window.location.search, current)); }, []);
 
   const load = useCallback(async () => {
     const requestId = ++requestNumber.current;

@@ -28,6 +28,10 @@ describe('toErrorResponse SQLSTATE mapping', () => {
     ['W0001', 409, 'protected_service'],
     ['W0002', 403, 'tenant_mismatch'],
     ['W0003', 422, 'rule_violation'],
+    // GH #97: availability was reset after this schedule was generated, and the
+    // reset itself is refused when a future draft already owns songs.
+    ['W0004', 409, 'schedule_pending_regeneration'],
+    ['W0005', 409, 'availability_reset_song_lineups_pending'],
     ['23P01', 422, 'exclusion_violation'],
     ['55000', 409, 'object_not_in_prerequisite_state'],
     ['42501', 403, 'insufficient_privilege'],

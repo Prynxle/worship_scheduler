@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient, requireStaff } from '@/lib/auth/server';
+import { jsonError } from '@/lib/api/errors';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
 import { loadScheduleData } from '@/lib/scheduling/schedule-data';
 import { ScheduleValidator } from '@/lib/scheduling/validator';
 import { applyOverrides, unfilledFrom } from '@/lib/scheduling/gaps';
 import { serviceNeedsValidation } from '@/lib/scheduling/month-workflow';
 import { Service } from '@/lib/types/database';
+
+/**
+ * `schedule_pending_regeneration`: the month's availability was reset after
+ * this draft was generated. Fixed copy, byte-identical to the other lifecycle
+ * routes that refuse the same state.
+ */
+const STALE_DRAFT_MESSAGE = 'The availability for this month was reset. Regenerate the schedule after availability is approved again before validating it.';
 
 export async function POST(request: NextRequest) {
   const auth = await requireStaff(request);
@@ -16,6 +25,11 @@ export async function POST(request: NextRequest) {
     const { data: service, error: serviceError } = await admin.from('services').select('*').eq('id', body.service_id).eq('church_id', auth.churchId).maybeSingle<Service>();
     if (serviceError) return NextResponse.json({ error: 'Could not load service.' }, { status: 500 });
     if (!service) return NextResponse.json({ error: 'Service not found.' }, { status: 404 });
+    // ORDER IS LOAD-BEARING: a stamped draft is refused BEFORE the state gate
+    // and before the validator runs, so a coordinator never sees a 422 about a
+    // lineup's details for a schedule that cannot be validated at all.
+    // `validate_service_schedule` re-asserts the same refusal as W0004.
+    if (isStaleDraft(service)) return jsonError(409, 'schedule_pending_regeneration', STALE_DRAFT_MESSAGE);
     // A draft, or a `validated` row whose stamp no longer matches its current
     // version (an edit re-opens validation; a row marked validated without ever
     // running the validator is the same drifted state). Anything else — notably
@@ -46,7 +60,12 @@ export async function POST(request: NextRequest) {
       p_expected_version: body.expected_version,
       p_validation_results: results,
     });
-    if (transitionError) return NextResponse.json({ error: transitionError.message }, { status: transitionError.code === '42501' ? 403 : 409 });
+    if (transitionError) {
+      // W0004 is the SQL half re-asserting the stale-draft refusal above; it is
+      // reported with the same fixed copy and code, never the driver message.
+      if (transitionError.code === 'W0004') return jsonError(409, 'schedule_pending_regeneration', STALE_DRAFT_MESSAGE);
+      return NextResponse.json({ error: transitionError.message }, { status: transitionError.code === '42501' ? 403 : 409 });
+    }
     return NextResponse.json({ valid: true, results, status: 'validated', validated_by: auth.userId, validated_at: new Date().toISOString(), overridden_checks, unfilled_positions: unfilledPositions, is_complete: unfilledPositions.length === 0, summary: { total: results.length, critical: critical.length, warnings: warnings.length, suggestions: suggestions.length } });
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });

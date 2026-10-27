@@ -33,6 +33,8 @@ export interface TransformedService {
   published_at?: string | null;
   published_by?: string | null;
   revision_of?: string | null;
+  /** See `Service.availability_reset_at`: non-null means the draft is stale. */
+  availability_reset_at?: string | null;
   conflict_count: number;
   unfilled_positions?: Service['unfilled_positions'];
   is_complete?: boolean;
@@ -79,6 +81,7 @@ export function transformServiceAssignments(service: Service, assignments: Sched
     published_at: service.published_at ?? null,
     published_by: service.published_by ?? null,
     revision_of: service.revision_of ?? null,
+    availability_reset_at: service.availability_reset_at ?? null,
     conflict_count: 0,
     unfilled_positions: unfilledPositions,
     is_complete: unfilledPositions.length === 0,

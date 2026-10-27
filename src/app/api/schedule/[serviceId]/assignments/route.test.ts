@@ -467,6 +467,35 @@ describe('PUT /api/schedule/[serviceId]/assignments', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('refuses to edit a stale, future-dated draft before the status gate (GH #97)', async () => {
+    // The refusal comes BEFORE `replace_service_assignments`: that call bumps
+    // schedule_version, and a version bump is not rolled back by a later
+    // refusal. Dates are far future so the stamp counts as stale.
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ availability_reset_at: '2026-10-26T12:00:00Z', date: '2099-05-03' }),
+      error: null,
+    });
+
+    const response = await callPut({ expected_version: 3, assignments: completeLineup });
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('schedule_pending_regeneration');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('ignores a reset stamp on a week that has already passed', async () => {
+    serviceQuery.maybeSingle.mockResolvedValue({
+      data: service({ availability_reset_at: '2026-10-26T12:00:00Z', date: '2020-01-05' }),
+      error: null,
+    });
+
+    const response = await callPut({ expected_version: 3, assignments: completeLineup });
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalled();
+  });
+
   it('requires staff', async () => {
     requireStaff.mockResolvedValue(new Response('nope', { status: 403 }));
 

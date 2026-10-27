@@ -30,7 +30,7 @@ const auth = {
 };
 
 /** What the RPC resolves to on success. */
-const counts = { submissions_reset: 2, availability_reset: 5, unscoped_availability_reset: 19, remaining_blocking_dates: 3 };
+const counts = { submissions_reset: 2, availability_reset: 5, unscoped_availability_reset: 19, remaining_blocking_dates: 3, draft_services_invalidated: 2 };
 
 type RpcResult = { data?: unknown; error?: unknown };
 
@@ -206,6 +206,9 @@ describe('POST /api/availability/reset — SQLSTATE mapping', () => {
   const mapped: Array<[string, number, string]> = [
     ['42501', 403, 'insufficient_privilege'],
     ['55000', 409, 'object_not_in_prerequisite_state'],
+    // GH #97: a future draft already owns songs, so regenerating it would erase
+    // them. The reset refuses instead of stamping a week nobody can rebuild.
+    ['W0005', 409, 'availability_reset_song_lineups_pending'],
     ['40P01', 503, 'deadlock_detected'],
   ];
 
@@ -308,6 +311,11 @@ describe('POST /api/availability/reset — success shape', () => {
       // separately so a caller can disclose the limitation, and it is not part
       // of the `reset` sum.
       remaining_blocking_dates: 3,
+      // GH #97: the month's future-dated drafts that the reset stamped out of
+      // date, one `schedule_change_log` row each. It IS part of the `reset` sum
+      // (see the stamps-alone case below), because those drafts really did
+      // change state.
+      draft_services_invalidated: 2,
       month: 2,
       year: 2026,
       church_id: 'church-1',
@@ -315,7 +323,7 @@ describe('POST /api/availability/reset — success shape', () => {
   });
 
   it('reports reset: false on a repeat click so zero affected never reads as success', async () => {
-    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 0 }] });
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 0, draft_services_invalidated: 0 }] });
 
     const response = await POST(post({ month: 2, year: 2026, note: 'Retreat moved.' }) as never);
     const body = await response.json() as Record<string, unknown>;
@@ -328,11 +336,24 @@ describe('POST /api/availability/reset — success shape', () => {
   });
 
   it('reports reset: true when only unscoped rows were cleared', async () => {
-    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 19, remaining_blocking_dates: 0 }] });
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 19, remaining_blocking_dates: 0, draft_services_invalidated: 0 }] });
 
     const body = await (await POST(post({ month: 2, year: 2026, note: 'x' }) as never)).json() as Record<string, unknown>;
 
     expect(body.reset).toBe(true);
+  });
+
+  it('reports reset: true when the reset only invalidated future drafts (GH #97)', async () => {
+    // A month whose submissions were already reset can still have drafts built
+    // from the withdrawn availability. Stamping them IS a change, so reporting
+    // `reset: false` would tell the coordinator nothing happened while every
+    // write path now refuses those weeks.
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 0, draft_services_invalidated: 4 }] });
+
+    const body = await (await POST(post({ month: 2, year: 2026, note: 'x' }) as never)).json() as Record<string, unknown>;
+
+    expect(body.reset).toBe(true);
+    expect(body.draft_services_invalidated).toBe(4);
   });
 
   it('never reports reset: true for a disclosure alone', async () => {
@@ -340,7 +361,7 @@ describe('POST /api/availability/reset — success shape', () => {
     // NOT clear. If it were summed into `reset`, a call that changed nothing
     // would answer `reset: true` and the coordinator would read it as "a reset
     // happened" while a blocker survives.
-    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 7 }] });
+    resolveRpc({ data: [{ submissions_reset: 0, availability_reset: 0, unscoped_availability_reset: 0, remaining_blocking_dates: 7, draft_services_invalidated: 0 }] });
 
     const response = await POST(post({ month: 2, year: 2026, note: 'x' }) as never);
     const body = await response.json() as Record<string, unknown>;
@@ -385,10 +406,13 @@ describe('POST /api/availability/reset — success shape', () => {
  * the privilege boundary behind the coordinator gate (M-P).
  */
 describe('reset_month_availability migration — submission integrity invariant', () => {
-  const migrationPath = fileURLToPath(new URL('../../../../../supabase/migrations/20260929120000_reset_month_availability.sql', import.meta.url));
+  const migrationPath = fileURLToPath(new URL('../../../../../supabase/migrations/20261026120000_availability_reset_invalidates_month_drafts.sql', import.meta.url));
   const sql = readFileSync(migrationPath, 'utf8');
 
-  const functionBody = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.reset_month_availability'));
+  const functionBody = sql.slice(
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.reset_month_availability'),
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.validate_service_schedule'),
+  );
 
   it('never writes is_current or version anywhere in the function', () => {
     // is_current: unsetting it breaks availability_submissions_one_current and
@@ -515,11 +539,13 @@ describe('reset_month_availability migration — submission integrity invariant'
     expect(where).toContain('pg_catalog.make_date(p_year, p_month + 1, 1)');
   });
 
-  it('returns the disclosure as a fourth column and never folds it into the cleared counts', () => {
+  it('returns the disclosure as a fourth column and the draft count as a fifth, never folded together', () => {
     expect(functionBody).toContain('remaining_blocking_dates INTEGER');
     expect(functionBody).toContain('v_remaining_blocking_dates INTEGER := 0');
+    expect(functionBody).toContain('draft_services_invalidated INTEGER');
+    expect(functionBody).toContain('v_draft_services_invalidated INTEGER := 0');
     expect(functionBody).toMatch(
-      /RETURN QUERY SELECT v_submissions_reset, v_availability_reset, v_unscoped_availability_reset, v_remaining_blocking_dates;/
+      /RETURN QUERY SELECT v_submissions_reset, v_availability_reset, v_unscoped_availability_reset, v_remaining_blocking_dates, v_draft_services_invalidated;/
     );
   });
 
@@ -638,5 +664,123 @@ describe('reset_month_availability migration — submission integrity invariant'
     );
     expect(actorCheck).not.toBeNull();
     expect(actorCheck?.[0]).toContain("u.role IN ('admin', 'coordinator')");
+  });
+});
+
+/**
+ * GH #97. A reset used to be availability-only, so Line Up Songs kept rendering
+ * the month's drafts after the unavailability they were built from was
+ * withdrawn. The fix is a non-destructive stamp, and these pins cover the
+ * properties that make it safe: the scope, the idempotence, the audit rows, the
+ * refusal when a draft cannot be regenerated, and the date bound every guard
+ * shares.
+ */
+describe('availability-reset migration — GH #97 non-destructive invalidation', () => {
+  const migrationPath = fileURLToPath(new URL('../../../../../supabase/migrations/20261026120000_availability_reset_invalidates_month_drafts.sql', import.meta.url));
+  const sql = readFileSync(migrationPath, 'utf8');
+  const functionBody = sql.slice(
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.reset_month_availability'),
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.validate_service_schedule'),
+  );
+
+  it('adds the marker column instead of deleting or rebuilding anything', () => {
+    expect(sql).toContain('ALTER TABLE public.services ADD COLUMN availability_reset_at TIMESTAMPTZ;');
+    // Invalidation means leaving rows in place: a DELETE here would erase songs,
+    // assignments and versions, which is exactly what the issue forbids.
+    expect(functionBody).not.toMatch(/DELETE\s+FROM\s+public\.(services|schedule_assignments|song_lineups)/i);
+    expect(functionBody).not.toMatch(/TRUNCATE/i);
+  });
+
+  it('stamps every future draft of the month, and only those', () => {
+    const stamp = functionBody.match(/WITH stamped AS \(([\s\S]*?)\)\s+INSERT INTO public\.schedule_change_log/);
+    expect(stamp).not.toBeNull();
+    const update = stamp?.[1] ?? '';
+
+    expect(update).toMatch(/UPDATE public\.services s\s+SET availability_reset_at = pg_catalog\.now\(\)/);
+    expect(update).toContain('s.church_id = p_church_id');
+    expect(update).toContain('s.month = p_month');
+    expect(update).toContain('s.year = p_year');
+    expect(update).toContain("s.status = 'draft'");
+    // DATE SCOPE. Regeneration only reaches future weeks, so stamping a past
+    // week would brick it permanently: nothing could ever clear the stamp.
+    expect(update).toContain('s.date >= CURRENT_DATE');
+    // Idempotence: a repeat reset re-stamps and re-logs nothing.
+    expect(update).toContain('s.availability_reset_at IS NULL');
+  });
+
+  it('writes the audit row from the same statement, so count and log cannot diverge', () => {
+    // One data-modifying CTE: the UPDATE ... RETURNING feeds the INSERT, so a
+    // row can never be stamped without its log entry or logged without being
+    // stamped. Correlating later by timestamp would race.
+    expect(functionBody).toContain('WITH stamped AS (');
+    const log = functionBody.slice(functionBody.indexOf('INSERT INTO public.schedule_change_log'));
+    expect(log).toContain("'availability_reset'");
+    expect(log).toContain('FROM stamped;');
+    expect(functionBody).toContain('GET DIAGNOSTICS v_draft_services_invalidated = ROW_COUNT;');
+    // The reported count comes from that INSERT, not from a second query.
+    const countUses = functionBody.match(/GET DIAGNOSTICS v_draft_services_invalidated = ROW_COUNT;/g) ?? [];
+    expect(countUses).toHaveLength(1);
+  });
+
+  it('refuses with W0005 when a future draft already owns submitted songs, before and after the stamp', () => {
+    const guards = functionBody.match(/IF EXISTS \(\s*SELECT 1 FROM public\.services s[\s\S]*?ERRCODE = 'W0005';/g) ?? [];
+    // Two: one before the loop (a coordinator is still in front of the refusal)
+    // and one after the stamp (a concurrent save_song_lineup can land between
+    // the pre-check and here).
+    expect(guards).toHaveLength(2);
+    for (const guard of guards) {
+      expect(guard).toContain("s.status = 'draft'");
+      expect(guard).toContain('s.date >= CURRENT_DATE');
+      // ANY song_lineups row blocks regeneration: the delete trigger does not
+      // filter by lineup status, so a withdrawn lineup still protects its row.
+      expect(guard).toContain('EXISTS (SELECT 1 FROM public.song_lineups sl');
+      expect(guard).toContain('sl.service_id = s.id AND sl.church_id = s.church_id');
+    }
+    // The pre-check is before the submission loop; the re-assert is after the
+    // stamp. Both orderings are what close the window.
+    expect(functionBody.indexOf("ERRCODE = 'W0005'")).toBeLessThan(functionBody.indexOf('FOR v_submission IN'));
+    expect(functionBody.lastIndexOf("ERRCODE = 'W0005'")).toBeGreaterThan(functionBody.indexOf('WITH stamped AS ('));
+  });
+
+  it('keeps the submissions-then-services lock order', () => {
+    // persist_month_schedule locks the same two tables in this order; taking a
+    // services row lock first (or a FOR UPDATE in the stamp) would invert it.
+    const loopAt = functionBody.indexOf('FOR UPDATE OF s');
+    const stampAt = functionBody.indexOf('WITH stamped AS (');
+    expect(loopAt).toBeGreaterThan(-1);
+    expect(stampAt).toBeGreaterThan(loopAt);
+    expect(functionBody).not.toMatch(/FROM public\.services s[^;]*FOR UPDATE/);
+    expect(functionBody).not.toMatch(/pg_advisory/);
+  });
+
+  it('re-asserts 55000 after the stamp, so a concurrently validated month is not left invalidated', () => {
+    const postStamp = functionBody.slice(functionBody.indexOf('WITH stamped AS ('));
+    expect(postStamp).toContain("s.status IN ('validated', 'published')");
+    expect(postStamp).toContain("ERRCODE = '55000'");
+  });
+
+  it('guards the other four functions with the same date-scoped predicate and W0004', () => {
+    const guarded = [
+      'validate_service_schedule',
+      'publish_service_schedule',
+      'validate_month_schedule',
+      'save_song_lineup',
+    ];
+    for (const name of guarded) {
+      const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
+      expect(start).toBeGreaterThan(-1);
+      const next = sql.indexOf('CREATE OR REPLACE FUNCTION public.', start + 1);
+      const body = sql.slice(start, next === -1 ? sql.indexOf('REVOKE ALL ON FUNCTION') : next);
+      expect(body).toContain('availability_reset_at IS NOT NULL');
+      // Every guard ignores a stamp whose week has already passed: that stamp
+      // can never be cleared, so honouring it would permanently lock the month.
+      expect(body).toContain('date >= CURRENT_DATE');
+      expect(body).toContain("ERRCODE = 'W0004'");
+    }
+  });
+
+  it('reloads the PostgREST schema cache as the last statement', () => {
+    const statements = sql.trimEnd().split('\n').filter((line) => line.trim() && !line.trim().startsWith('--'));
+    expect(statements.at(-1)).toBe("NOTIFY pgrst, 'reload schema';");
   });
 });
