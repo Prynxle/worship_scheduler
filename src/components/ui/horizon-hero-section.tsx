@@ -104,7 +104,7 @@ export const Component = () => {
       refs.renderer.setSize(window.innerWidth, window.innerHeight);
       refs.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       refs.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      refs.renderer.toneMappingExposure = 0.5;
+      refs.renderer.toneMappingExposure = 0.4;
 
       // Post-processing
       refs.composer = new EffectComposer(refs.renderer);
@@ -113,9 +113,9 @@ export const Component = () => {
 
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.8,
-        0.4,
-        0.85
+        0.45,
+        0.3,
+        0.9
       );
       refs.composer.addPass(bloomPass);
 
@@ -231,7 +231,7 @@ export const Component = () => {
           time: { value: 0 },
           color1: { value: new THREE.Color(0x0033ff) },
           color2: { value: new THREE.Color(0xff0066) },
-          opacity: { value: 0.3 }
+           opacity: { value: 0.2 }
         },
         vertexShader: `
           varying vec2 vUv;
@@ -353,7 +353,7 @@ export const Component = () => {
             float pulse = sin(time * 2.0) * 0.1 + 0.9;
             atmosphere *= pulse;
             
-            gl_FragColor = vec4(atmosphere, intensity * 0.25);
+            gl_FragColor = vec4(atmosphere, intensity * 0.15);
           }
         `,
         side: THREE.BackSide,
