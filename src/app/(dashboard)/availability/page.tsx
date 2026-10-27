@@ -319,7 +319,20 @@ export default function AvailabilityPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {readinessLoading ? <Skeleton className="h-4 w-32" /> : readiness ? <p className="text-sm text-muted-foreground">{readiness.approved_count} approved · {readiness.outstanding_count} outstanding</p> : <p className="text-sm text-destructive">Readiness unavailable</p>}
-              <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}><SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48"><SelectValue placeholder="Choose ministry" /></SelectTrigger><SelectContent>{(readiness?.ministries ?? []).map((ministry) => <SelectItem key={ministry.id} value={ministry.id}>{ministry.name}</SelectItem>)}</SelectContent></Select>
+              <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}>
+                <SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48">
+                  <SelectValue placeholder="Choose ministry">
+                    {(value: string) => (readiness?.ministries ?? []).find((ministry) => ministry.id === value)?.name ?? 'Choose ministry'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(readiness?.ministries ?? []).map((ministry) => (
+                    <SelectItem key={ministry.id} value={ministry.id}>
+                      {ministry.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {isStaff ? (
                 <Button variant="destructive" size="lg" onClick={() => { setResetMessage(''); setResetError(''); setResetOpen(true); }} disabled={resetting}>
                   Reset {monthLabel} availability
