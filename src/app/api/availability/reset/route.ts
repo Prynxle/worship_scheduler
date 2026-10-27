@@ -24,6 +24,15 @@ import { isPostgrestError, jsonError, type ErrorContext } from '@/lib/api/errors
  * takes its absence rows out of the status IN ('pending','approved') set that
  * the scheduling engine reads, and it records one review-log row per submission
  * carrying the prior statuses so the action is reversible.
+ *
+ * The reset does NOT leave the month's schedules untouched. The RPC also stamps
+ * every FUTURE-DATED draft of the month with `services.availability_reset_at`
+ * and writes one `schedule_change_log` row per stamped service, because those
+ * drafts were built from the unavailability the coordinator just withdrew.
+ * Nothing is deleted: assignments, songs, versions and history all survive. A
+ * stamped draft stops appearing on Line Up Songs and is refused by validate,
+ * publish, edit and song submission until the month is regenerated. Weeks that
+ * have already passed are left alone, because regeneration cannot reach them.
  */
 
 /** The counts `reset_month_availability` returns, one row. */
@@ -45,6 +54,13 @@ type ResetCounts = {
    * nothing was left to clear while a blocker remains.
    */
   remaining_blocking_dates: number;
+  /**
+   * Future-dated drafts of the month that were stamped out of date by this
+   * call, each with its own `schedule_change_log` row. It counts as a change:
+   * a reset that only invalidated drafts genuinely happened, and reporting
+   * `reset: false` for it would read as "nothing was done".
+   */
+  draft_services_invalidated: number;
 };
 
 /**
@@ -73,6 +89,11 @@ const RESET_SQLSTATE_TO_HTTP: Record<string, { status: number; code: string; mes
     status: 409,
     code: 'object_not_in_prerequisite_state',
     message: "This month's availability cannot be reset while it has a validated or published schedule.",
+  },
+  W0005: {
+    status: 409,
+    code: 'availability_reset_song_lineups_pending',
+    message: 'This month has draft weeks with submitted song lineups. Those weeks cannot be regenerated without erasing the songs, so availability cannot be reset for this month. Choose a month without submitted songs.',
   },
   '40P01': {
     status: 503,
@@ -189,19 +210,24 @@ export async function POST(request: NextRequest) {
     const availabilityReset = toCount(row.availability_reset);
     const unscopedAvailabilityReset = toCount(row.unscoped_availability_reset);
     const remainingBlockingDates = toCount(row.remaining_blocking_dates);
+    const draftServicesInvalidated = toCount(row.draft_services_invalidated);
 
     return NextResponse.json({
       // Explicit, so a repeat click reads honestly as "0 affected" instead of a
-      // silent success: this is false when the month had nothing left to clear.
+      // silent success: this is false when the month had nothing left to clear
+      // and no draft to invalidate. A reset that only stamped drafts DID change
+      // the month -- those drafts are now refused by every write path -- so the
+      // stamp count belongs in this sum.
       // `remaining_blocking_dates` is deliberately NOT part of this sum. It is a
       // disclosure about blockers the reset did not and will not touch, not
       // evidence that this call changed anything; folding it in would report
       // `reset: true` for a call that cleared nothing.
-      reset: submissionsReset + availabilityReset + unscopedAvailabilityReset > 0,
+      reset: submissionsReset + availabilityReset + unscopedAvailabilityReset + draftServicesInvalidated > 0,
       submissions_reset: submissionsReset,
       availability_reset: availabilityReset,
       unscoped_availability_reset: unscopedAvailabilityReset,
       remaining_blocking_dates: remainingBlockingDates,
+      draft_services_invalidated: draftServicesInvalidated,
       month,
       year,
       church_id: auth.churchId,

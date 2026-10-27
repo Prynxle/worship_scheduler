@@ -271,6 +271,15 @@ export interface Service {
   published_by?: string | null;
   revision_of?: string | null;
   /**
+   * Set by `reset_month_availability` on the month's future-dated drafts when a
+   * coordinator resets that month's unavailability. The schedule was built from
+   * availability that has been withdrawn, so it is stale until the month is
+   * regenerated. Nothing is deleted by the reset; this column is the marker the
+   * read guards and routes use. A stamp on a service whose date has passed is
+   * ignored everywhere, because regeneration only reaches future weeks.
+   */
+  availability_reset_at?: string | null;
+  /**
    * Positions the generator could not fill, with the reason each was rejected.
    * The single READ authority for gaps: `GET /api/schedule` serves this column
    * and never recomputes it. Written by the engine's draft pass and by

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvailabilityReadiness } from '@/lib/scheduling/availability-readiness';
+import { isStaleDraft } from '@/lib/scheduling/availability-reset';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { activeMonthServices, isServiceValidatedForVersion, serviceNeedsValidation, summarizeMonth } from '@/lib/scheduling/month-workflow';
 import { validationFailureMessage } from '@/lib/scheduling/validation-feedback';
@@ -47,6 +48,12 @@ type ScheduleItem = {
   revision_of?: string | null;
   validated_version?: number | null;
   published_at?: string | null;
+  /**
+   * Set when the month's availability was reset after this draft was generated
+   * (`reset_month_availability`). See `isStaleDraft`: only a FUTURE-dated stamp
+   * counts, because regeneration cannot reach a week that has already passed.
+   */
+  availability_reset_at?: string | null;
   assignments: EditableAssignment[];
   /** Served from `services.unfilled_positions`; never recomputed by the client. */
   unfilled_positions?: UnfilledPosition[];
@@ -180,6 +187,11 @@ export default function SchedulePage() {
 
   const selectedService = schedules.find((item) => item.date === selectedDate);
   const editingService = schedules.find((item) => item.id === editingId);
+  // A stamped draft was built from availability the coordinator has since
+  // withdrawn. It must not be edited, validated or published until the month is
+  // regenerated; the server refuses it too, this only stops the dead end being
+  // offered in the first place. `isStaleDraft` ignores past-dated stamps.
+  const selectedServiceIsStale = Boolean(selectedService && isStaleDraft(selectedService));
   // Month-granular, matching `replace_service_assignments`/`persist_month_schedule`:
   // a service earlier in the CURRENT month is still editable, so only a whole past
   // month locks the controls. See `isMonthBefore`.
@@ -194,6 +206,10 @@ export default function SchedulePage() {
     [schedules],
   );
   const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  // One truthful notice: `isStaleDraft` only reports a service whose date is
+  // today or later, so a past month can never reach this copy. No past-month
+  // variant is needed, and inventing one would describe a state that cannot exist.
+  const staleNotice = `Availability for ${monthLabel} was reset after this draft was generated, so it is out of date. It cannot be validated, published or edited. Regenerate the month once availability is approved again.`;
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const calendarCells = Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
@@ -500,6 +516,12 @@ export default function SchedulePage() {
             {selectedService ? (
               <div className="space-y-5">
                 <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Service status</span><div className="flex items-center gap-2"><Badge variant={selectedService.status === 'published' ? 'default' : 'outline'} className="capitalize">{selectedService.legacy_unscoped ? 'Legacy · ministry unknown' : selectedService.status}</Badge>{selectedService.is_complete === false && !selectedService.legacy_unscoped ? <Badge variant="outline" className="border-[oklch(0.70_0.08_80)]/45 text-[oklch(0.52_0.09_62)]">Incomplete</Badge> : null}</div></div>
+                {selectedServiceIsStale ? (
+                  <div role="status" className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-destructive">Out of date</p>
+                    <p className="mt-1 text-sm leading-6 text-foreground">{staleNotice}</p>
+                  </div>
+                ) : null}
                 {selectedService.is_complete === false && selectedService.unfilled_positions?.length ? (
                   <div role="status" className="rounded-2xl border border-[oklch(0.70_0.08_80)]/40 bg-[oklch(0.70_0.08_80)]/5 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[oklch(0.52_0.09_62)]">Still unfilled</p>
@@ -557,7 +579,7 @@ export default function SchedulePage() {
             <Button type="button" variant="outline" className="h-10" disabled={exportingPdf || loading} onClick={() => setExportDialogOpen(true)}>
               <Download className="mr-2 h-4 w-4" />Export PDF
             </Button>
-            {selectedService && !selectedService.legacy_unscoped ? (
+            {selectedService && !selectedService.legacy_unscoped && !selectedServiceIsStale ? (
               <>
                 {['draft', 'validated'].includes(selectedService.status) && (!monthIsPast || selectedService.revision_of) ? <Button type="button" className="h-10" onClick={() => setEditingId(selectedService.id)}>Edit lineup</Button> : null}
                 {serviceNeedsValidation(selectedService) ? <Button type="button" variant="outline" className="h-10" disabled={working} aria-busy={workingAction === 'validate'} onClick={() => void validate(selectedService)}><ShieldCheck className="mr-2 h-4 w-4" />{workingAction === 'validate' ? 'Validating…' : 'Validate'}</Button> : isServiceValidatedForVersion(selectedService) ? <Button type="button" className="h-10" onClick={() => setConfirmAction({ kind: 'publish', service: selectedService })}><Check className="mr-2 h-4 w-4" />Publish</Button> : selectedService.status === 'published' ? <Button type="button" variant="outline" className="h-10" onClick={() => setConfirmAction({ kind: 'revision', service: selectedService })}><Clock3 className="mr-2 h-4 w-4" />Create amendment</Button> : null}
@@ -566,6 +588,11 @@ export default function SchedulePage() {
             <Input aria-label="Search monthly lineups" placeholder="Search assigned members" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 sm:max-w-xs" />
           </div>
         </div>
+        {selectedServiceIsStale ? (
+          <p role="status" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-foreground">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{staleNotice}
+          </p>
+        ) : null}
         {monthPipeline.incomplete.length > 0 ? (
           <p role="status" className="flex items-center gap-2 rounded-xl border border-[oklch(0.70_0.08_80)]/35 bg-[oklch(0.70_0.08_80)]/5 px-4 py-2.5 text-sm text-[oklch(0.52_0.09_62)]">
             <AlertTriangle className="h-4 w-4 shrink-0" />{monthPipeline.incomplete.length} {monthPipeline.incomplete.length === 1 ? 'service still has' : 'services still have'} unfilled positions ({monthPipeline.incomplete.map((item) => `Week ${item.week_number}`).join(', ')}). Gaps must be filled before a service can be validated or published.
