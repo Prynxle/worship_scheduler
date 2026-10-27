@@ -4,7 +4,7 @@ import {
   ValidationStage,
 } from '../types/scheduling';
 import { Member } from '../types/database';
-import { isWeeklyUnavailable } from './availability';
+import { isUnavailableForService } from './availability';
 import { isBackupRoleName, isWorshipLeaderRoleName } from './role-classifier';
 import {
   assignmentLimitFor,
@@ -90,27 +90,14 @@ export class ScheduleValidator {
       const member = this.context.all_members.find((m) => m.id === assignment.member_id);
       if (!member) continue;
 
-      const isUnavailable = member.availability?.some((a) => {
-        if (!['pending', 'approved'].includes(a.status)) return false;
-        if (isWeeklyUnavailable(a, this.context.service.week_number, this.context.service.month, this.context.service.year)) {
-          return true;
-        }
-        if (a.type === 'recurring' && a.week_number === this.context.service.week_number &&
-          (a.month == null || a.month === this.context.service.month) &&
-          (a.year == null || a.year === this.context.service.year)) {
-          return true;
-        }
-        if (a.type === 'date' && a.date) {
-          return this.sameDate(a.date, this.context.service.date);
-        }
-        if (['vacation', 'temporary_leave', 'emergency_leave', 'recurring'].includes(a.type) && a.date) {
-          const serviceDate = new Date(`${this.context.service.date.slice(0, 10)}T00:00:00`);
-          const start = new Date(a.date);
-          const end = a.end_date ? new Date(a.end_date) : start;
-          return serviceDate >= start && serviceDate <= end;
-        }
-        return false;
-      });
+      const isUnavailable = member.availability?.some((a) =>
+        isUnavailableForService(a, {
+          week_number: this.context.service.week_number,
+          month: this.context.service.month,
+          year: this.context.service.year,
+          date: this.context.service.date,
+        })
+      );
 
       if (isUnavailable) {
         results.push(this.report({
@@ -445,9 +432,5 @@ export class ScheduleValidator {
     }
 
     return counts;
-  }
-
-  private sameDate(left: string, right: string): boolean {
-    return new Date(left).toISOString().slice(0, 10) === new Date(right).toISOString().slice(0, 10);
   }
 }
