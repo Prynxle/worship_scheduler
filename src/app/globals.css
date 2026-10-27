@@ -472,12 +472,14 @@
   font-size: clamp(0.875rem, 1.8vw, 1.25rem);
   font-weight: 300;
   letter-spacing: 0.05em;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.95);
   line-height: 1.6;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 0, 0, 0.6);
 }
 
 .subtitle-line {
   margin: 0.25rem 0;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 0, 0, 0.6);
 }
 
 .scripture-link {
