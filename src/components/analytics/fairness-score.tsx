@@ -9,12 +9,9 @@ import { FairnessReport } from '@/lib/types/scheduling';
 interface FairnessScoreProps {
   overallScore: number;
   reports: FairnessReport[];
-  /** Optional cap for compact placements; the Fairness tab passes no cap. */
-  limit?: number;
 }
 
-export function FairnessScore({ overallScore, reports, limit }: FairnessScoreProps) {
-  const visibleReports = limit ? reports.slice(0, limit) : reports;
+export function FairnessScore({ overallScore, reports }: FairnessScoreProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'underutilized':
@@ -50,65 +47,29 @@ export function FairnessScore({ overallScore, reports, limit }: FairnessScorePro
 
         <Progress value={overallScore} className="h-2" />
 
-        {reports.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No active members with assignments for this month.
-          </p>
-        ) : (
-          <>
-            <div className="space-y-0">
-              {visibleReports.map((report) => {
-                const atLimit = report.assignment_count >= report.max_allowed;
-                const overLimit = report.assignment_count > report.max_allowed;
-                const badgeLabel = overLimit ? 'over limit' : atLimit ? 'at limit' : report.status;
-
-                return (
-                  <div
-                    key={report.member_id}
-                    className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-medium text-muted-foreground">
-                        {report.member_name
-                          .split(' ')
-                          .map((n) => n[0])
-                          .join('')}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {report.member_name}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {report.assignment_count}/{report.max_allowed} assignments ·{' '}
-                          {Math.round(report.utilization)}% of limit · score{' '}
-                          {Math.round(report.fairness_score)}
-                        </div>
-                      </div>
-                    </div>
-                    <Badge
-                      className={
-                        atLimit
-                          ? 'shrink-0 bg-destructive/15 text-destructive border-destructive/20'
-                          : getStatusColor(report.status)
-                      }
-                    >
-                      {badgeLabel}
-                    </Badge>
+        <div className="space-y-0">
+          {reports.slice(0, 10).map((report) => (
+            <div
+              key={report.member_id}
+              className="flex items-center justify-between py-2.5 border-b border-border last:border-0"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center text-sm font-medium text-muted-foreground">
+                  {report.member_name.split(' ').map((n) => n[0]).join('')}
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-foreground">{report.member_name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {report.assignment_count}/{report.max_allowed} assignments
                   </div>
-                );
-              })}
+                </div>
+              </div>
+              <Badge className={getStatusColor(report.status)}>
+                {report.status}
+              </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Member score is 100 at the 60% workload target and falls as workload moves away
-              from it. Overall is the mean member score.
-            </p>
-            {limit !== undefined && reports.length > limit ? (
-              <p className="text-xs text-muted-foreground">
-                Showing the {limit} most-assigned members. The Fairness tab lists everyone.
-              </p>
-            ) : null}
-          </>
-        )}
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

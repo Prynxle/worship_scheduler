@@ -245,9 +245,6 @@ export interface WorkloadEntry {
   member_id: string;
   member_name: string;
   assignments: number;
-  /** The member's monthly assignment limit, so the chart can show count against limit. */
-  max_allowed: number;
-  /** Assignment count as a percentage of the limit. */
   percentage: number;
 }
 
