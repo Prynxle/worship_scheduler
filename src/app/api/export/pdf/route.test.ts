@@ -41,11 +41,20 @@ const auth = { userId: 'user-1', churchId: 'church-1' } as never;
 
 const insert = vi.fn();
 const maybeSingle = vi.fn();
+function makeDeleteChain() {
+  const chain: Record<string, unknown> = {};
+  chain.eq = vi.fn(() => chain);
+  chain.is = vi.fn(() => chain);
+  chain.in = vi.fn(() => chain);
+  chain.then = (resolve: (value: unknown) => void) => resolve({ error: null });
+  return chain;
+}
+const deleteFn = vi.fn(() => makeDeleteChain());
 function mockAdmin() {
   getAdminClient.mockReturnValue({
     from: vi.fn((table: string) =>
       table === 'church_exports'
-        ? { insert }
+        ? { insert, delete: deleteFn }
         : { select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) }
     ),
   });
