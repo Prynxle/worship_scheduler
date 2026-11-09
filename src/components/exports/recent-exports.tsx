@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { downloadBlob } from '@/lib/export/download-blob';
 import type { ChurchExport } from '@/lib/types/database';
-import { Download, FileText } from 'lucide-react';
+import { Download, FileText, Trash2 } from 'lucide-react';
 
 function monthLabel(month: number, year: number) {
   return new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -39,6 +39,7 @@ export function RecentExports({ refreshKey = 0 }: { refreshKey?: number }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState('');
+  const [deletingId, setDeletingId] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +73,25 @@ export function RecentExports({ refreshKey = 0 }: { refreshKey?: number }) {
       setError(e instanceof Error ? e.message : 'Failed to download export');
     } finally {
       setDownloadingId('');
+    }
+  }
+
+  async function handleDelete(item: ChurchExport) {
+    setDeletingId(item.id);
+    try {
+      const response = await fetch(`/api/export/delete/${item.id}`, {
+        method: 'DELETE',
+        headers: await sessionHeaders(),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: 'Failed to delete export' }));
+        throw new Error(body.error || 'Failed to delete export');
+      }
+      setExports((prev) => prev.filter((e) => e.id !== item.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete export');
+    } finally {
+      setDeletingId('');
     }
   }
 
@@ -109,16 +129,27 @@ export function RecentExports({ refreshKey = 0 }: { refreshKey?: number }) {
                     </div>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={downloadingId === item.id}
-                  onClick={() => void download(item)}
-                >
-                  <Download className="mr-1 h-4 w-4" />
-                  {downloadingId === item.id ? 'Loading…' : 'Download'}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={downloadingId === item.id}
+                    onClick={() => void download(item)}
+                  >
+                    <Download className="mr-1 h-4 w-4" />
+                    {downloadingId === item.id ? 'Loading…' : 'Download'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label="Delete export"
+                    disabled={deletingId === item.id}
+                    onClick={() => void handleDelete(item)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingId === item.id ? 'Deleting…' : ''}
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
