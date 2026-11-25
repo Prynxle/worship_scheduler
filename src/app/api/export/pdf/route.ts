@@ -84,13 +84,36 @@ export async function POST(request: NextRequest) {
     // error is logged so the gap stays observable. The file is stored as an
     // explicit base64 string (PostgREST does not decode JSON base64 into
     // bytea), mirroring the base64 logo handling above.
+    //
+    // Dedup: remove any previously recorded export for the same church/month/
+    // year/week scope before inserting, so a repeated generation does not
+    // create duplicate PDF records. The coordinator can delete an export and
+    // regenerate it when needed. Recording stays non-fatal throughout.
+    const weekNumbers = weekFilter ? Array.from(weekFilter).sort((a, b) => a - b) : null;
+    try {
+      let dedupQuery = admin
+        .from('church_exports')
+        .delete()
+        .eq('church_id', auth.churchId)
+        .eq('month', month)
+        .eq('year', year)
+        .eq('format', 'pdf');
+      if (weekNumbers && weekNumbers.length > 0) {
+        dedupQuery = dedupQuery.eq('week_numbers', '{' + weekNumbers.join(',') + '}');
+      } else {
+        dedupQuery = dedupQuery.is('week_numbers', null);
+      }
+      await dedupQuery;
+    } catch (dedupError) {
+      console.error('Failed to deduplicate schedule export:', dedupError);
+    }
     try {
       await admin.from('church_exports').insert({
         church_id: auth.churchId,
         created_by: auth.userId,
         month,
         year,
-        week_numbers: weekFilter ? Array.from(weekFilter) : null,
+        week_numbers: weekNumbers,
         format: 'pdf',
         filename,
         file_size: fileBuffer.byteLength,
