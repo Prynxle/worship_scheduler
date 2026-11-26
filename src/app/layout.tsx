@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   title: "Jesus Our Hope International Assemblies",
   description: "Jesus Our Hope International Assemblies",
   icons: {
-    icon: "/icon-removebg-preview.png",
+    icon: [{ url: "/icon-removebg-preview.png", sizes: "256x256", type: "image/png" }],
   },
 };
 

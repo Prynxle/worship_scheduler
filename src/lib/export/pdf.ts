@@ -246,7 +246,8 @@ export function generateSchedulePDF(data: ScheduleForExport): jsPDF {
 
   if (data.churchLogoUrl) {
     try {
-      doc.addImage(data.churchLogoUrl, 'PNG', margin, logoY, logoSize, logoSize);
+      const format = data.churchLogoUrl.toLowerCase().includes('data:image/jpeg') ? 'JPEG' : 'PNG';
+      doc.addImage(data.churchLogoUrl, format, margin, logoY, logoSize, logoSize);
     } catch {
       // ignore logo if it fails
     }

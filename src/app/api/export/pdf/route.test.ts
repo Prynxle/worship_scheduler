@@ -168,3 +168,62 @@ describe('POST /api/export/pdf', () => {
     expect(response.headers.get('content-type')).toBe('application/pdf');
   });
 });
+
+describe('POST /api/export/pdf fetch hardening', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireStaff.mockResolvedValue(auth);
+    loadScheduleData.mockResolvedValue({
+      services: [storedService()],
+      assignments: [],
+      members: [], roles: [], instruments: [], rules: [], config: {}, monthlyAssignments: [],
+    });
+    transformServiceAssignments.mockImplementation((service: Service) => service);
+    generateSchedulePDF.mockReturnValue({ output: vi.fn().mockReturnValue(new ArrayBuffer(6)) });
+    insert.mockResolvedValue({ error: null });
+    deleteFn.mockImplementation(() => makeDeleteChain());
+    mockAdmin();
+  });
+
+  it('aborts a hanging remote fetch after 5s and still returns the PDF', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    vi.resetModules();
+    vi.doMock('node:fs/promises', () => ({ readFile: vi.fn().mockRejectedValue(new Error('ENOENT')) }));
+    const { POST: HardenedPOST } = await import('./route');
+
+    maybeSingle.mockResolvedValue({ data: { name: 'Test Church', logo_url: 'https://example.com/logo.png' }, error: null });
+    mockAdmin();
+
+    const promise = HardenedPOST(postRequest({ month: 9, year: 2026 }));
+    await vi.advanceTimersByTimeAsync(5000);
+    const response = await promise;
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
+
+    vi.doUnmock('node:fs/promises');
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('is non-fatal when the fallback file is missing', async () => {
+    vi.resetModules();
+    vi.doMock('node:fs/promises', () => ({ readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })) }));
+    const { POST: HardenedPOST } = await import('./route');
+
+    maybeSingle.mockResolvedValue({ data: { name: 'Test Church', logo_url: null }, error: null });
+    mockAdmin();
+
+    const response = await HardenedPOST(postRequest({ month: 9, year: 2026 }));
+    expect(response.status).toBe(200);
+
+    vi.doUnmock('node:fs/promises');
+  });
+});
