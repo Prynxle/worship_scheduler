@@ -1,6 +1,6 @@
 // Single source of truth for the role-name predicates shared by the schedule
 // reader (GET /api/schedule), the schedule writer (POST /api/schedule), the
-// scheduling engine, the validator, and the mock-unavailability planner.
+// scheduling engine and the validator.
 //
 // Guard rail: this module may only ever WIDEN a predicate. The pre-classifier
 // predicates were:
