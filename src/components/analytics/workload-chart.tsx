@@ -18,7 +18,9 @@ interface WorkloadChartProps {
 export function WorkloadChart({ data }: WorkloadChartProps) {
   const chartData = data.map((entry) => ({
     name: entry.member_name.split(' ')[0],
+    fullName: entry.member_name,
     assignments: entry.assignments,
+    max_allowed: entry.max_allowed,
     percentage: entry.percentage,
   }));
 
@@ -31,7 +33,13 @@ export function WorkloadChart({ data }: WorkloadChartProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <WorkloadChartCanvas data={chartData} />
+        {data.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No assignments to chart for this month.
+          </p>
+        ) : (
+          <WorkloadChartCanvas data={chartData} />
+        )}
       </CardContent>
     </Card>
   );

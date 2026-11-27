@@ -125,7 +125,7 @@ The approved lazy boundaries were implemented without changing scheduling, auth,
 
 - `/` is now a Server Component. Its hero copy, links and CSS fallback are in the prerendered HTML; `HeroSceneBoundary` fetches `horizon-hero-scene.tsx` (Three.js + GSAP) only after mount and only when the user has not requested reduced motion.
 - `EventCalendar` defers `@fullcalendar/react` to `event-calendar-grid.tsx` behind an accessible, fixed-height skeleton. Auth headers, request sequencing, realtime cleanup, day-cell keyboard handlers and event dialog guards remain in the owner component or the lazy grid.
-- The analytics page is now a Server Component with static mock data and tabs. `WorkloadChart` defers Recharts to `workload-chart-canvas.tsx` behind a fixed-height skeleton.
+- The analytics page remains a Client Component because it fetches tenant-scoped data from `/api/analytics`; after merging main's analytics work, `WorkloadChart` still defers Recharts to `workload-chart-canvas.tsx` behind a fixed-height skeleton, and the empty/error/loading states and month selector remain intact.
 - `Sidebar` no longer imports `motion/react`; equivalent entrance animations are CSS keyframes under `prefers-reduced-motion: no-preference`.
 - PDF remains server-side. `jspdf` and unused `html2canvas` dependencies were retained.
 
@@ -143,7 +143,7 @@ git diff --check
 git status --short --branch
 ```
 
-The final `npm run build` exited `0`, compiled successfully in `5.6s`, completed TypeScript in `8.4s`, and generated `42/42` static pages in `518ms`. The pre-existing custom `Cache-Control` warning for `/_next/static/:path*` was still emitted; no new build warning or error was introduced.
+The final `npm run build` exited `0`, compiled successfully in `6.0s`, completed TypeScript in `9.4s`, and generated `43/43` static pages in `543ms`. The pre-existing custom `Cache-Control` warning for `/_next/static/:path*` was still emitted; no new build warning or error was introduced.
 
 ## 9. First Load JS table (post-change)
 
@@ -152,7 +152,7 @@ Uncompressed bytes; derived exactly as in section 2.
 | Route | First Load JS (bytes) | First Load JS (KiB) | Scripts |
 |---|---:|---:|---:|
 | `/` | 636,885 | 622.0 | 10 |
-| `/analytics` | 1,160,232 | 1,133.0 | 18 |
+| `/analytics` | 1,217,929 | 1,189.4 | 20 |
 | `/announcements` | 1,201,173 | 1,173.0 | 19 |
 | `/availability` | 1,206,304 | 1,178.0 | 19 |
 | `/dashboard` | 1,265,492 | 1,235.8 | 19 |
@@ -172,8 +172,8 @@ Uncompressed bytes; derived exactly as in section 2.
 
 | Metric | Pre-change | Post-change | Delta |
 |---|---:|---:|---:|
-| JavaScript files under `.next/static/chunks` (recursive) | 41 | 44 | +3 |
-| Total uncompressed JavaScript bytes | 3,302,790 | 3,411,761 | +108,971 |
+| JavaScript files under `.next/static/chunks` (recursive) | 41 | 45 | +4 |
+| Total uncompressed JavaScript bytes | 3,302,790 | 3,415,488 | +112,698 |
 
 The total generated JS increased because heavy modules were split into separate lazy chunks and small wrapper/skeleton modules were added. First Load JS decreased because those heavy chunks are no longer in the prerendered script sets for their routes.
 
@@ -201,7 +201,7 @@ Uncompressed bytes. Negative values are reductions.
 | Route | Pre-change | Post-change | Delta | Change |
 |---|---:|---:|---:|---:|
 | `/` | 1,325,377 | 636,885 | -688,492 | -51.9% |
-| `/analytics` | 1,637,338 | 1,160,232 | -477,106 | -29.1% |
+| `/analytics` | 1,637,338 | 1,217,929 | -419,409 | -25.6% |
 | `/announcements` | 1,321,609 | 1,201,173 | -120,436 | -9.1% |
 | `/availability` | 1,326,740 | 1,206,304 | -120,436 | -9.1% |
 | `/dashboard` | 1,266,515 | 1,265,492 | -1,023 | -0.1% |

@@ -42,7 +42,7 @@ describe('issue #127 client boundaries', () => {
     expect(grid).toContain('gotoDate');
   });
 
-  it('defers Recharts and keeps the analytics shell server-rendered', () => {
+  it('defers Recharts while preserving tenant-scoped analytics data', () => {
     const chart = source('./analytics/workload-chart.tsx');
     const canvas = source('./analytics/workload-chart-canvas.tsx');
     const page = source('../app/(dashboard)/analytics/page.tsx');
@@ -50,7 +50,8 @@ describe('issue #127 client boundaries', () => {
     expect(chart).not.toContain("from 'recharts'");
     expect(chart).toContain('ssr: false');
     expect(canvas).toContain("from 'recharts'");
-    expect(page).not.toMatch(/^\s*['"]use client['"]/m);
+    expect(page).toContain('/api/analytics');
+    expect(page).toContain('Bearer ${session.access_token}');
     expect(page.match(/<WorkloadChart\s/g) ?? []).toHaveLength(2);
   });
 
