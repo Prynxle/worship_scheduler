@@ -117,8 +117,8 @@ export function getCurrentWeekNumber(now: Date = new Date()): number {
 /**
  * The 0-based month index stored in `services.month`.
  *
- * A NAMED mirror of the inline `date.getMonth()` the schedule writer and
- * mock-unavailability route used to duplicate. Both are 0-based, matching the
+ * A named mirror of the inline `date.getMonth()` in the schedule writer.
+ * Availability month handling is 0-based, matching the
  * `get_month`/`set_service_month` SQL contract; the single named export makes
  * the indexing convention greppable instead of implicit.
  */
