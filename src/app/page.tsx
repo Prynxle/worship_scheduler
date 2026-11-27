@@ -1,10 +1,8 @@
-'use client';
-
 import { Component } from '@/components/ui/horizon-hero-section';
 
 /**
- * Landing page (client component) for Jesus Our Hope International Assemblies.
- * Hero section from 21st.dev Horizon component.
+ * Landing page (Server Component). The hero copy and links are server-rendered;
+ * only the WebGL/GSAP scene is a lazy client chunk.
  */
 export default function Home() {
   return <Component />;

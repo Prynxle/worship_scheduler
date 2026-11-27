@@ -88,8 +88,19 @@
   --sidebar-accent-foreground: oklch(0.72 0.030 65);
   --sidebar-border: oklch(0.62 0.020 70 / 0.08);
   --sidebar-ring: oklch(0.72 0.030 65 / 0.25);
+  /* Semantic tokens for shadows, glow, blur, and motion durations. */
+  --shadow-layered: 0 1px 2px oklch(0 0 0 / 0.06), 0 4px 8px oklch(0 0 0 / 0.08), 0 12px 24px oklch(0 0 0 / 0.12);
+  --shadow-card-glow: 0 0 0 1px oklch(0.72 0.030 65 / 0.12), 0 4px 16px oklch(0 0 0 / 0.35);
+  --shadow-sidebar-logo: 0 8px 24px -10px var(--primary);
+  --glow-primary: oklch(0.72 0.030 65 / 0.08);
+  --blur-sm: 4px;
+  --blur-xl: 24px;
+  --dur-fast: 0.15s;
+  --dur-base: 0.2s;
+  --dur-medium: 0.3s;
+  --dur-slow: 0.4s;
+  --dur-slower: 0.5s;
 }
-
 .dark {
   --background: oklch(0.14 0.012 60);
   --foreground: oklch(0.92 0.005 70);
@@ -128,6 +139,18 @@
   --sidebar-accent-foreground: oklch(0.72 0.030 65);
   --sidebar-border: oklch(0.62 0.020 70 / 0.08);
   --sidebar-ring: oklch(0.72 0.030 65 / 0.25);
+  /* Semantic tokens for shadows, glow, blur, and motion durations. */
+  --shadow-layered: 0 1px 2px oklch(0 0 0 / 0.06), 0 4px 8px oklch(0 0 0 / 0.08), 0 12px 24px oklch(0 0 0 / 0.12);
+  --shadow-card-glow: 0 0 0 1px oklch(0.72 0.030 65 / 0.12), 0 4px 16px oklch(0 0 0 / 0.35);
+  --shadow-sidebar-logo: 0 8px 24px -10px var(--primary);
+  --glow-primary: oklch(0.72 0.030 65 / 0.08);
+  --blur-sm: 4px;
+  --blur-xl: 24px;
+  --dur-fast: 0.15s;
+  --dur-base: 0.2s;
+  --dur-medium: 0.3s;
+  --dur-slow: 0.4s;
+  --dur-slower: 0.5s;
 }
 
 @layer base {
@@ -144,18 +167,18 @@
 
 @layer utilities {
   .card-glow {
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    transition: box-shadow var(--dur-base) ease, border-color var(--dur-base) ease;
   }
   .card-glow:hover {
-    box-shadow: 0 0 0 1px oklch(0.72 0.030 65 / 0.12), 0 4px 16px oklch(0 0 0 / 0.35);
+    box-shadow: var(--shadow-card-glow);
     border-color: oklch(0.72 0.030 65 / 0.18);
   }
   .sidebar-active-glow {
-    background: oklch(0.72 0.030 65 / 0.10);
-    box-shadow: inset 3px 0 0 oklch(0.72 0.030 65);
+    background: var(--sidebar-accent);
+    box-shadow: inset 3px 0 0 var(--primary);
   }
   .hover-surface {
-    transition: background-color 0.15s ease;
+    transition: background-color var(--dur-fast) ease;
   }
   .hover-surface:hover {
     background-color: oklch(1 0 0 / 0.04);
@@ -190,10 +213,10 @@
 
   /* Layered shadow: stacked depth for cards and surfaces */
   .shadow-layered {
-    box-shadow:
-      0 1px 2px oklch(0 0 0 / 0.06),
-      0 4px 8px oklch(0 0 0 / 0.08),
-      0 12px 24px oklch(0 0 0 / 0.12);
+    box-shadow: var(--shadow-layered);
+  }
+  .shadow-sidebar-logo {
+    box-shadow: var(--shadow-sidebar-logo);
   }
 
   /* Glow halo: radial glow behind elements */
@@ -206,7 +229,7 @@
     inset: -1rem;
     background: radial-gradient(
       circle at center,
-      oklch(0.72 0.030 65 / 0.08) 0%,
+      var(--glow-primary) 0%,
       transparent 70%
     );
     pointer-events: none;
@@ -225,7 +248,7 @@
     }
   }
   .animate-slide-in-left {
-    animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation: slide-in-left var(--dur-slow) cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   /* Card entrance fade-up */
@@ -240,7 +263,7 @@
     }
   }
   .animate-fade-up {
-    animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation: fade-up var(--dur-slower) cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 }
 
@@ -334,6 +357,46 @@
   }
 }
 
+/* Sidebar entrance motion (CSS replacement for motion/react) */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes sidebar-brand-in {
+    from {
+      opacity: 0;
+      transform: rotate(-8deg) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(0deg) scale(1);
+    }
+  }
+
+  @keyframes sidebar-nav-in {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .sidebar-brand-mark {
+    animation: sidebar-brand-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .sidebar-nav-item {
+    animation: sidebar-nav-in 0.3s ease-out both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-brand-mark,
+  .sidebar-nav-item {
+    animation: none;
+  }
+}
+
 /* ────────────────────────────────────────────────
    Horizon hero section (21st.dev) — base styles.
    Replaces the previous "Light of the Cross" hero scene.
@@ -360,6 +423,29 @@
   display: block;
   z-index: 0;
   pointer-events: none;
+}
+
+/* Server-rendered fallback: visible before the scene chunk loads, when WebGL
+   is unavailable, and for reduced-motion visitors. */
+.hero-canvas-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 112%, oklch(0.38 0.09 245 / 0.75), transparent 58%),
+    radial-gradient(circle at 50% 18%, oklch(0.62 0.18 25 / 0.16), transparent 44%),
+    #000000;
+}
+
+.hero-canvas-live {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.hero-canvas-live[data-ready='true'] {
+  opacity: 1;
 }
 
 .side-menu {
@@ -581,6 +667,7 @@
 @media (prefers-reduced-motion: reduce) {
   .hero-container,
   .hero-canvas,
+  .hero-canvas-live,
   .side-menu,
   .hero-content,
   .scroll-progress {

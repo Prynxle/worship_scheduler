@@ -570,7 +570,7 @@ export default function SchedulePage() {
             {monthPipeline.total > 0 ? (
               <>
                 <Badge variant={monthPipeline.status === 'published' ? 'default' : monthPipeline.status === 'validated' ? 'secondary' : 'outline'} className="h-10 gap-1.5 capitalize" title={`Month status is derived from the ${monthPipeline.total} active ${monthPipeline.total === 1 ? 'service' : 'services'}`}>
-                  <span className="relative flex h-2 w-2"><span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /><span className={`relative inline-flex h-2 w-2 rounded-full ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /></span>
+                  <span className="relative flex h-2 w-2"><span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 motion-reduce:animate-none ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /><span className={`relative inline-flex h-2 w-2 rounded-full ${monthPipeline.status === 'draft' ? 'bg-amber-500' : 'bg-primary'}`} /></span>
                   {monthPipeline.status ?? 'empty'}
                 </Badge>
                 <span className="text-xs tabular-nums text-muted-foreground">{monthPipeline.counts.published} published · {monthPipeline.counts.validated} validated · {monthPipeline.counts.draft} draft</span>

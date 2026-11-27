@@ -95,8 +95,8 @@ export default function LoginPage() {
   return (
     <main className="relative flex min-h-screen overflow-hidden bg-[#11100e] text-[#f5efe4]">
       <div className="pointer-events-none absolute inset-0 opacity-80" aria-hidden="true">
-        <div className="absolute -left-32 top-16 h-96 w-96 rounded-full bg-[#c9944c]/15 blur-3xl" />
-        <div className="absolute -bottom-48 right-0 h-[34rem] w-[34rem] rounded-full bg-[#73563a]/20 blur-3xl" />
+        <div className="absolute -left-32 top-16 h-96 w-96 rounded-full bg-[#c9944c]/15 blur-2xl opacity-70" />
+        <div className="absolute -bottom-48 right-0 h-[34rem] w-[34rem] rounded-full bg-[#73563a]/20 blur-2xl opacity-70" />
         <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,.03)_48%,transparent_49%)]" />
       </div>
 
