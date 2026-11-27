@@ -334,6 +334,46 @@
   }
 }
 
+/* Sidebar entrance motion (CSS replacement for motion/react) */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes sidebar-brand-in {
+    from {
+      opacity: 0;
+      transform: rotate(-8deg) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(0deg) scale(1);
+    }
+  }
+
+  @keyframes sidebar-nav-in {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .sidebar-brand-mark {
+    animation: sidebar-brand-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .sidebar-nav-item {
+    animation: sidebar-nav-in 0.3s ease-out both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-brand-mark,
+  .sidebar-nav-item {
+    animation: none;
+  }
+}
+
 /* ────────────────────────────────────────────────
    Horizon hero section (21st.dev) — base styles.
    Replaces the previous "Light of the Cross" hero scene.
@@ -360,6 +400,29 @@
   display: block;
   z-index: 0;
   pointer-events: none;
+}
+
+/* Server-rendered fallback: visible before the scene chunk loads, when WebGL
+   is unavailable, and for reduced-motion visitors. */
+.hero-canvas-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 112%, oklch(0.38 0.09 245 / 0.75), transparent 58%),
+    radial-gradient(circle at 50% 18%, oklch(0.62 0.18 25 / 0.16), transparent 44%),
+    #000000;
+}
+
+.hero-canvas-live {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.hero-canvas-live[data-ready='true'] {
+  opacity: 1;
 }
 
 .side-menu {
@@ -581,6 +644,7 @@
 @media (prefers-reduced-motion: reduce) {
   .hero-container,
   .hero-canvas,
+  .hero-canvas-live,
   .side-menu,
   .hero-content,
   .scroll-progress {
