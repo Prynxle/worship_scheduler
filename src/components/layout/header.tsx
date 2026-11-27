@@ -122,7 +122,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
   }
 
   return (
-    <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border/70 bg-background/80 px-5 backdrop-blur-xl sm:px-8">
+    <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border/70 bg-background/90 px-5 backdrop-blur-sm sm:px-8">
       <div className="flex min-w-0 items-center gap-3">
         {onMenuClick && (
           <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" onClick={onMenuClick} aria-label="Open navigation">

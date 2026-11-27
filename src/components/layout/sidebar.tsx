@@ -86,7 +86,7 @@ export function Sidebar() {
       <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5">
         <Link href="/dashboard" className="mb-8 flex items-center gap-3 px-2">
           <motion.span
-            className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_8px_24px_-10px_var(--primary)]"
+            className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sidebar-logo"
             initial={{ rotate: -8, scale: 0.9, opacity: 0 }}
             animate={{ rotate: 0, scale: 1, opacity: 1 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
