@@ -66,7 +66,7 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-8">
       <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card p-6 shadow-layered sm:p-8">
-        <div className="pointer-events-none absolute -right-24 -top-32 size-72 rounded-full bg-primary/10 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-32 size-72 rounded-full bg-primary/10 blur-2xl opacity-70" />
         <div className="relative flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
           <div className="max-w-2xl">
             <div className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-primary">

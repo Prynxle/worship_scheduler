@@ -41,7 +41,7 @@ export function EventManager() {
   return (
     <div className="flex flex-col gap-6">
       <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card p-6 shadow-layered sm:p-8">
-        <div className="pointer-events-none absolute -right-16 -top-24 size-64 rounded-full bg-primary/10 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 size-64 rounded-full bg-primary/10 blur-2xl opacity-70" />
         <div className="relative">
           <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-primary">
             <Sparkles className="size-3.5" /> Ministry calendar
