@@ -42,28 +42,44 @@ export async function POST(request: NextRequest) {
 
     let logoDataUrl: string | undefined;
     if (church?.logo_url) {
+      let url: URL | null = null;
       try {
-        const res = await fetch(church.logo_url);
-        if (res.ok) {
-          const buf = await res.arrayBuffer();
-          const b64 = Buffer.from(buf).toString('base64');
-          logoDataUrl = 'data:image/png;base64,' + b64;
-        }
+        url = new URL(church.logo_url);
       } catch {
-        logoDataUrl = undefined;
+        url = null;
+      }
+      if (url && (url.protocol === 'http:' || url.protocol === 'https:')) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          const res = await fetch(url.toString(), { signal: controller.signal });
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            const b64 = Buffer.from(buf).toString('base64');
+            const contentType = res.headers.get('content-type') || '';
+            const mime = contentType.toLowerCase().includes('image/jpeg')
+              ? 'image/jpeg'
+              : contentType.toLowerCase().includes('image/png')
+                ? 'image/png'
+                : 'image/png';
+            logoDataUrl = 'data:' + mime + ';base64,' + b64;
+          }
+        } catch {
+          logoDataUrl = undefined;
+        } finally {
+          clearTimeout(timeout);
+        }
       }
     }
     if (!logoDataUrl) {
       try {
-        const fs = await import('fs');
-        const path = await import('path');
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
         const p = path.join(process.cwd(), 'public', 'icon-removebg-preview.png');
-        if (fs.existsSync(p)) {
-          const buf = fs.readFileSync(p);
-          logoDataUrl = 'data:image/png;base64,' + buf.toString('base64');
-        }
+        const buf = await fs.readFile(p);
+        logoDataUrl = 'data:image/png;base64,' + buf.toString('base64');
       } catch {
-        // ignore
+        // ignore missing/unreadable fallback
       }
     }
 
