@@ -63,7 +63,7 @@ type ScheduleItem = {
 type RosterMember = { id: string; full_name: string };
 type RoleOption = { id: string; name: string };
 type InstrumentOption = { id: string; name: string };
-type ConfirmAction = { kind: 'regenerate' | 'mock-unavailability' } | { kind: 'publish'; service: ScheduleItem } | { kind: 'revision'; service: ScheduleItem };
+type ConfirmAction = { kind: 'regenerate' } | { kind: 'publish'; service: ScheduleItem } | { kind: 'revision'; service: ScheduleItem };
 
 function monthString(year: number, month: number) { return `${year}-${String(month + 1).padStart(2, '0')}`; }
 function parseMonth(value: string) {
@@ -109,7 +109,7 @@ export default function SchedulePage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
-  const [workingAction, setWorkingAction] = useState<'generate' | 'mock' | 'validate' | 'publish' | 'revision' | null>(null);
+  const [workingAction, setWorkingAction] = useState<'generate' | 'validate' | 'publish' | 'revision' | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -262,27 +262,6 @@ export default function SchedulePage() {
     } finally { setWorking(false); setWorkingAction(null); }
   }
 
-  async function mockUnavailability() {
-    setWorking(true); setWorkingAction('mock'); setError(''); setMessage('');
-    try {
-      const session = await withSession();
-      const response = await fetch('/api/schedule/mock-unavailability', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month, year }),
-      });
-      const payload = await response.json() as { added?: number; skipped?: number; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? 'Could not create mock unavailability.');
-      // The mock now flows through the submissions/approval workflow: the new
-      // submissions stay pending until a coordinator approves them, and only
-      // then do the mock weeks block scheduling.
-      setConfirmAction(null);
-      setMessage(`Mock unavailability submitted for ${monthLabel}: ${payload.added ?? 0} added, ${payload.skipped ?? 0} skipped. The new mock submissions are pending approval in the availability review queue.`);
-      await loadSchedules();
-    } catch (mockError) { setError(mockError instanceof Error ? mockError.message : 'Could not create mock unavailability.'); }
-    finally { setWorking(false); setWorkingAction(null); }
-  }
-
   async function validate(service: ScheduleItem) {
     setWorking(true); setWorkingAction('validate'); setError(''); setMessage('');
     try {
@@ -414,7 +393,6 @@ export default function SchedulePage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-              <Button type="button" variant="outline" className="h-11" disabled={working || loading} onClick={() => setConfirmAction({ kind: 'mock-unavailability' })}>{workingAction === 'mock' ? 'Updating…' : 'Mock unavailability'}</Button>
               {schedules.length > 0 ? (
                   <Button type="button" className="h-11" disabled={working || !readiness?.ready || lockedSchedules || hasLegacySchedules} onClick={() => setConfirmAction({ kind: 'regenerate' })}>
                   <Plus className="mr-2 h-4 w-4" />Regenerate drafts
@@ -629,15 +607,14 @@ export default function SchedulePage() {
       <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => { if (!open && !working) setConfirmAction(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirmAction?.kind === 'mock-unavailability' ? 'Replace mock unavailability for this month?' : confirmAction?.kind === 'regenerate' ? 'Replace this month’s draft lineups?' : confirmAction?.kind === 'revision' ? 'Create a schedule amendment?' : 'Publish this validated schedule?'}</DialogTitle>
+            <DialogTitle>{confirmAction?.kind === 'regenerate' ? 'Replace this month’s draft lineups?' : confirmAction?.kind === 'revision' ? 'Create a schedule amendment?' : 'Publish this validated schedule?'}</DialogTitle>
             <DialogDescription>
-              {confirmAction?.kind === 'mock-unavailability' ? `This replaces this month’s mock unavailability with new submissions that stay pending until approved, just like real member submissions. Members’ own submitted availability is not changed.` : confirmAction?.kind === 'regenerate' ? 'Draft services will be replaced in one transaction. Weeks with submitted song lineups are protected so their song links are not lost. Validated and published services are also protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
+              {confirmAction?.kind === 'regenerate' ? 'Draft services will be replaced in one transaction. Weeks with submitted song lineups are protected so their song links are not lost. Validated and published services are also protected.' : confirmAction?.kind === 'revision' ? 'A separate draft will be created from the published lineup. The published schedule stays visible until the amendment is validated and published.' : 'The lineup will become visible to members. Publication is recorded with your coordinator account and timestamp.'}
             </DialogDescription>
           </DialogHeader>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmAction(null)} disabled={working}>Cancel</Button>
-            {confirmAction?.kind === 'mock-unavailability' ? <Button onClick={() => void mockUnavailability()} disabled={working} aria-busy={workingAction === 'mock'}>{workingAction === 'mock' ? 'Submitting…' : 'Replace mock submissions'}</Button> : null}
             {confirmAction?.kind === 'regenerate' ? <Button onClick={() => void generate(true)} disabled={working} aria-busy={workingAction === 'generate'}>{workingAction === 'generate' ? 'Generating…' : 'Replace draft lineups'}</Button> : null}
             {confirmAction?.kind === 'revision' ? <Button onClick={() => void startRevision(confirmAction.service)} disabled={working} aria-busy={workingAction === 'revision'}>{workingAction === 'revision' ? 'Creating…' : 'Create amendment'}</Button> : null}
             {confirmAction?.kind === 'publish' ? <Button onClick={() => void publish(confirmAction.service)} disabled={working} aria-busy={workingAction === 'publish'}>{workingAction === 'publish' ? 'Publishing…' : 'Publish schedule'}</Button> : null}

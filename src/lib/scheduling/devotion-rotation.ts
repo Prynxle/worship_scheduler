@@ -56,6 +56,7 @@ export class DevotionRotation {
       const aRotation = this.rotation.find((r) => r.member_id === a.id);
       const bRotation = this.rotation.find((r) => r.member_id === b.id);
 
+      if (!aRotation && !bRotation) return a.full_name.localeCompare(b.full_name);
       if (!aRotation) return -1;
       if (!bRotation) return 1;
 
