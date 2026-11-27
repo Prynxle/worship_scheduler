@@ -87,7 +87,7 @@ export function MemberFilters({
       <PopoverContent align="start" className="w-80 gap-3">
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Roles</legend>
-          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse rounded bg-muted" /><span className="sr-only">Loading role filters</span></div> : optionsError ? (
+          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-3/4 animate-pulse motion-reduce:animate-none rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse motion-reduce:animate-none rounded bg-muted" /><span className="sr-only">Loading role filters</span></div> : optionsError ? (
             <p className="text-xs text-destructive">{optionsError}</p>
           ) : roles.length === 0 ? (
             <p className="text-xs text-muted-foreground">This church has no roles configured yet.</p>
@@ -114,7 +114,7 @@ export function MemberFilters({
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Instruments</legend>
-          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-2/3 animate-pulse rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse rounded bg-muted" /><span className="sr-only">Loading instrument filters</span></div> : optionsError ? (
+          {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-2/3 animate-pulse motion-reduce:animate-none rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse motion-reduce:animate-none rounded bg-muted" /><span className="sr-only">Loading instrument filters</span></div> : optionsError ? (
             <p className="text-xs text-destructive">{optionsError}</p>
           ) : instruments.length === 0 ? (
             <p className="text-xs text-muted-foreground">This church has no instruments configured yet.</p>

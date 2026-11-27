@@ -82,7 +82,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5">
         <Link href="/dashboard" className="mb-8 flex items-center gap-3 px-2">
-          <span className="sidebar-brand-mark flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_8px_24px_-10px_var(--primary)]">
+          <span className="sidebar-brand-mark flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sidebar-logo">
             <Church className="size-5" />
           </span>
           <span className="min-w-0">

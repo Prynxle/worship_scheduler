@@ -335,7 +335,7 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               ))}
             </div>
             ) : loading ? (
-              <div aria-busy="true" aria-label="Loading events" role="status" className="space-y-3 py-2"><div className="h-16 animate-pulse rounded-xl bg-muted" /><div className="h-16 animate-pulse rounded-xl bg-muted" /><span className="sr-only">Loading events</span></div>
+              <div aria-busy="true" aria-label="Loading events" role="status" className="space-y-3 py-2"><div className="h-16 animate-pulse motion-reduce:animate-none rounded-xl bg-muted" /><div className="h-16 animate-pulse motion-reduce:animate-none rounded-xl bg-muted" /><span className="sr-only">Loading events</span></div>
             ) : error ? (
               <div className="rounded-xl border border-dashed border-border p-6 text-center"><p className="text-sm text-muted-foreground">Events could not be loaded.</p><Button className="mt-3" size="sm" variant="outline" onClick={() => { setLoading(true); void loadEvents(); }}>Try again</Button></div>
             ) : (
