@@ -3,14 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { motion, MotionConfig } from 'motion/react';
 import {
   BarChart3,
   CalendarDays,
   CalendarPlus2,
   Church,
   Clock3,
-  Download,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -82,17 +80,11 @@ export function Sidebar() {
   }
 
   return (
-    <MotionConfig reducedMotion="user">
-      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5">
+    <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5">
         <Link href="/dashboard" className="mb-8 flex items-center gap-3 px-2">
-          <motion.span
-            className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sidebar-logo"
-            initial={{ rotate: -8, scale: 0.9, opacity: 0 }}
-            animate={{ rotate: 0, scale: 1, opacity: 1 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-          >
+          <span className="sidebar-brand-mark flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sidebar-logo">
             <Church className="size-5" />
-          </motion.span>
+          </span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold tracking-tight text-sidebar-foreground">JOHIA Bankers</span>
             <span className="block text-xs text-muted-foreground">Ministry operations</span>
@@ -146,7 +138,7 @@ export function Sidebar() {
                 const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 const Icon = item.icon;
                 return (
-                  <motion.div key={item.name} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.04, duration: 0.3 }}>
+                  <div key={item.name} className="sidebar-nav-item" style={{ animationDelay: `${index * 40}ms` }}>
                     <Link
                       href={item.href}
                       className={cn(
@@ -158,7 +150,7 @@ export function Sidebar() {
                       <Icon className={cn('size-[18px]', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} />
                       <span>{item.name}</span>
                     </Link>
-                  </motion.div>
+                  </div>
                 );
               })}
             </div>
@@ -193,7 +185,6 @@ export function Sidebar() {
             {signingOut ? 'Signing outâ€¦' : 'Sign out'}
           </Button>
         </div>
-      </aside>
-    </MotionConfig>
+    </aside>
   );
 }

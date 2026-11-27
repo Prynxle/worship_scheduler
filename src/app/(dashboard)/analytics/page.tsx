@@ -1,5 +1,3 @@
-'use client';
-
 import { WorkloadChart } from '@/components/analytics/workload-chart';
 import { FairnessScore } from '@/components/analytics/fairness-score';
 import { AvailabilityHeatmap } from '@/components/analytics/availability-heatmap';

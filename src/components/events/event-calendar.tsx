@@ -1,21 +1,7 @@
 ﻿'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import FullCalendar, {
-  type CalendarRef,
-  type DateClickInfo,
-  type DayCellInfo,
-  type DayHeaderInfo,
-  type EventClickInfo,
-  type EventDisplayInfo,
-  type MoreLinkInfo,
-} from '@fullcalendar/react';
-import dayGridPlugin from '@fullcalendar/react/daygrid';
-import interactionPlugin from '@fullcalendar/react/interaction';
-import classicThemePlugin from '@fullcalendar/react/themes/classic';
-import '@fullcalendar/react/skeleton.css';
-import '@fullcalendar/react/themes/classic/theme.css';
-import '@fullcalendar/react/themes/classic/palette.css';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,24 +21,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { getSupabaseClient } from '@/lib/supabase/client';
-import { cn } from '@/lib/utils';
 import { MAX_EVENTS_PER_DAY, MAX_EVENT_DESCRIPTION_LENGTH } from '@/lib/api/events';
 import type { ChurchEvent } from '@/lib/types/database';
+import { EventCalendarGridSkeleton } from '@/components/events/event-calendar-grid-skeleton';
+
+const EventCalendarGrid = dynamic(
+  () => import('@/components/events/event-calendar-grid').then((module) => module.EventCalendarGrid),
+  { ssr: false, loading: () => <EventCalendarGridSkeleton /> },
+);
 
 const timeNumbers = ['12:00', '12:30', '1:00', '1:30', '2:00', '2:30', '3:00', '3:30', '4:00', '4:30', '5:00', '5:30', '6:00', '6:30', '7:00', '7:30', '8:00', '8:30', '9:00', '9:30', '10:00', '10:30', '11:00', '11:30'];
 
 const toIso = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-
-function timeTo24h(time: string): string {
-  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(time);
-  if (!match) return '';
-  let hours = Number(match[1]);
-  const minutes = match[2];
-  if (match[3].toUpperCase() === 'PM' && hours !== 12) hours += 12;
-  if (match[3].toUpperCase() === 'AM' && hours === 12) hours = 0;
-  return `${String(hours).padStart(2, '0')}:${minutes}`;
-}
 
 const formatDate = (date: string, options: Intl.DateTimeFormatOptions) =>
   new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', ...options }).format(new Date(`${date}T00:00:00Z`));
@@ -78,8 +59,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [meridiem, setMeridiem] = useState<'AM' | 'PM'>('PM');
   const [error, setError] = useState<string | null>(null);
-  const calendarRef = useRef<CalendarRef>(null);
-  const cellKeydowns = useRef(new Map<HTMLElement, (event: KeyboardEvent) => void>());
   const eventsRequest = useRef(0);
 
   const loadEvents = useCallback(async () => {
@@ -125,27 +104,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
       ),
     [events, search]
   );
-
-  const fcEvents = useMemo(
-    () =>
-      visibleEvents.map((event) => ({
-        id: event.id,
-        title: event.title,
-        start: event.time ? `${event.date}T${timeTo24h(event.time)}` : event.date,
-        allDay: !event.time,
-        extendedProps: {
-          date: event.date,
-          time: event.time,
-          location: event.location,
-          attendees: event.attendees,
-        },
-      })),
-    [visibleEvents]
-  );
-
-  useEffect(() => {
-    calendarRef.current?.getApi().gotoDate(new Date(year, month, 1));
-  }, [year, month]);
 
   const selectedEvents = visibleEvents.filter((event) => event.date === selectedDate);
   const dayEventCount = events.filter((event) => event.date === selectedDate).length;
@@ -223,24 +181,6 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
     setSelectedDate(toIso(date));
   }
 
-  function handleDayCellMount(info: DayCellInfo & { el: HTMLElement }) {
-    info.el.tabIndex = 0;
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        selectDate(info.date);
-      }
-    };
-    info.el.addEventListener('keydown', handler);
-    cellKeydowns.current.set(info.el, handler);
-  }
-
-  function handleDayCellUnmount(info: DayCellInfo & { el: HTMLElement }) {
-    const handler = cellKeydowns.current.get(info.el);
-    if (handler) info.el.removeEventListener('keydown', handler);
-    cellKeydowns.current.delete(info.el);
-  }
-
   return (
     <div className="space-y-2.5">
       {/* One wrapper element so this component owns the gap between the search
@@ -292,47 +232,13 @@ export function EventCalendar({ canManage }: { canManage: boolean }) {
               grid is clipped to the border rather than bleeding past it. Horizontal padding
               is untouched, so the day cells keep their inset from the Card's sides. */}
           <CardContent className="p-0 -mb-(--card-spacing)">
-            <div className="event-calendar-fc p-3 sm:p-5">
-              <FullCalendar
-                ref={calendarRef}
-                plugins={[dayGridPlugin, interactionPlugin, classicThemePlugin]}
-                initialView="dayGridMonth"
-                initialDate={new Date(year, month, 1)}
-                headerToolbar={false}
-                height="auto"
-                timeZone="local"
-                dayMaxEvents={2}
-                events={fcEvents}
-                dayCellClass={(info) =>
-                  cn('evc-cell', info.isOther && 'evc-out', toIso(info.date) === selectedDate && 'evc-selected')
-                }
-                dayCellTopClass={() => 'evc-top'}
-                dayCellTopInnerClass={() => 'evc-num-wrap'}
-                dayCellTopContent={(info: DayCellInfo) => (
-                  <span className={cn('evc-daynum', info.isToday && 'evc-today', toIso(info.date) === selectedDate && 'evc-num-selected')}>
-                    {info.dayNumberText}
-                  </span>
-                )}
-                dayHeaderContent={(info: DayHeaderInfo) => <span className="evc-dow">{info.weekdayText}</span>}
-                eventClass={() => 'evc-event-slot'}
-                eventContent={(info: EventDisplayInfo) => (
-                  <span className="evc-event">
-                    <span className="evc-event-title">{info.event.title}</span>
-                  </span>
-                )}
-                moreLinkClass={() => 'evc-more-static'}
-                moreLinkDidMount={(info) => {
-                  info.el.tabIndex = -1;
-                }}
-                moreLinkContent={(info: MoreLinkInfo) => <span className="evc-more">+{info.num} more</span>}
-                dateClick={(info: DateClickInfo) => selectDate(info.date)}
-                eventClick={(info: EventClickInfo) =>
-                  info.event.start ? selectDate(info.event.start) : setSelectedDate(info.event.startStr.slice(0, 10))
-                }
-                dayCellDidMount={handleDayCellMount}
-                dayCellWillUnmount={handleDayCellUnmount}
-              />
-            </div>
+            <EventCalendarGrid
+              events={visibleEvents}
+              year={year}
+              month={month}
+              selectedDate={selectedDate}
+              onSelectDate={selectDate}
+            />
           </CardContent>
         </Card>
 
