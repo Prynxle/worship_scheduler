@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
           <h2 className="text-2xl font-bold text-foreground">Analytics</h2>
           <p className="text-muted-foreground">Fairness and workload for your church</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -135,7 +135,7 @@ export default function AnalyticsPage() {
             }}
             disabled={loading || monthOptions.length === 0}
           >
-            <SelectTrigger className="w-[190px]" aria-label="Choose analytics month">
+            <SelectTrigger className="w-full min-w-0 sm:w-[190px]" aria-label="Choose analytics month">
               <Calendar className="h-4 w-4" />
               <SelectValue placeholder="Choose month">
                 {selected ? monthLabel(selected.month, selected.year) : 'Choose month'}
@@ -176,7 +176,7 @@ export default function AnalyticsPage() {
           )}
 
           <Tabs defaultValue="overview">
-            <TabsList>
+            <TabsList className="grid w-full grid-cols-2 gap-1 sm:flex sm:w-auto sm:gap-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="workload">Workload</TabsTrigger>
               <TabsTrigger value="availability">Availability</TabsTrigger>
@@ -185,12 +185,16 @@ export default function AnalyticsPage() {
 
             <TabsContent value="overview" className="mt-6 space-y-6">
               <div className="grid gap-6 lg:grid-cols-2">
-                <WorkloadChart data={report.workload} />
-                <FairnessScore
-                  overallScore={report.overall_fairness}
-                  reports={report.fairness}
-                  limit={10}
-                />
+                <div className="min-w-0">
+                  <WorkloadChart data={report.workload} />
+                </div>
+                <div className="min-w-0">
+                  <FairnessScore
+                    overallScore={report.overall_fairness}
+                    reports={report.fairness}
+                    limit={10}
+                  />
+                </div>
               </div>
               <AvailabilityHeatmap
                 data={report.availability}

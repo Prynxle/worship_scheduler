@@ -320,7 +320,7 @@ export default function AvailabilityPage() {
             <div className="flex flex-wrap items-center gap-3">
               {readinessLoading ? <Skeleton className="h-4 w-32" /> : readiness ? <p className="text-sm text-muted-foreground">{readiness.approved_count} approved · {readiness.outstanding_count} outstanding</p> : <p className="text-sm text-destructive">Readiness unavailable</p>}
               <Select value={ministryId} onValueChange={(value) => value && setMinistryId(value)}>
-                <SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-48">
+                <SelectTrigger aria-label="Choose ministry for readiness" className="h-9 w-full min-w-0 sm:w-48">
                   <SelectValue placeholder="Choose ministry">
                     {(value: string) => (readiness?.ministries ?? []).find((ministry) => ministry.id === value)?.name ?? 'Choose ministry'}
                   </SelectValue>
@@ -345,11 +345,11 @@ export default function AvailabilityPage() {
           {readinessLoading ? <div aria-busy="true" aria-label="Loading monthly readiness" role="status" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div> : !readiness ? <div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{readinessLoadError || 'Monthly readiness could not be loaded.'}</p><Button size="sm" variant="outline" onClick={() => void loadReadiness()}>Retry</Button></div> : !readiness.members.length ? <p className="text-sm text-muted-foreground">No active members with roles in this ministry are required for this month.</p> : (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {readiness.members.map((person) => (
-                <div key={person.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-border p-3">
+                <div key={person.id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-xl border border-border p-3">
                   <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${person.status === 'approved' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                     {person.status === 'approved' ? <Check className="h-4 w-4" /> : person.status === 'submitted' ? <Clock3 className="h-4 w-4" /> : <Users className="h-4 w-4" />}
                   </div>
-                  <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelectedMember(person.id)}>
+                  <button type="button" className="min-w-0 flex-1 basis-24 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelectedMember(person.id)}>
                     <span className="block truncate text-sm font-medium">{person.full_name}</span>
                     <span className={`text-xs ${person.status === 'approved' ? 'text-primary' : person.status === 'revision_required' ? 'text-destructive' : 'text-muted-foreground'}`}>
                       {person.status === 'missing' ? 'Not submitted' : person.status === 'revision_required' ? 'Revision requested' : person.status === 'submitted' ? 'Awaiting review' : 'Approved'}
@@ -365,7 +365,7 @@ export default function AvailabilityPage() {
 
       <div className="flex items-center gap-3">
         <Select value={selectedMember} onValueChange={(value) => value && setSelectedMember(value)}>
-          <SelectTrigger className="w-[200px]" disabled={membersLoading} aria-busy={membersLoading}>
+          <SelectTrigger className="w-full min-w-0 sm:w-[200px]" disabled={membersLoading} aria-busy={membersLoading}>
             <SelectValue placeholder={membersLoading ? 'Loading members…' : 'Select member'}>
               {(value: string) => members.find((member) => member.id === value)?.full_name ?? 'Select member'}
             </SelectValue>
@@ -414,10 +414,10 @@ export default function AvailabilityPage() {
                 return (
                   <div
                     key={availability.id}
-                    className="flex items-center justify-between rounded-lg border border-border p-4 hover-surface cursor-default"
+                    className="flex flex-col gap-3 rounded-lg border border-border p-4 hover-surface cursor-default sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div>
-                      <div className="font-medium text-foreground">{selectedMemberName}</div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-foreground">{selectedMemberName}</div>
                       <div className="text-sm text-muted-foreground">
                         {availability.type === 'weekly'
                           ? `Week ${availability.week_number}${
@@ -428,9 +428,9 @@ export default function AvailabilityPage() {
                           : availability.type}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                        className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${
                           availability.status === 'approved'
                             ? 'bg-primary/15 text-primary'
                             : availability.status === 'rejected'

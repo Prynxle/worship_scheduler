@@ -64,14 +64,14 @@ export function ScheduleCard({
     <TiltCard tilt={5} glare={true} interactive={false} delay={Math.min(index, 8) * 0.06}>
       <Card className="card-glow cursor-default w-full">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="icon-chip bg-primary/10">
                 <span className="text-xl font-bold text-primary">{week_number}</span>
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="text-base text-foreground">Week {week_number}</CardTitle>
-                <p className="text-sm text-muted-foreground">
+                <p className="truncate text-sm text-muted-foreground">
                   {new Date(date).toLocaleDateString('en-US', {
                     weekday: 'long',
                     month: 'long',
@@ -80,8 +80,8 @@ export function ScheduleCard({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge className={getStatusColor(status)}>{legacy_unscoped ? 'legacy' : status}</Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge className={`max-w-24 truncate ${getStatusColor(status)}`}>{legacy_unscoped ? 'legacy' : status}</Badge>
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={`Actions for week ${week_number}`} />}>
                   <MoreVertical className="h-4 w-4" />
@@ -110,9 +110,9 @@ export function ScheduleCard({
                   </Avatar>
                 </div>
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs text-muted-foreground">Worship Leader</div>
-                <div className="font-medium text-foreground">{leader_name}</div>
+                <div className="truncate font-medium text-foreground">{leader_name}</div>
               </div>
             </div>
 

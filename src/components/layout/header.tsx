@@ -15,6 +15,8 @@ interface HeaderProps {
   title: string;
   subtitle?: string;
   onMenuClick?: () => void;
+  menuExpanded?: boolean;
+  menuControlsId?: string;
 }
 
 /**
@@ -98,7 +100,7 @@ function useUpcomingEventCount(enabled: boolean): number | null {
   return count;
 }
 
-export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
+export function Header({ title, subtitle, onMenuClick, menuExpanded, menuControlsId }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const section = pathname.split('/').filter(Boolean).at(-1) ?? 'dashboard';
@@ -122,10 +124,18 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
   }
 
   return (
-    <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border/70 bg-background/90 px-5 backdrop-blur-sm sm:px-8">
+    <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border/70 bg-background/90 px-4 backdrop-blur-sm sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-3">
         {onMenuClick && (
-          <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" onClick={onMenuClick} aria-label="Open navigation">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 lg:hidden"
+            onClick={onMenuClick}
+            aria-label="Open navigation"
+            aria-expanded={menuExpanded}
+            aria-controls={menuControlsId}
+          >
             <Menu className="size-5" />
           </Button>
         )}
@@ -135,12 +145,12 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
             <ChevronRight className="size-3" />
             <span className="capitalize text-foreground/70">{section}</span>
           </div>
-          <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">{title}</h1>
           {subtitle && <p className="hidden truncate text-sm text-muted-foreground sm:block">{subtitle}</p>}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <NotificationBell />
         <div className="hidden h-8 w-px bg-border sm:block" />
         <div className="hidden text-right sm:block">

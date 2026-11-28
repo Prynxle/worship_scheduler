@@ -381,24 +381,24 @@ export default function SchedulePage() {
           </div>
           <div className="flex w-full flex-col gap-3 xl:max-w-xl xl:flex-row xl:items-end xl:justify-end">
             <div className="space-y-1.5 text-xs font-medium text-muted-foreground">Month and year
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Select value={String(month)} onValueChange={(value) => { if (value) chooseMonth(monthString(year, Number(value))); }}>
-                  <SelectTrigger className="h-11 w-36 bg-background text-foreground" aria-label="Choose schedule month"><SelectValue placeholder="Choose month">{new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' })}</SelectValue></SelectTrigger>
+                  <SelectTrigger className="h-11 w-full min-w-0 bg-background text-foreground sm:w-36" aria-label="Choose schedule month"><SelectValue placeholder="Choose month">{new Date(2024, month, 1).toLocaleString('en-US', { month: 'long' })}</SelectValue></SelectTrigger>
                   <SelectContent>{Array.from({ length: 12 }, (_, index) => <SelectItem key={index} value={String(index)}>{new Date(2024, index, 1).toLocaleString('en-US', { month: 'long' })}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={String(year)} onValueChange={(value) => { if (value) chooseMonth(monthString(Number(value), month)); }}>
-                  <SelectTrigger className="h-11 w-28 bg-background text-foreground" aria-label="Choose schedule year"><SelectValue placeholder="Choose year">{year}</SelectValue></SelectTrigger>
+                  <SelectTrigger className="h-11 w-full min-w-0 bg-background text-foreground sm:w-28" aria-label="Choose schedule year"><SelectValue placeholder="Choose year">{year}</SelectValue></SelectTrigger>
                   <SelectContent>{Array.from({ length: Math.max(today.getFullYear() + 2, year + 1) - Math.min(today.getFullYear() - 1, year - 1) + 1 }, (_, index) => Math.min(today.getFullYear() - 1, year - 1) + index).map((optionYear) => <SelectItem key={optionYear} value={String(optionYear)}>{optionYear}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               {schedules.length > 0 ? (
-                  <Button type="button" className="h-11" disabled={working || !readiness?.ready || lockedSchedules || hasLegacySchedules} onClick={() => setConfirmAction({ kind: 'regenerate' })}>
+                  <Button type="button" className="h-11 w-full sm:w-auto" disabled={working || !readiness?.ready || lockedSchedules || hasLegacySchedules} onClick={() => setConfirmAction({ kind: 'regenerate' })}>
                   <Plus className="mr-2 h-4 w-4" />Regenerate drafts
                 </Button>
               ) : (
-                <Button type="button" className="h-11" disabled={working || !readiness?.ready || monthIsPast} onClick={() => void generate(false)}>
+                <Button type="button" className="h-11 w-full sm:w-auto" disabled={working || !readiness?.ready || monthIsPast} onClick={() => void generate(false)}>
                   <Plus className="mr-2 h-4 w-4" />{workingAction === 'generate' ? 'Generating…' : 'Generate schedule'}
                 </Button>
               )}
@@ -419,7 +419,7 @@ export default function SchedulePage() {
               <h2 className="mt-1 text-xl font-semibold">{readiness?.ready ? 'Ready to generate' : 'Waiting on the team'}</h2>
               <p className="mt-1 text-sm text-muted-foreground">{readiness ? `${readiness.approved_count} of ${readiness.required_members} required members approved for ${readiness.ministry_name}.` : 'Loading monthly approvals…'}</p>
             </div>
-            <div className="min-w-40 text-left sm:text-right">
+            <div className="min-w-0 text-left sm:min-w-40 sm:text-right">
               <p className="font-display text-3xl font-semibold tabular-nums">{readiness?.approved_count ?? 0}<span className="text-lg text-muted-foreground"> / {readiness?.required_members ?? 0}</span></p>
               <p className="text-xs text-muted-foreground">approved submissions</p>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Approved availability submissions" aria-valuemin={0} aria-valuemax={100} aria-valuenow={approvedPercent}>
@@ -458,17 +458,17 @@ export default function SchedulePage() {
             <Badge variant="outline" className="gap-1.5"><CalendarDays className="h-3.5 w-3.5" />{schedules.length} {schedules.length === 1 ? 'service' : 'services'}</Badge>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
-            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:gap-2">
+            <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:gap-2 sm:text-[11px]">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <div key={day} className="py-2">{day}</div>)}
             </div>
-            <div className="grid grid-cols-7 gap-1 sm:gap-2">
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-2">
               {calendarCells.map((day, index) => {
-                if (day === null) return <div key={`empty-${index}`} className="min-h-14 rounded-xl bg-muted/20 sm:min-h-20" aria-hidden="true" />;
+                if (day === null) return <div key={`empty-${index}`} className="min-h-12 rounded-lg bg-muted/20 sm:min-h-20 sm:rounded-xl" aria-hidden="true" />;
                 const date = `${selectedMonth}-${String(day).padStart(2, '0')}`;
                 const service = schedules.find((item) => item.date.startsWith(date));
                 const selected = selectedDate === date;
                 return (
-                  <button key={date} type="button" aria-label={`${monthLabel} ${day}${service ? `, service schedule ${service.status}` : ''}`} aria-pressed={selected} onClick={() => setSelectedDate(date)} className={`relative flex min-h-14 flex-col items-center justify-start rounded-xl border p-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-20 sm:items-start ${selected ? 'border-primary bg-primary text-primary-foreground' : service ? 'border-primary/20 bg-primary/5 hover:bg-primary/10' : 'border-transparent hover:border-border hover:bg-muted/50'}`}>
+                  <button key={date} type="button" aria-label={`${monthLabel} ${day}${service ? `, service schedule ${service.status}` : ''}`} aria-pressed={selected} onClick={() => setSelectedDate(date)} className={`relative flex min-h-12 flex-col items-center justify-start rounded-lg border p-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-20 sm:items-start sm:rounded-xl sm:p-2 sm:text-sm ${selected ? 'border-primary bg-primary text-primary-foreground' : service ? 'border-primary/20 bg-primary/5 hover:bg-primary/10' : 'border-transparent hover:border-border hover:bg-muted/50'}`}>
                     <span className="font-medium tabular-nums">{day}</span>
                     {service ? <span className={`mt-1 hidden max-w-full truncate rounded-full px-2 py-0.5 text-[10px] capitalize sm:block ${selected ? 'bg-primary-foreground/15' : service.status === 'published' ? 'bg-primary/15 text-primary' : service.status === 'validated' ? 'bg-accent/20 text-foreground' : 'bg-muted text-muted-foreground'}`}>{service.legacy_unscoped ? 'legacy' : service.status}</span> : null}
                     {service ? <span className={`absolute bottom-1 h-1.5 w-1.5 rounded-full sm:hidden ${selected ? 'bg-primary-foreground' : 'bg-primary'}`} /> : null}
@@ -493,7 +493,7 @@ export default function SchedulePage() {
           <CardContent className="p-5">
             {selectedService ? (
               <div className="space-y-5">
-                <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Service status</span><div className="flex items-center gap-2"><Badge variant={selectedService.status === 'published' ? 'default' : 'outline'} className="capitalize">{selectedService.legacy_unscoped ? 'Legacy · ministry unknown' : selectedService.status}</Badge>{selectedService.is_complete === false && !selectedService.legacy_unscoped ? <Badge variant="outline" className="border-[oklch(0.70_0.08_80)]/45 text-[oklch(0.52_0.09_62)]">Incomplete</Badge> : null}</div></div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm text-muted-foreground">Service status</span><div className="flex flex-wrap items-center gap-2"><Badge variant={selectedService.status === 'published' ? 'default' : 'outline'} className="capitalize">{selectedService.legacy_unscoped ? 'Legacy · ministry unknown' : selectedService.status}</Badge>{selectedService.is_complete === false && !selectedService.legacy_unscoped ? <Badge variant="outline" className="border-[oklch(0.70_0.08_80)]/45 text-[oklch(0.52_0.09_62)]">Incomplete</Badge> : null}</div></div>
                 {selectedServiceIsStale ? (
                   <div role="status" className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-destructive">Out of date</p>
@@ -533,7 +533,7 @@ export default function SchedulePage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Worship leader</p><p className="mt-1 text-lg font-semibold">{selectedService.leader_name}</p>
                 </div>
                 <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Back Up</p><div className="flex flex-wrap gap-2">{selectedService.backup_singers.length ? selectedService.backup_singers.map((member, index) => <Badge key={`${member.name}-${index}`} variant="secondary" className="h-7 px-3 font-normal">{member.name}</Badge>) : <span className="text-sm text-muted-foreground">No backup singers assigned</span>}</div></div>
-                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Instrumentalist</p><div className="space-y-2">{selectedService.instrumentalists.map((player, index) => <div key={`${player.instrument}-${index}`} className="flex justify-between gap-4 border-b border-border/70 pb-2 text-sm"><span className="text-muted-foreground">{player.instrument}</span><span className="font-medium text-right">{player.name}</span></div>)}{selectedService.devotion_name ? <div className="flex justify-between gap-4 text-sm"><span className="text-muted-foreground">Devotion</span><span className="font-medium">{selectedService.devotion_name}</span></div> : null}</div></div>
+                <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Instrumentalist</p><div className="space-y-2">{selectedService.instrumentalists.map((player, index) => <div key={`${player.instrument}-${index}`} className="flex flex-col gap-1 border-b border-border/70 pb-2 text-sm sm:flex-row sm:justify-between sm:gap-4"><span className="text-muted-foreground">{player.instrument}</span><span className="font-medium text-right">{player.name}</span></div>)}{selectedService.devotion_name ? <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between sm:gap-4"><span className="text-muted-foreground">Devotion</span><span className="font-medium sm:text-right">{selectedService.devotion_name}</span></div> : null}</div></div>
                 {selectedService.legacy_unscoped ? <p className="rounded-xl border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">This historical schedule has no reliable ministry assignment. It can be reviewed, but editing and regeneration stay locked until its ownership is resolved.</p> : null}
               </div>
             ) : <div className="flex min-h-64 flex-col items-center justify-center text-center"><CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" /><p className="mt-3 font-medium">No service on this date</p><p className="mt-1 max-w-xs text-sm text-muted-foreground">Choose a marked service date to review the full lineup and schedule status.</p></div>}
@@ -578,10 +578,10 @@ export default function SchedulePage() {
         ) : null}
         <Tabs value={statusFilter} onValueChange={setStatusFilter}>
           <TabsList className="grid h-auto w-full grid-cols-4 sm:w-[520px]">
-            <TabsTrigger value="all">All <span className="ml-1 text-xs text-muted-foreground">{statusCounts.all}</span></TabsTrigger>
-            <TabsTrigger value="draft">Draft <span className="ml-1 text-xs text-muted-foreground">{statusCounts.draft}</span></TabsTrigger>
-            <TabsTrigger value="validated">Validated <span className="ml-1 text-xs text-muted-foreground">{statusCounts.validated}</span></TabsTrigger>
-            <TabsTrigger value="published">Published <span className="ml-1 text-xs text-muted-foreground">{statusCounts.published}</span></TabsTrigger>
+            <TabsTrigger value="all" className="min-w-0 whitespace-normal text-xs sm:text-sm">All <span className="ml-1 text-xs text-muted-foreground">{statusCounts.all}</span></TabsTrigger>
+            <TabsTrigger value="draft" className="min-w-0 whitespace-normal text-xs sm:text-sm">Draft <span className="ml-1 text-xs text-muted-foreground">{statusCounts.draft}</span></TabsTrigger>
+            <TabsTrigger value="validated" className="min-w-0 whitespace-normal text-xs sm:text-sm">Validated <span className="ml-1 text-xs text-muted-foreground">{statusCounts.validated}</span></TabsTrigger>
+            <TabsTrigger value="published" className="min-w-0 whitespace-normal text-xs sm:text-sm">Published <span className="ml-1 text-xs text-muted-foreground">{statusCounts.published}</span></TabsTrigger>
           </TabsList>
         </Tabs>
         {loading ? <ScheduleGridSkeleton /> : null}

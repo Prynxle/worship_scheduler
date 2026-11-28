@@ -66,12 +66,12 @@ export function AvailabilityCalendar({
   return (
     <Card className="card-glow">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-primary" />
-            Availability - {memberName}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="flex min-w-0 items-center gap-2">
+            <Calendar className="h-5 w-5 shrink-0 text-primary" />
+            <span className="truncate">Availability - {memberName}</span>
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" size="icon" onClick={onPreviousMonth}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -107,11 +107,11 @@ export function AvailabilityCalendar({
                 <div
                   key={weekNumber}
                   className={cn(
-                    'flex items-center justify-between rounded-lg border border-border p-4',
+                    'flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-4',
                     past ? 'bg-muted/60 opacity-50' : 'hover-surface cursor-default'
                   )}
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-medium text-foreground">
                       Week {weekNumber}
                       {past ? ' (past)' : null}
@@ -120,7 +120,7 @@ export function AvailabilityCalendar({
                       {start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {weekAvail.length > 0 ? (
                       weekAvail.map((avail) => (
                         <Badge key={avail.id} className={getStatusColor(avail.status)}>

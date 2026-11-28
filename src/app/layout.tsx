@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Fraunces } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -24,6 +24,12 @@ const fraunces = Fraunces({
   subsets: ["latin"],
   axes: ["opsz"],
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: "Jesus Our Hope International Assemblies",

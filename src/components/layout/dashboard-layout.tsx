@@ -33,7 +33,7 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
             <Sidebar />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" className="w-[280px] border-sidebar-border bg-sidebar p-0">
+            <SheetContent id="mobile-navigation" side="left" className="w-[280px] border-sidebar-border bg-sidebar p-0">
               <Sidebar />
             </SheetContent>
           </Sheet>
@@ -44,8 +44,10 @@ export function DashboardLayout({ children, title, subtitle }: DashboardLayoutPr
           title={title}
           subtitle={subtitle}
           onMenuClick={standalone ? undefined : () => setSidebarOpen(true)}
+          menuExpanded={sidebarOpen}
+          menuControlsId="mobile-navigation"
         />
-        <main className="flex-1 overflow-y-auto bg-background px-5 py-6 sm:px-8 sm:py-8">
+        <main className="flex-1 overflow-y-auto bg-background px-4 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-8 lg:px-8">
           <div className="mx-auto w-full max-w-[1440px]">{children}</div>
         </main>
       </div>

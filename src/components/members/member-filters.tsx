@@ -84,7 +84,7 @@ export function MemberFilters({
         ) : null}
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-80 gap-3">
+      <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] gap-3">
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Roles</legend>
           {optionsLoading ? <div aria-busy="true" className="space-y-2 py-1"><div className="h-4 w-3/4 animate-pulse motion-reduce:animate-none rounded bg-muted" /><div className="h-4 w-1/2 animate-pulse motion-reduce:animate-none rounded bg-muted" /><span className="sr-only">Loading role filters</span></div> : optionsError ? (

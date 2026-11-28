@@ -126,12 +126,12 @@ export default function MinistriesPage() {
               ) : (
                 <div className="space-y-2">
                   {currentMinistry.rules.map((rule) => (
-                    <div key={rule.id} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
-                      <div>
+                    <div key={rule.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
+                      <div className="min-w-0">
                         <div className="font-medium text-foreground">{rule.name}</div>
-                        <div className="text-sm text-muted-foreground">{rule.description}</div>
+                        <div className="break-words text-sm text-muted-foreground">{rule.description}</div>
                       </div>
-                      <Badge variant={rule.is_active ? 'secondary' : 'outline'} aria-label={`${rule.name} ${rule.is_active ? 'enabled' : 'disabled'}`}>
+                      <Badge className="shrink-0" variant={rule.is_active ? 'secondary' : 'outline'} aria-label={`${rule.name} ${rule.is_active ? 'enabled' : 'disabled'}`}>
                         {rule.is_active ? 'Enabled' : 'Disabled'}
                       </Badge>
                     </div>
@@ -147,14 +147,14 @@ export default function MinistriesPage() {
               ) : (
                 <div className="space-y-2">
                   {currentMinistry.instruments.map((instrument) => (
-                    <div key={instrument.id} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
-                      <div>
+                    <div key={instrument.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
+                      <div className="min-w-0">
                         <div className="font-medium text-foreground">{instrument.name}</div>
-                        <div className="text-sm text-muted-foreground">
+                        <div className="break-words text-sm text-muted-foreground">
                           {instrument.min_count} required {instrument.min_count === 1 ? 'slot' : 'slots'} · maximum {instrument.max_count}
                         </div>
                       </div>
-                      <Badge variant={instrument.is_required ? 'secondary' : 'outline'}>
+                      <Badge className="shrink-0" variant={instrument.is_required ? 'secondary' : 'outline'}>
                         {instrument.is_required ? 'Required' : 'Optional'}
                       </Badge>
                     </div>
